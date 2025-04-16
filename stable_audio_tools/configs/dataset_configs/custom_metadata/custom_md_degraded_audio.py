@@ -7,7 +7,7 @@ def get_custom_metadata(info, audio):
         audio (np.ndarray): The audio data (not used in this case)
         
     Returns:
-        dict: Dictionary containing the path to the degraded audio folder
+        dict: Dictionary containing the path to the degraded audio file
     """
     # Get the path to the clean audio file from info
     clean_path = info['path']
@@ -20,11 +20,13 @@ def get_custom_metadata(info, audio):
     clean_dir = os.path.dirname(clean_path)
     parent_dir = os.path.dirname(clean_dir)
     degraded_dir = os.path.join(parent_dir, 'degraded')
+    filename = os.path.basename(clean_path)
+    degraded_path = os.path.join(degraded_dir, filename)
     
     # Verify the degraded file exists
-    if not os.path.exists(degraded_dir):
-        raise FileNotFoundError(f"Degraded audio folder not found: {degraded_dir}")
+    if not os.path.exists(degraded_path):
+        raise FileNotFoundError(f"Degraded audio file not found: {degraded_path}")
     
     return {
-        "degraded_audio_path": degraded_dir
+        "degraded_audio_path": degraded_path
     } 
