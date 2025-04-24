@@ -1,0 +1,11 @@
+{
+    "dataset_type": "audio_dir",
+    "datasets": [
+        {
+            "id": "my_audio",
+            "path": "/path/to/audio/dataset/clean/",
+            "custom_metadata_module": "stable_audio_tools/configs/dataset_configs/custom_metadata/custom_md_degraded_audio.py"
+        }
+    ],
+    "random_crop": true
+}
