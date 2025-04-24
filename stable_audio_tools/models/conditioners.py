@@ -517,7 +517,10 @@ class PretransformConditioner(Conditioner):
         self.pretransform.to(device)
         self.proj_out.to(device)
 
-        if isinstance(audio, list) or isinstance(audio, tuple):
+        if isinstance(audio[0], str):
+            import torchaudio
+            audio, _ = torchaudio.load(audio[0])
+        elif isinstance(audio, list) or isinstance(audio, tuple):
             audio = torch.stack(audio, dim=0)
 
         # Add batch dimension if needed

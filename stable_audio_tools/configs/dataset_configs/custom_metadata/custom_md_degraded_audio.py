@@ -4,10 +4,10 @@ def get_custom_metadata(info, audio):
     
     Args:
         info (dict): Dictionary containing metadata about the audio file
-        audio (np.ndarray): The audio data (not used in this case)
+        audio (np.ndarray): The clean audio data
         
     Returns:
-        dict: Dictionary containing the path to the degraded audio file
+        dict: Dictionary containing the degraded audio data
     """
     # Get the path to the clean audio file from info
     clean_path = info['path']
@@ -27,6 +27,24 @@ def get_custom_metadata(info, audio):
     if not os.path.exists(degraded_path):
         raise FileNotFoundError(f"Degraded audio file not found: {degraded_path}")
     
+    # Load the degraded audio file
+    import torchaudio
+    import torch
+    degraded_audio, sr = torchaudio.load(degraded_path)
+    
+    # Ensure degraded audio matches clean audio size
+    target_length = audio.shape[-1]  # Get length from clean audio
+    current_length = degraded_audio.shape[-1]
+    
+    if current_length < target_length:
+        # Pad with zeros if degraded audio is shorter
+        pad_length = target_length - current_length
+        degraded_audio = torch.nn.functional.pad(degraded_audio, (0, pad_length))
+    elif current_length > target_length:
+        # Truncate if degraded audio is longer
+        degraded_audio = degraded_audio[:, :target_length]
+    
+    # Return the degraded audio data
     return {
-        "degraded_audio_path": degraded_path
+        "degraded_audio": degraded_audio
     } 
