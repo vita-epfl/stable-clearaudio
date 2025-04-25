@@ -18,6 +18,10 @@ RUN apt update && apt-get install -y \
     libsox-fmt-all \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy the source code into the container
+COPY . /app
+WORKDIR /app
+
 # Install Python dependencies
 RUN pip install .
 
