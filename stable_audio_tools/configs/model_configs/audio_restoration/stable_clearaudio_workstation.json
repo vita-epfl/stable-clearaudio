@@ -12,10 +12,10 @@
                     "type": "oobleck",
                     "config": {
                         "in_channels": 2,
-                        "channels": 64,
+                        "channels": 128,
                         "c_mults": [1, 2, 4, 8, 16],
                         "strides": [2, 4, 4, 8, 8],
-                        "latent_dim": 64,
+                        "latent_dim": 128,
                         "use_snake": true
                     }
                 },
@@ -23,7 +23,7 @@
                     "type": "oobleck",
                     "config": {
                         "out_channels": 2,
-                        "channels": 64,
+                        "channels": 128,
                         "c_mults": [1, 2, 4, 8, 16],
                         "strides": [2, 4, 4, 8, 8],
                         "latent_dim": 64,
@@ -45,7 +45,7 @@
                     "id": "degraded_audio",
                     "type": "pretransform",
                     "config": {
-                        "output_dim": 64,
+                        "output_dim": 128,
                         "sample_rate": 44100,
                         "use_model_pretransform": true
                     }
@@ -57,11 +57,13 @@
             "input_concat_ids": ["degraded_audio"],
             "type": "dit",
             "config": {
-                "io_channels": 128,
-                "input_concat_dim": 64,
-                "embed_dim": 768,
-                "depth": 12,
-                "num_heads": 8,
+                "io_channels": 256,
+                "embed_dim": 1536,
+                "depth": 24,
+                "num_heads": 24,
+                "cond_token_dim": 64,
+                "global_cond_dim": 1536,
+                "project_cond_tokens": false,
                 "transformer_type": "continuous_transformer"
             }
         },
