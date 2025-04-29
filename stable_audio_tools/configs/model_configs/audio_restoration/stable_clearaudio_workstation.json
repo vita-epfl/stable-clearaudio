@@ -15,7 +15,7 @@
                         "channels": 64,
                         "c_mults": [1, 2, 4, 8, 16],
                         "strides": [2, 4, 4, 8, 8],
-                        "latent_dim": 128,
+                        "latent_dim": 64,
                         "use_snake": true
                     }
                 },
@@ -57,7 +57,7 @@
             "input_concat_ids": ["degraded_audio"],
             "type": "dit",
             "config": {
-                "io_channels": 64,
+                "io_channels": 128,
                 "input_concat_dim": 64,
                 "embed_dim": 768,
                 "depth": 12,
