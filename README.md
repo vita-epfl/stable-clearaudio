@@ -128,6 +128,13 @@ Additional optional flags for `train.py` include:
 - `--seed`
   - RNG seed for PyTorch, helps with deterministic training
 
+## Test Autoencoder
+
+To test the autoencoder, run:
+```bash
+python stable_audio_tools/tests/test_autoencoder.py --config <path_to_model_config.json> --input <path_to_your_clean_audio.wav> --output <path_to_output_audio.wav> --ckpt_path <path_to_your_ckpt>
+```
+
 # Configurations
 Training and inference code for `stable-audio-tools` is based around JSON configuration files that define model hyperparameters, training settings, and information about your training dataset.
 
