@@ -15,7 +15,7 @@
                         "channels": 128,
                         "c_mults": [1, 2, 4, 8, 16],
                         "strides": [2, 4, 4, 8, 8],
-                        "latent_dim": 128,
+                        "latent_dim": 64,
                         "use_snake": true
                     }
                 },
