@@ -15,7 +15,7 @@
                         "channels": 128,
                         "c_mults": [1, 2, 4, 8, 16],
                         "strides": [2, 4, 4, 8, 8],
-                        "latent_dim": 64,
+                        "latent_dim": 128,
                         "use_snake": true
                     }
                 },
@@ -45,19 +45,20 @@
                     "id": "degraded_audio",
                     "type": "pretransform",
                     "config": {
-                        "output_dim": 128,
+                        "output_dim": 64,
                         "sample_rate": 44100,
                         "use_model_pretransform": true
                     }
                 }
             ],
-            "cond_dim": 64
+            "cond_dim": 128
         },
         "diffusion": {
             "input_concat_ids": ["degraded_audio"],
             "type": "dit",
             "config": {
-                "io_channels": 256,
+                "input_concat_dim": 64,
+                "io_channels": 64,
                 "embed_dim": 1536,
                 "depth": 24,
                 "num_heads": 24,
@@ -70,7 +71,7 @@
         "io_channels": 64
     },
     "training": {
-        "max_epochs": 1000000,
+        "max_epochs": 1000,
         "use_ema": true,
         "log_loss_info": false,
         "optimizer_configs": {
