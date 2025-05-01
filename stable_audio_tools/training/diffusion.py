@@ -682,8 +682,18 @@ class DiffusionCondDemoCallback(pl.Callback):
                         break
 
             if self.display_audio_cond:
-                audio_inputs = torch.cat([cond["audio"] for cond in demo_cond], dim=0)
-                audio_inputs = rearrange(audio_inputs, 'b d n -> d (b n)')
+                try:
+                    audio_inputs = torch.cat([cond["degraded_audio"] for cond in demo_cond], dim=0)
+                except KeyError:
+                    audio_inputs = torch.cat([cond["audio"] for cond in demo_cond], dim=0)
+                
+                # Check tensor dimensions and handle accordingly
+                if len(audio_inputs.shape) == 2:  # [b, n] shape
+                    # For mono audio with shape [b, n], we can just reshape to [1, (b n)]
+                    audio_inputs = audio_inputs.reshape(1, -1)
+                else:  # [b, d, n] shape
+                    # For multi-channel audio, use the original rearrange
+                    audio_inputs = rearrange(audio_inputs, 'b d n -> d (b n)')
 
                 filename = os.path.join(demos_dir, f'demo_audio_cond_{input_filename}_{trainer.global_step:08}.wav')
                 audio_inputs = audio_inputs.to(torch.float32).div(torch.max(torch.abs(audio_inputs))).mul(32767).to(torch.int16).cpu()
