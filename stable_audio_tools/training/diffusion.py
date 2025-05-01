@@ -21,9 +21,9 @@ from ..models.autoencoders import DiffusionAutoencoder
 from ..models.diffusion_prior import PriorType
 from .autoencoders import create_loss_modules_from_bottleneck
 from .losses import AuralossLoss, MSELoss, MultiLoss
-from .utils import create_optimizer_from_config, create_scheduler_from_config, log_audio, log_image, log_metric, log_point_cloud, log_metrics
+from .utils import create_optimizer_from_config, create_scheduler_from_config, log_audio, log_image, log_metric, log_point_cloud
 from stable_audio_tools.training.losses.metrics import (
-    PESQMetric, LogSpectralDistance, LongTermAverageSpectrum,
+    PESQMetric, LogSpectralDistance, LTASDistance,
     SISDRMetric, SNRMetric, STFTDistance, MelDistance
 )
 
@@ -594,7 +594,7 @@ class DiffusionCondDemoCallback(pl.Callback):
         # Initialize metrics
         self.metrics = {
             'lsd': LogSpectralDistance(),
-            'ltas': LongTermAverageSpectrum(),
+            'ltas': LTASDistance(),
             'sisdr': SISDRMetric(),
             'snr': SNRMetric(),
             'stft': STFTDistance(),
@@ -711,15 +711,8 @@ class DiffusionCondDemoCallback(pl.Callback):
                 # Compute metrics
                 metrics_dict = {}
                 for name, metric in self.metrics.items():
-                    if name == 'ltas':
-                        input_ltas, target_ltas = metric(fakes, target_audio)
-                        metrics_dict[f'demo_{name}_input'] = input_ltas.mean().item()
-                        metrics_dict[f'demo_{name}_target'] = target_ltas.mean().item()
-                        log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}_input', metrics_dict[f'demo_{name}_input'])
-                        log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}_target', metrics_dict[f'demo_{name}_target'])
-                    else:
-                        metrics_dict[f'demo_{name}'] = metric(fakes, target_audio).item()
-                        log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}', metrics_dict[f'demo_{name}'])
+                    metrics_dict[f'demo_{name}'] = metric(fakes, target_audio).item()
+                    log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}', metrics_dict[f'demo_{name}'])
                 
                 
                 filename = f'demo_cfg_{cfg_scale}_{trainer.global_step:08}.wav'

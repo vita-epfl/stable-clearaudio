@@ -37,68 +37,64 @@ class LogSpectralDistance(nn.Module):
         super().__init__()
         self.n_fft = n_fft
         self.hop_length = hop_length
-        
+
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        # Compute STFT
-        input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length, 
-                              window=torch.hann_window(self.n_fft).to(inputs.device),
-                              return_complex=True)
-        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
-                                window=torch.hann_window(self.n_fft).to(targets.device),
+        input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
+                                window=torch.hann_window(self.n_fft).to(inputs.device),
                                 return_complex=True)
-        
-        # Compute magnitude spectrograms
+        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
+                                 window=torch.hann_window(self.n_fft).to(targets.device),
+                                 return_complex=True)
+
         input_mag = torch.abs(input_stft)
         target_mag = torch.abs(target_stft)
-        
-        # Compute log spectral distance
-        lsd = torch.mean(torch.sqrt(torch.mean((torch.log10(input_mag + 1e-8) - 
-                                              torch.log10(target_mag + 1e-8))**2, dim=1)))
-        return lsd
 
-class LongTermAverageSpectrum(nn.Module):
+        diff = 10 * (torch.log10(input_mag + 1e-8) - torch.log10(target_mag + 1e-8))
+        lsd = torch.sqrt(torch.mean(diff ** 2, dim=(1, 2)))  # Mean over F and T
+        return torch.mean(lsd)  # Average over batch
+
+class LTASDistance(nn.Module):
     def __init__(self, n_fft: int = 2048, hop_length: int = 512):
         super().__init__()
         self.n_fft = n_fft
         self.hop_length = hop_length
-        
-    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        # Compute STFT
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
         input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
-                              window=torch.hann_window(self.n_fft).to(inputs.device),
-                              return_complex=True)
-        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
-                                window=torch.hann_window(self.n_fft).to(targets.device),
+                                window=torch.hann_window(self.n_fft).to(inputs.device),
                                 return_complex=True)
-        
-        # Compute magnitude spectrograms
+        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
+                                 window=torch.hann_window(self.n_fft).to(targets.device),
+                                 return_complex=True)
+
         input_mag = torch.abs(input_stft)
         target_mag = torch.abs(target_stft)
-        
-        # Compute average spectrum
-        input_ltas = torch.mean(input_mag, dim=2)
+
+        input_ltas = torch.mean(input_mag, dim=2)  # Mean over time
         target_ltas = torch.mean(target_mag, dim=2)
-        
-        return input_ltas, target_ltas
+
+        ltas_dist = torch.mean(torch.abs(input_ltas - target_ltas) / (target_ltas + 1e-8), dim=1)
+        return torch.mean(10 * torch.log10(ltas_dist + 1e-8))  # Average over batch
 
 class SISDRMetric(nn.Module):
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        # Scale-invariant signal to distortion ratio
-        alpha = (torch.sum(inputs * targets, dim=-1, keepdim=True) / 
-                (torch.sum(targets * targets, dim=-1, keepdim=True) + 1e-8))
-        e_target = alpha * targets
-        e_res = inputs - e_target
-        
-        sisdr = 10 * torch.log10(torch.sum(e_target * e_target, dim=-1) / 
-                                (torch.sum(e_res * e_res, dim=-1) + 1e-8))
+        targets = targets - torch.mean(targets, dim=-1, keepdim=True)
+        inputs = inputs - torch.mean(inputs, dim=-1, keepdim=True)
+
+        alpha = torch.sum(inputs * targets, dim=-1, keepdim=True) / (
+            torch.sum(targets ** 2, dim=-1, keepdim=True) + 1e-8)
+        s_target = alpha * targets
+        e_noise = inputs - s_target
+
+        sisdr = 10 * torch.log10(torch.sum(s_target ** 2, dim=-1) / (torch.sum(e_noise ** 2, dim=-1) + 1e-8))
         return torch.mean(sisdr)
 
 class SNRMetric(nn.Module):
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        # Signal to noise ratio
         noise = inputs - targets
-        snr = 10 * torch.log10(torch.sum(targets * targets, dim=-1) / 
-                              (torch.sum(noise * noise, dim=-1) + 1e-8))
+        signal_power = torch.sum(targets ** 2, dim=-1)
+        noise_power = torch.sum(noise ** 2, dim=-1)
+        snr = 10 * torch.log10(signal_power / (noise_power + 1e-8))
         return torch.mean(snr)
 
 class STFTDistance(nn.Module):
@@ -106,23 +102,20 @@ class STFTDistance(nn.Module):
         super().__init__()
         self.n_fft = n_fft
         self.hop_length = hop_length
-        
+
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        # Compute STFT
         input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
-                              window=torch.hann_window(self.n_fft).to(inputs.device),
-                              return_complex=True)
-        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
-                                window=torch.hann_window(self.n_fft).to(targets.device),
+                                window=torch.hann_window(self.n_fft).to(inputs.device),
                                 return_complex=True)
-        
-        # Compute distance between complex spectrograms
-        stft_dist = torch.mean(torch.abs(input_stft - target_stft))
-        return stft_dist
+        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
+                                 window=torch.hann_window(self.n_fft).to(targets.device),
+                                 return_complex=True)
+
+        dist = torch.abs(input_stft - target_stft)
+        return torch.mean(torch.sqrt(torch.sum(dist ** 2, dim=(1, 2))))  # L2 norm then mean
 
 class MelDistance(nn.Module):
-    def __init__(self, sample_rate: int, n_fft: int = 2048, hop_length: int = 512, 
-                 n_mels: int = 80):
+    def __init__(self, sample_rate: int, n_fft: int = 2048, hop_length: int = 512, n_mels: int = 80):
         super().__init__()
         self.mel_transform = torchaudio.transforms.MelSpectrogram(
             sample_rate=sample_rate,
@@ -130,12 +123,10 @@ class MelDistance(nn.Module):
             hop_length=hop_length,
             n_mels=n_mels
         )
-        
+
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        # Compute mel spectrograms
         input_mel = self.mel_transform(inputs)
         target_mel = self.mel_transform(targets)
-        
-        # Compute distance between mel spectrograms
-        mel_dist = torch.mean(torch.abs(input_mel - target_mel))
-        return mel_dist
+
+        dist = torch.abs(input_mel - target_mel)
+        return torch.mean(torch.sqrt(torch.sum(dist ** 2, dim=(1, 2))))
