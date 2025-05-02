@@ -127,6 +127,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+venv_clearaudio/
 
 # Spyder project settings
 .spyderproject
@@ -169,4 +170,3 @@ docs/to_do.md
 *.job
 *.out
 *.safetensors
-venv_clearaudio/
