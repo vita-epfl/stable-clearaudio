@@ -1,5 +1,7 @@
 import torch
 import torchaudio
+import numpy as np
+import librosa
 
 from torch.nn import functional as F
 from torch import nn
@@ -130,3 +132,68 @@ class MelDistance(nn.Module):
 
         dist = torch.abs(input_mel - target_mel)
         return torch.mean(torch.sqrt(torch.sum(dist ** 2, dim=(1, 2))))
+    
+
+class FrechetAudioDistance(nn.Module):
+    def __init__(
+        self,
+        sample_rate: int = 16000,
+        use_pca: bool = False,
+        use_activation: bool = False,
+        verbose: bool = False
+    ):
+        super().__init__()
+        self.sample_rate = sample_rate
+        
+        # Initialize VGGish model from frechet-audio-distance
+        from frechet_audio_distance import FrechetAudioDistance as FAD
+        self.fad = FAD(
+            model_name="vggish",
+            sample_rate=sample_rate,
+            use_pca=use_pca,
+            use_activation=use_activation,
+            verbose=verbose
+        )
+        
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Calculate FAD between generated and reference audio.
+        
+        Args:
+            inputs: Tensor of shape (batch_size, channels, time) - generated audio
+            targets: Tensor of shape (batch_size, channels, time) - reference audio
+        Returns:
+            FAD value
+        """
+        # Convert to numpy and normalize
+        gen_audio = inputs.detach().cpu().numpy()
+        ref_audio = targets.detach().cpu().numpy()
+        
+        # Handle mono/stereo
+        if gen_audio.ndim == 3 and gen_audio.shape[1] == 2:  # stereo
+            gen_audio = np.mean(gen_audio, axis=1)  # convert to mono
+        if ref_audio.ndim == 3 and ref_audio.shape[1] == 2:  # stereo
+            ref_audio = np.mean(ref_audio, axis=1)  # convert to mono
+            
+        # Resample if needed
+        if self.sample_rate != 16000:
+            gen_audio = librosa.resample(gen_audio, orig_sr=self.sample_rate, target_sr=16000)
+            ref_audio = librosa.resample(ref_audio, orig_sr=self.sample_rate, target_sr=16000)
+        
+        # Calculate FAD using the frechet-audio-distance package
+        # Compute statistics and FAD score
+        embds_background = self.fad.get_embeddings(ref_audio, sr=self.sample_rate)
+        embds_eval = self.fad.get_embeddings(gen_audio, sr=self.sample_rate)
+
+
+
+        mu_background, sigma_background = self.fad.calculate_embd_statistics(embds_background)
+        mu_eval, sigma_eval = self.fad.calculate_embd_statistics(embds_eval)
+
+        fad_score = self.fad.calculate_frechet_distance(
+            mu_background,
+            sigma_background,
+            mu_eval,
+            sigma_eval
+        )
+    
+        return fad_score

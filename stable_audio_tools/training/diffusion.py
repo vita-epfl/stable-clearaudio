@@ -30,7 +30,7 @@ from .losses import AuralossLoss, MSELoss, MultiLoss
 from .utils import create_optimizer_from_config, create_scheduler_from_config, log_audio, log_image, log_metric, log_point_cloud
 from stable_audio_tools.training.losses.metrics import (
     PESQMetric, LogSpectralDistance, LTASDistance,
-    SISDRMetric, SNRMetric, STFTDistance, MelDistance
+    SISDRMetric, SNRMetric, STFTDistance, MelDistance, FrechetAudioDistance
 )
 
 import datetime
@@ -612,7 +612,8 @@ class DiffusionCondDemoCallback(pl.Callback):
             'sisdr': SISDRMetric(),
             'snr': SNRMetric(),
             'stft': STFTDistance(),
-            'mel': MelDistance(sample_rate=sample_rate)
+            'mel': MelDistance(sample_rate=sample_rate),
+            'fad': FrechetAudioDistance()
         }
 
         # If true, the callback will use the metadata from the batch to generate the demo conditioning
