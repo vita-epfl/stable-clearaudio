@@ -28,6 +28,10 @@ from ..models.diffusion_prior import PriorType
 from .autoencoders import create_loss_modules_from_bottleneck
 from .losses import AuralossLoss, MSELoss, MultiLoss
 from .utils import create_optimizer_from_config, create_scheduler_from_config, log_audio, log_image, log_metric, log_point_cloud
+from stable_audio_tools.training.losses.metrics import (
+    PESQMetric, LogSpectralDistance, LTASDistance,
+    SISDRMetric, SNRMetric, STFTDistance, MelDistance
+)
 
 import datetime
 from time import time
@@ -600,6 +604,17 @@ class DiffusionCondDemoCallback(pl.Callback):
         self.demo_conditioning = demo_conditioning
         self.demo_cfg_scales = demo_cfg_scales
 
+        # Initialize metrics
+        # Initialize metrics
+        self.metrics = {
+            'lsd': LogSpectralDistance(),
+            'ltas': LTASDistance(),
+            'sisdr': SISDRMetric(),
+            'snr': SNRMetric(),
+            'stft': STFTDistance(),
+            'mel': MelDistance(sample_rate=sample_rate)
+        }
+
         # If true, the callback will use the metadata from the batch to generate the demo conditioning
         self.demo_cond_from_batch = demo_cond_from_batch
 
@@ -642,6 +657,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                 conditioning = module.diffusion.conditioner(demo_cond, module.device)
 
             cond_inputs = module.diffusion.get_conditioning_inputs(conditioning)
+            cond_inputs["input_concat_cond"] = cond_inputs["input_concat_cond"][:, :, :demo_samples]
             
             # Use the stored creation time instead of current time
             current_datetime = self.creation_datetime
@@ -728,8 +744,26 @@ class DiffusionCondDemoCallback(pl.Callback):
                 # Put the demos together
                 fakes = rearrange(fakes, 'b d n -> d (b n)')
 
+                # Compute and demo_conditioning metrics if we have target audio
+                if module.diffusion.pretransform is not None:
+                    target_audio = module.diffusion.pretransform.decode(cond_inputs["input_concat_cond"])
+                    target_audio = rearrange(target_audio, 'b d n -> d (b n)')
+                else:
+                    target_audio = cond_inputs["input_concat_cond"].squeeze()
+                
+                # Move metrics to device
+                for metric in self.metrics.values():
+                    metric.to(module.device)
+                
+                # Compute metrics
+                metrics_dict = {}
+                for name, metric in self.metrics.items():
+                    metrics_dict[f'demo_{name}'] = metric(fakes, target_audio).item()
+                    log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}', metrics_dict[f'demo_{name}'])
+                
                 filename = os.path.join(demos_dir, f'demo_cfg_{cfg_scale}_{input_filename}_{trainer.global_step:08}.wav')
                 fakes_out = fakes.to(torch.float32).div(torch.max(torch.abs(fakes))).mul(32767).to(torch.int16).cpu()
+
                 LOG.debug(f"Saving demo {filename}")
                 torchaudio.save(filename, fakes_out, self.sample_rate)
                 log_audio(trainer.logger, f'demo_cfg_{cfg_scale}', filename, self.sample_rate)                
