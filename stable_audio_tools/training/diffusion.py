@@ -765,7 +765,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                 
                 filename = os.path.join(demos_dir, f'demo_cfg_{cfg_scale}_{input_filename}_{trainer.global_step:08}.wav')
                 fakes_out = fakes.to(torch.float32).div(torch.max(torch.abs(fakes))).mul(32767).to(torch.int16).cpu()
-                
+
                 LOG.debug(f"Saving demo {filename}")
                 torchaudio.save(filename, fakes_out, self.sample_rate)
                 log_audio(trainer.logger, f'demo_cfg_{cfg_scale}', filename, self.sample_rate)                
