@@ -27,10 +27,10 @@ from ..models.autoencoders import DiffusionAutoencoder
 from ..models.diffusion_prior import PriorType
 from .autoencoders import create_loss_modules_from_bottleneck
 from .losses import AuralossLoss, MSELoss, MultiLoss
-from .utils import create_optimizer_from_config, create_scheduler_from_config, log_audio, log_image, log_metric, log_point_cloud
+from .utils import create_optimizer_from_config, create_scheduler_from_config, log_audio, log_image, log_metric, log_point_cloud, log_metrics
 from stable_audio_tools.training.losses.metrics import (
-    PESQMetric, LogSpectralDistance, LTASDistance,
-    SISDRMetric, SNRMetric, STFTDistance, MelDistance, FrechetAudioDistance
+    PESQMetric, LogSpectralDistance, LongTermAverageSpectrum,
+    SISDRMetric, SNRMetric, STFTDistance, MelDistance
 )
 
 import datetime
@@ -759,8 +759,15 @@ class DiffusionCondDemoCallback(pl.Callback):
                 # Compute metrics
                 metrics_dict = {}
                 for name, metric in self.metrics.items():
-                    metrics_dict[f'demo_{name}'] = metric(fakes, target_audio).item()
-                    log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}', metrics_dict[f'demo_{name}'])
+                    if name == 'ltas':
+                        input_ltas, target_ltas = metric(fakes, target_audio)
+                        metrics_dict[f'demo_{name}_input'] = input_ltas.mean().item()
+                        metrics_dict[f'demo_{name}_target'] = target_ltas.mean().item()
+                        log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}_input', metrics_dict[f'demo_{name}_input'])
+                        log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}_target', metrics_dict[f'demo_{name}_target'])
+                    else:
+                        metrics_dict[f'demo_{name}'] = metric(fakes, target_audio).item()
+                        log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}', metrics_dict[f'demo_{name}'])
                 
                 filename = os.path.join(demos_dir, f'demo_cfg_{cfg_scale}_{input_filename}_{trainer.global_step:08}.wav')
                 fakes_out = fakes.to(torch.float32).div(torch.max(torch.abs(fakes))).mul(32767).to(torch.int16).cpu()
