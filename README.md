@@ -13,6 +13,10 @@ To run the training scripts or inference code, you'll want to clone this reposit
 $ pip install .
 ```
 
+```bash
+$ pip install frechet-audio-distance==0.3.1 --no-deps
+```
+
 # Requirements
 Requires PyTorch 2.0 or later for Flash Attention support
 

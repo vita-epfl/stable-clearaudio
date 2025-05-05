@@ -43,7 +43,6 @@ filelock==3.18.0
 fire==0.7.0
 flatten-dict==0.4.2
 fonttools==4.57.0
-frechet_audio_distance==0.3.1
 frozendict==2.4.6
 frozenlist==1.6.0
 fsspec==2025.3.2
