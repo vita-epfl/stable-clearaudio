@@ -71,7 +71,7 @@
         "io_channels": 64
     },
     "training": {
-        "max_epochs": 1000,
+        "max_epochs": 1,
         "use_ema": true,
         "log_loss_info": false,
         "optimizer_configs": {
