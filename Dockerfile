@@ -23,6 +23,7 @@ RUN pip install .
 
 # Install FAD without its dependencies to avoid conflicts
 RUN pip install frechet-audio-distance==0.3.1 --no-deps
+RUN pip install resampy==0.4.3
 
 # Define working directory
 WORKDIR /home/${LDAP_USERNAME}
