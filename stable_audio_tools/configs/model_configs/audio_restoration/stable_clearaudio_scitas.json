@@ -95,13 +95,12 @@
             }
         },
         "demo": {
-            "demo_every": 2000,
+            "demo_every": 500,
             "demo_steps": 250,
             "num_demos": 1,
-            "demo_cond": [
-                {"degraded_audio": "/scratch/izar/mahofer/degraded/MIDI-UNPROCESSED_01-03_R1_2014_MID--AUDIO_01_R1_2014_wav--1.wav"}
-            ],
-            "demo_cfg_scales": [3, 6, 9]
+            "demo_cond_from_batch": true,
+            "display_audio_cond": true,
+            "demo_cfg_scales": [1]
         }
     }
 }

@@ -130,7 +130,12 @@ class MelDistance(nn.Module):
         input_mel = self.mel_transform(inputs)
         target_mel = self.mel_transform(targets)
 
-        dist = torch.abs(input_mel - target_mel)
+        # Convert to log-mel
+        input_log_mel = torch.log10(input_mel + 1e-8)
+        target_log_mel = torch.log10(target_mel + 1e-8)
+
+        # Compute L2 norm of log-mel differences
+        dist = torch.abs(input_log_mel - target_log_mel)
         return torch.mean(torch.sqrt(torch.sum(dist ** 2, dim=(1, 2))))
     
 
@@ -181,9 +186,8 @@ class FrechetAudioDistance(nn.Module):
         
         # Calculate FAD using the frechet-audio-distance package
         # Compute statistics and FAD score
-        embds_background = self.fad.get_embeddings(ref_audio, sr=self.sample_rate)
-        embds_eval = self.fad.get_embeddings(gen_audio, sr=self.sample_rate)
-
+        embds_background = self.fad.get_embeddings(ref_audio, sr=16000)
+        embds_eval = self.fad.get_embeddings(gen_audio, sr=16000)
 
 
         mu_background, sigma_background = self.fad.calculate_embd_statistics(embds_background)
