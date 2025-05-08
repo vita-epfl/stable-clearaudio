@@ -701,7 +701,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                     # For multi-channel audio, use the original rearrange
                     audio_inputs = rearrange(audio_inputs, 'b d n -> d (b n)')
 
-                filename = os.path.join(demos_dir, f'demo_audio_cond_{input_filename}_{trainer.global_step:08}.wav')
+                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_audio_cond_{input_filename}.wav')
                 audio_inputs = audio_inputs.to(torch.float32).div(torch.max(torch.abs(audio_inputs))).mul(32767).to(torch.int16).cpu()
                 torchaudio.save(filename, audio_inputs, self.sample_rate)
                 log_audio(trainer.logger, f'demo_audio_cond', filename, self.sample_rate)
@@ -712,7 +712,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                     # For multi-channel audio, use the original rearrange
                     clean_audio = rearrange(clean_audio, 'b d n -> d (b n)')
                 
-                filename = os.path.join(demos_dir, f'demo_audio_clean_{input_filename}_{trainer.global_step:08}.wav')
+                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_audio_clean_{input_filename}.wav')
                 clean_audio = clean_audio.to(torch.float32).div(torch.max(torch.abs(clean_audio))).mul(32767).to(torch.int16).cpu()
                 torchaudio.save(filename, clean_audio, self.sample_rate)
                 log_audio(trainer.logger, f'demo_audio_clean', filename, self.sample_rate)
@@ -737,7 +737,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                             audio_inputs = module.diffusion.pretransform.decode(audio_inputs)
 
                         audio_inputs_out = rearrange(audio_inputs, 'b d n -> d (b n)')
-                        filename = os.path.join(demos_dir, f'demo_{cond_id}_{input_filename}_{trainer.global_step:08}.wav')
+                        filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_{input_filename}.wav')
                         audio_inputs_out = audio_inputs_out.to(torch.float32).div(torch.max(torch.abs(audio_inputs_out))).mul(32767).to(torch.int16).cpu()
                         torchaudio.save(filename, audio_inputs_out, self.sample_rate)
                         log_audio(trainer.logger, f'demo_{cond_id}', filename, self.sample_rate)
@@ -778,7 +778,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                     metrics_dict[f'demo_{name}'] = metric(fakes, original_audio_inputs).item()
                     log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}', metrics_dict[f'demo_{name}'])
                 
-                filename = os.path.join(demos_dir, f'demo_cfg_{cfg_scale}_{input_filename}_{trainer.global_step:08}.wav')
+                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_cfg_{cfg_scale}_{input_filename}.wav')
                 fakes_out = fakes.to(torch.float32).div(torch.max(torch.abs(fakes))).mul(32767).to(torch.int16).cpu()
 
                 LOG.debug(f"Saving demo {filename}")
@@ -807,12 +807,13 @@ class DiffusionCondDemoCallback(pl.Callback):
                                     # Decode the pre-encoded audio conditioning
                                     audio_inputs = module.diffusion.pretransform.decode(audio_inputs)
 
-                                filename = os.path.join(demos_dir, f'demo_{cond_id}_mix_cfg_{cfg_scale}_{input_filename}_{trainer.global_step:08}.wav')
+                                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_mix_cfg_{cfg_scale}_{input_filename}.wav')
                                 audio_inputs = rearrange(audio_inputs, 'b d n -> d (b n)')
                                 audio_mix = audio_inputs + fakes
                                 audio_mix_out = audio_mix.to(torch.float32).div(torch.max(torch.abs(audio_mix))).mul(32767).to(torch.int16).cpu()
                                 torchaudio.save(filename, audio_mix_out, self.sample_rate)
                                 log_audio(trainer.logger, f'demo_{cond_id}_mix_cfg_{cfg_scale}', filename, self.sample_rate)
+                                log_image(trainer.logger, f"demo_{cond_id}_mix_cfg_{cfg_scale}_melspec_left", audio_spectrogram_image(audio_mix_out))
 
                         elif cond_type == "audio_dict":
                             audio_cond_config = cond_display_config.get("config", {})
@@ -835,16 +836,17 @@ class DiffusionCondDemoCallback(pl.Callback):
 
                             submix = torch.stack(submixes, dim=0)
                             submix = rearrange(submix, 'b d n -> d (b n)')
-                            filename = os.path.join(demos_dir, f'demo_{cond_id}_submix_cfg_{cfg_scale}_{input_filename}_{trainer.global_step:08}.wav')
+                            filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_submix_cfg_{cfg_scale}_{input_filename}.wav')
                             submix_out = submix.to(torch.float32).div(torch.max(torch.abs(submix))).mul(32767).to(torch.int16).cpu()
                             torchaudio.save(filename, submix_out, self.sample_rate)
                             log_audio(trainer.logger, f'demo_{cond_id}_submix_cfg_{cfg_scale}', filename, self.sample_rate)
 
-                            filename = os.path.join(demos_dir, f'demo_{cond_id}_mix_cfg_{cfg_scale}_{input_filename}_{trainer.global_step:08}.wav')
+                            filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_mix_cfg_{cfg_scale}_{input_filename}.wav')
                             audio_mix = submix + fakes
                             audio_mix_out = audio_mix.to(torch.float32).div(torch.max(torch.abs(audio_mix))).mul(32767).to(torch.int16).cpu()
                             torchaudio.save(filename, audio_mix_out, self.sample_rate)
                             log_audio(trainer.logger, f'demo_{cond_id}_mix_cfg_{cfg_scale}', filename, self.sample_rate)
+                            log_image(trainer.logger, f"demo_{cond_id}_mix_cfg_{cfg_scale}_melspec_left", audio_spectrogram_image(audio_mix_out))
 
             del fakes
 
