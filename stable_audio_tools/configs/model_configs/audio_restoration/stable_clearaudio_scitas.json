@@ -60,7 +60,7 @@
                 "input_concat_dim": 64,
                 "io_channels": 64,
                 "embed_dim": 1536,
-                "depth": 24,
+                "depth": 8,
                 "num_heads": 24,
                 "cond_token_dim": 64,
                 "global_cond_dim": 1536,
@@ -71,7 +71,7 @@
         "io_channels": 64
     },
     "training": {
-        "max_epochs": 1,
+        "max_epochs": 1000,
         "use_ema": true,
         "log_loss_info": false,
         "optimizer_configs": {
@@ -95,7 +95,7 @@
             }
         },
         "demo": {
-            "demo_every": 2000,
+            "demo_every": 500,
             "demo_steps": 250,
             "num_demos": 1,
             "demo_cond_from_batch": true,

@@ -134,6 +134,29 @@ def main():
     else:
         strategy = 'ddp_find_unused_parameters_true' if args.num_gpus > 1 else "auto"
 
+    # Manually load checkpoint if path is provided, bypassing Lightning's loader
+    if args.ckpt_path:
+        print(f"Manually loading checkpoint from: {args.ckpt_path}")
+        checkpoint = torch.load(args.ckpt_path, map_location="cpu")
+        # Check if state_dict key exists, common in Lightning checkpoints
+        state_dict = checkpoint.get('state_dict', checkpoint) 
+        # You might need error handling or key adjustment here if loading fails
+        try:
+            training_wrapper.load_state_dict(state_dict)
+            print("Successfully loaded state_dict into training_wrapper.")
+            # Set ckpt_path to None as we've already loaded
+            resume_path = None 
+        except RuntimeError as e:
+            print(f"Error loading state_dict directly: {e}")
+            print("Attempting to load with strict=False")
+            # Try loading non-strictly if direct loading fails (e.g., missing/extra keys)
+            training_wrapper.load_state_dict(state_dict, strict=False)
+            print("Loaded state_dict into training_wrapper with strict=False.")
+            # Set ckpt_path to None as we've already loaded
+            resume_path = None 
+    else:
+        resume_path = None # No checkpoint to resume from
+
     val_args = {}
     
     if args.val_every > 0:
@@ -160,7 +183,7 @@ def main():
         **val_args      
     )
 
-    trainer.fit(training_wrapper, train_dl, val_dl, ckpt_path=args.ckpt_path if args.ckpt_path else None)
+    trainer.fit(training_wrapper, train_dl, val_dl, ckpt_path=resume_path)
 
 if __name__ == '__main__':
     main()

@@ -127,6 +127,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+venv_clearaudio/
 
 # Spyder project settings
 .spyderproject
@@ -164,3 +165,8 @@ cython_debug/
 wandb/*
 .gradio/certificate.pem
 docs/to_do.md
+
+
+*.job
+*.out
+*.safetensors

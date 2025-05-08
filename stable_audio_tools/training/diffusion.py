@@ -1,3 +1,5 @@
+import os
+import os.path as osp
 import pytorch_lightning as pl
 import sys, gc
 import random
@@ -5,6 +7,10 @@ import torch
 import torchaudio
 import typing as tp
 import wandb
+import logging
+
+# Configure logging to suppress matplotlib debug messages
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 import auraloss
 from ema_pytorch import EMA
@@ -22,8 +28,20 @@ from ..models.diffusion_prior import PriorType
 from .autoencoders import create_loss_modules_from_bottleneck
 from .losses import AuralossLoss, MSELoss, MultiLoss
 from .utils import create_optimizer_from_config, create_scheduler_from_config, log_audio, log_image, log_metric, log_point_cloud
+from stable_audio_tools.training.losses.metrics import (
+    PESQMetric, LogSpectralDistance, LTASDistance,
+    SISDRMetric, SNRMetric, STFTDistance, MelDistance, FrechetAudioDistance
+)
 
+import datetime
 from time import time
+
+LOG = logging.getLogger(__name__)
+
+# handler
+LOG.addHandler(logging.StreamHandler())
+LOG.setLevel(logging.DEBUG)
+
 
 class Profiler:
 
@@ -586,6 +604,18 @@ class DiffusionCondDemoCallback(pl.Callback):
         self.demo_conditioning = demo_conditioning
         self.demo_cfg_scales = demo_cfg_scales
 
+        # Initialize metrics
+        # Initialize metrics
+        self.metrics = {
+            'lsd': LogSpectralDistance(),
+            'ltas': LTASDistance(),
+            'sisdr': SISDRMetric(),
+            'snr': SNRMetric(),
+            'stft': STFTDistance(),
+            'mel': MelDistance(sample_rate=sample_rate),
+            'fad': FrechetAudioDistance()
+        }
+
         # If true, the callback will use the metadata from the batch to generate the demo conditioning
         self.demo_cond_from_batch = demo_cond_from_batch
 
@@ -593,6 +623,9 @@ class DiffusionCondDemoCallback(pl.Callback):
         self.display_audio_cond = display_audio_cond
 
         self.cond_display_configs = cond_display_configs
+        
+        # Store the creation time for consistent demo directory naming
+        self.creation_datetime = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     @rank_zero_only
     @torch.no_grad()
@@ -610,6 +643,14 @@ class DiffusionCondDemoCallback(pl.Callback):
 
         demo_cond = self.demo_conditioning
 
+        clean_audio = batch[0][:self.num_demos]
+
+        original_audio_inputs = clean_audio.clone()
+        original_latent = module.diffusion.pretransform.encode(original_audio_inputs)
+        original_audio_inputs = module.diffusion.pretransform.decode(original_latent)
+        original_audio_inputs = rearrange(original_audio_inputs, 'b d n -> d (b n)')
+        LOG.debug(f"Clean audio shape: {clean_audio.shape}")
+
         if self.demo_cond_from_batch:
             # Get metadata from the batch
             demo_cond = batch[1][:self.num_demos]
@@ -625,16 +666,57 @@ class DiffusionCondDemoCallback(pl.Callback):
                 conditioning = module.diffusion.conditioner(demo_cond, module.device)
 
             cond_inputs = module.diffusion.get_conditioning_inputs(conditioning)
+            cond_inputs["input_concat_cond"] = cond_inputs["input_concat_cond"][:, :, :demo_samples]
+            
+            # Use the stored creation time instead of current time
+            current_datetime = self.creation_datetime
+            
+            # Try to get max epochs from trainer
+            max_epochs = ""
+            if hasattr(trainer, 'max_epochs') and trainer.max_epochs is not None:
+                max_epochs = f"_epochs{trainer.max_epochs}"
+            
+            # Create demos directory in a location with write permissions
+            project_root = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
+            demos_dir = osp.join(project_root, "stable_audio_tools", "output", "demos", f"{current_datetime}{max_epochs}")
+            os.makedirs(demos_dir, exist_ok=True)
+            
+            # Extract input filename from demo conditioning if available
+            input_filename = "unknown"
+            if demo_cond and isinstance(demo_cond, list) and len(demo_cond) > 0:
+                for key, value in demo_cond[0].items():
+                    if isinstance(value, str) and os.path.isfile(value):
+                        path = value
+                        input_filename = os.path.splitext(os.path.basename(path))[0]
+                        break
 
             if self.display_audio_cond:
-                audio_inputs = torch.cat([cond["audio"] for cond in demo_cond], dim=0)
-                audio_inputs = rearrange(audio_inputs, 'b d n -> d (b n)')
+                try:
+                    audio_inputs = torch.cat([cond["degraded_audio"] for cond in demo_cond], dim=0)
+                except KeyError:
+                    audio_inputs = torch.cat([cond["audio"] for cond in demo_cond], dim=0)
+                
+                # Check tensor dimensions and handle accordingly
+                if len(audio_inputs.shape) == 3:  # [b, d, n] shape
+                    # For multi-channel audio, use the original rearrange
+                    audio_inputs = rearrange(audio_inputs, 'b d n -> d (b n)')
 
-                filename = f'demo_audio_cond_{trainer.global_step:08}.wav'
+                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_audio_cond_{input_filename}.wav')
                 audio_inputs = audio_inputs.to(torch.float32).div(torch.max(torch.abs(audio_inputs))).mul(32767).to(torch.int16).cpu()
                 torchaudio.save(filename, audio_inputs, self.sample_rate)
                 log_audio(trainer.logger, f'demo_audio_cond', filename, self.sample_rate)
                 log_image(trainer.logger, f"demo_audio_cond_melspec_left", audio_spectrogram_image(audio_inputs))
+
+                # Check tensor dimensions and handle accordingly
+                if len(clean_audio.shape) == 3:  # [b, d, n] shape
+                    # For multi-channel audio, use the original rearrange
+                    clean_audio = rearrange(clean_audio, 'b d n -> d (b n)')
+                
+                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_audio_clean_{input_filename}.wav')
+                clean_audio = clean_audio.to(torch.float32).div(torch.max(torch.abs(clean_audio))).mul(32767).to(torch.int16).cpu()
+                torchaudio.save(filename, clean_audio, self.sample_rate)
+                log_audio(trainer.logger, f'demo_audio_clean', filename, self.sample_rate)
+                log_image(trainer.logger, f"demo_audio_clean_melspec_left", audio_spectrogram_image(clean_audio))
 
             # Pre-generation conditioning display
             if self.cond_display_configs is not None:
@@ -655,7 +737,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                             audio_inputs = module.diffusion.pretransform.decode(audio_inputs)
 
                         audio_inputs_out = rearrange(audio_inputs, 'b d n -> d (b n)')
-                        filename = f'demo_{cond_id}_{trainer.global_step:08}.wav'
+                        filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_{input_filename}.wav')
                         audio_inputs_out = audio_inputs_out.to(torch.float32).div(torch.max(torch.abs(audio_inputs_out))).mul(32767).to(torch.int16).cpu()
                         torchaudio.save(filename, audio_inputs_out, self.sample_rate)
                         log_audio(trainer.logger, f'demo_{cond_id}', filename, self.sample_rate)
@@ -679,8 +761,27 @@ class DiffusionCondDemoCallback(pl.Callback):
                 # Put the demos together
                 fakes = rearrange(fakes, 'b d n -> d (b n)')
 
-                filename = f'demo_cfg_{cfg_scale}_{trainer.global_step:08}.wav'
+                # Compute and demo_conditioning metrics if we have target audio
+                if module.diffusion.pretransform is not None:
+                    target_audio = module.diffusion.pretransform.decode(cond_inputs["input_concat_cond"])
+                    target_audio = rearrange(target_audio, 'b d n -> d (b n)')
+                else:
+                    target_audio = cond_inputs["input_concat_cond"].squeeze()
+                
+                # Move metrics to device
+                for metric in self.metrics.values():
+                    metric.to(module.device)
+                
+                # Compute metrics
+                metrics_dict = {}
+                for name, metric in self.metrics.items():
+                    metrics_dict[f'demo_{name}'] = metric(fakes, original_audio_inputs).item()
+                    log_metric(trainer.logger, f'demo_{name}_cfg_{cfg_scale}', metrics_dict[f'demo_{name}'])
+                
+                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_cfg_{cfg_scale}_{input_filename}.wav')
                 fakes_out = fakes.to(torch.float32).div(torch.max(torch.abs(fakes))).mul(32767).to(torch.int16).cpu()
+
+                LOG.debug(f"Saving demo {filename}")
                 torchaudio.save(filename, fakes_out, self.sample_rate)
                 log_audio(trainer.logger, f'demo_cfg_{cfg_scale}', filename, self.sample_rate)                
                 log_image(trainer.logger, f'demo_melspec_left_cfg_{cfg_scale}', audio_spectrogram_image(fakes_out))
@@ -688,6 +789,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                 # Mid-generation conditioning display
                 if self.cond_display_configs is not None:
                     for cond_display_config in self.cond_display_configs:
+                        LOG.debug(f"Displaying conditioning {cond_display_config}")
                         cond_id = cond_display_config.get("id", None)
                         assert cond_id is not None, "cond_display_configs must have an 'id' field"
 
@@ -705,12 +807,13 @@ class DiffusionCondDemoCallback(pl.Callback):
                                     # Decode the pre-encoded audio conditioning
                                     audio_inputs = module.diffusion.pretransform.decode(audio_inputs)
 
-                                filename = f'demo_{cond_id}_mix_cfg_{cfg_scale}_{trainer.global_step:08}.wav'
+                                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_mix_cfg_{cfg_scale}_{input_filename}.wav')
                                 audio_inputs = rearrange(audio_inputs, 'b d n -> d (b n)')
                                 audio_mix = audio_inputs + fakes
                                 audio_mix_out = audio_mix.to(torch.float32).div(torch.max(torch.abs(audio_mix))).mul(32767).to(torch.int16).cpu()
                                 torchaudio.save(filename, audio_mix_out, self.sample_rate)
                                 log_audio(trainer.logger, f'demo_{cond_id}_mix_cfg_{cfg_scale}', filename, self.sample_rate)
+                                log_image(trainer.logger, f"demo_{cond_id}_mix_cfg_{cfg_scale}_melspec_left", audio_spectrogram_image(audio_mix_out))
 
                         elif cond_type == "audio_dict":
                             audio_cond_config = cond_display_config.get("config", {})
@@ -733,16 +836,17 @@ class DiffusionCondDemoCallback(pl.Callback):
 
                             submix = torch.stack(submixes, dim=0)
                             submix = rearrange(submix, 'b d n -> d (b n)')
-                            filename = f'demo_{cond_id}_submix_cfg_{cfg_scale}_{trainer.global_step:08}.wav'
+                            filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_submix_cfg_{cfg_scale}_{input_filename}.wav')
                             submix_out = submix.to(torch.float32).div(torch.max(torch.abs(submix))).mul(32767).to(torch.int16).cpu()
                             torchaudio.save(filename, submix_out, self.sample_rate)
                             log_audio(trainer.logger, f'demo_{cond_id}_submix_cfg_{cfg_scale}', filename, self.sample_rate)
 
-                            filename = f'demo_{cond_id}_mix_cfg_{cfg_scale}_{trainer.global_step:08}.wav'
+                            filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_mix_cfg_{cfg_scale}_{input_filename}.wav')
                             audio_mix = submix + fakes
                             audio_mix_out = audio_mix.to(torch.float32).div(torch.max(torch.abs(audio_mix))).mul(32767).to(torch.int16).cpu()
                             torchaudio.save(filename, audio_mix_out, self.sample_rate)
                             log_audio(trainer.logger, f'demo_{cond_id}_mix_cfg_{cfg_scale}', filename, self.sample_rate)
+                            log_image(trainer.logger, f"demo_{cond_id}_mix_cfg_{cfg_scale}_melspec_left", audio_spectrogram_image(audio_mix_out))
 
             del fakes
 

@@ -1,8 +1,11 @@
 import torch
 import torchaudio
+import numpy as np
+import librosa
 
 from torch.nn import functional as F
 from torch import nn
+from typing import Tuple
 
 ### Metrics are loss-like functions that do not backpropagate gradients.
 
@@ -29,3 +32,172 @@ class PESQMetric(nn.Module):
             pesq(targets_np[i].reshape(-1), inputs_np[i].reshape(-1), 16000)
             for i in range(batch_size))
         return val_pesq
+    
+
+class LogSpectralDistance(nn.Module):
+    def __init__(self, n_fft: int = 2048, hop_length: int = 512):
+        super().__init__()
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
+                                window=torch.hann_window(self.n_fft).to(inputs.device),
+                                return_complex=True)
+        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
+                                 window=torch.hann_window(self.n_fft).to(targets.device),
+                                 return_complex=True)
+
+        input_mag = torch.abs(input_stft)
+        target_mag = torch.abs(target_stft)
+
+        diff = 10 * (torch.log10(input_mag + 1e-8) - torch.log10(target_mag + 1e-8))
+        lsd = torch.sqrt(torch.mean(diff ** 2, dim=(1, 2)))  # Mean over F and T
+        return torch.mean(lsd)  # Average over batch
+
+class LTASDistance(nn.Module):
+    def __init__(self, n_fft: int = 2048, hop_length: int = 512):
+        super().__init__()
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
+                                window=torch.hann_window(self.n_fft).to(inputs.device),
+                                return_complex=True)
+        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
+                                 window=torch.hann_window(self.n_fft).to(targets.device),
+                                 return_complex=True)
+
+        input_mag = torch.abs(input_stft)
+        target_mag = torch.abs(target_stft)
+
+        input_ltas = torch.mean(input_mag, dim=2)  # Mean over time
+        target_ltas = torch.mean(target_mag, dim=2)
+
+        ltas_dist = torch.mean(torch.abs(input_ltas - target_ltas) / (target_ltas + 1e-8), dim=1)
+        return torch.mean(10 * torch.log10(ltas_dist + 1e-8))  # Average over batch
+
+class SISDRMetric(nn.Module):
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        targets = targets - torch.mean(targets, dim=-1, keepdim=True)
+        inputs = inputs - torch.mean(inputs, dim=-1, keepdim=True)
+
+        alpha = torch.sum(inputs * targets, dim=-1, keepdim=True) / (
+            torch.sum(targets ** 2, dim=-1, keepdim=True) + 1e-8)
+        s_target = alpha * targets
+        e_noise = inputs - s_target
+
+        sisdr = 10 * torch.log10(torch.sum(s_target ** 2, dim=-1) / (torch.sum(e_noise ** 2, dim=-1) + 1e-8))
+        return torch.mean(sisdr)
+
+class SNRMetric(nn.Module):
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        noise = inputs - targets
+        signal_power = torch.sum(targets ** 2, dim=-1)
+        noise_power = torch.sum(noise ** 2, dim=-1)
+        snr = 10 * torch.log10(signal_power / (noise_power + 1e-8))
+        return torch.mean(snr)
+
+class STFTDistance(nn.Module):
+    def __init__(self, n_fft: int = 2048, hop_length: int = 512):
+        super().__init__()
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        input_stft = torch.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
+                                window=torch.hann_window(self.n_fft).to(inputs.device),
+                                return_complex=True)
+        target_stft = torch.stft(targets, n_fft=self.n_fft, hop_length=self.hop_length,
+                                 window=torch.hann_window(self.n_fft).to(targets.device),
+                                 return_complex=True)
+
+        dist = torch.abs(input_stft - target_stft)
+        return torch.mean(torch.sqrt(torch.sum(dist ** 2, dim=(1, 2))))  # L2 norm then mean
+
+class MelDistance(nn.Module):
+    def __init__(self, sample_rate: int, n_fft: int = 2048, hop_length: int = 512, n_mels: int = 80):
+        super().__init__()
+        self.mel_transform = torchaudio.transforms.MelSpectrogram(
+            sample_rate=sample_rate,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            n_mels=n_mels
+        )
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        input_mel = self.mel_transform(inputs)
+        target_mel = self.mel_transform(targets)
+
+        # Convert to log-mel
+        input_log_mel = torch.log10(input_mel + 1e-8)
+        target_log_mel = torch.log10(target_mel + 1e-8)
+
+        # Compute L2 norm of log-mel differences
+        dist = torch.abs(input_log_mel - target_log_mel)
+        return torch.mean(torch.sqrt(torch.sum(dist ** 2, dim=(1, 2))))
+    
+
+class FrechetAudioDistance(nn.Module):
+    def __init__(
+        self,
+        sample_rate: int = 16000,
+        use_pca: bool = False,
+        use_activation: bool = False,
+        verbose: bool = False
+    ):
+        super().__init__()
+        self.sample_rate = sample_rate
+        
+        # Initialize VGGish model from frechet-audio-distance
+        from frechet_audio_distance import FrechetAudioDistance as FAD
+        self.fad = FAD(
+            model_name="vggish",
+            sample_rate=sample_rate,
+            use_pca=use_pca,
+            use_activation=use_activation,
+            verbose=verbose
+        )
+        
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Calculate FAD between generated and reference audio.
+        
+        Args:
+            inputs: Tensor of shape (batch_size, channels, time) - generated audio
+            targets: Tensor of shape (batch_size, channels, time) - reference audio
+        Returns:
+            FAD value
+        """
+        # Convert to numpy and normalize
+        gen_audio = inputs.detach().cpu().numpy()
+        ref_audio = targets.detach().cpu().numpy()
+        
+        # Handle mono/stereo
+        if gen_audio.ndim == 3 and gen_audio.shape[1] == 2:  # stereo
+            gen_audio = np.mean(gen_audio, axis=1)  # convert to mono
+        if ref_audio.ndim == 3 and ref_audio.shape[1] == 2:  # stereo
+            ref_audio = np.mean(ref_audio, axis=1)  # convert to mono
+            
+        # Resample if needed
+        if self.sample_rate != 16000:
+            gen_audio = librosa.resample(gen_audio, orig_sr=self.sample_rate, target_sr=16000)
+            ref_audio = librosa.resample(ref_audio, orig_sr=self.sample_rate, target_sr=16000)
+        
+        # Calculate FAD using the frechet-audio-distance package
+        # Compute statistics and FAD score
+        embds_background = self.fad.get_embeddings(ref_audio, sr=16000)
+        embds_eval = self.fad.get_embeddings(gen_audio, sr=16000)
+
+
+        mu_background, sigma_background = self.fad.calculate_embd_statistics(embds_background)
+        mu_eval, sigma_eval = self.fad.calculate_embd_statistics(embds_eval)
+
+        fad_score = self.fad.calculate_frechet_distance(
+            mu_background,
+            sigma_background,
+            mu_eval,
+            sigma_eval
+        )
+    
+        return fad_score
