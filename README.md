@@ -15,6 +15,7 @@ $ pip install .
 
 ```bash
 $ pip install frechet-audio-distance==0.3.1 --no-deps
+$ pip install resampy==0.4.3
 ```
 
 # Requirements
