@@ -26,6 +26,13 @@ from ...inference.generation import (
 from ...inference.utils import prepare_audio
 # from ..training.utils import copy_state_dict
 
+import logging
+
+LOG = logging.getLogger(__name__)
+# handler
+LOG.addHandler(logging.StreamHandler())
+LOG.setLevel(logging.DEBUG)
+
 model = None
 model_type = None
 sample_size = 2097152
