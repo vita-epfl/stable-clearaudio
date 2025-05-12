@@ -173,60 +173,60 @@ def generate_diffusion_cond(
         conditioning_tensors = model.conditioner(conditioning, device)
         LOG.debug(f"Generated conditioning_tensors with keys: {list(conditioning_tensors.keys()) if conditioning_tensors else 'None'}")
 
-    # For audio restoration, if a degraded audio path is provided, use it as initial input
-    degraded_latent = None
-    if degraded_audio is not None and model.pretransform is not None:
-        LOG.debug("Processing degraded audio for restoration")
-        degraded_sr, degraded_audio_tensor = degraded_audio
+    # # For audio restoration, if a degraded audio path is provided, use it as initial input
+    # degraded_latent = None
+    # if degraded_audio is not None and model.pretransform is not None:
+    #     LOG.debug("Processing degraded audio for restoration")
+    #     degraded_sr, degraded_audio_tensor = degraded_audio
         
-        LOG.debug(f"Degraded audio info - SR: {degraded_sr}, Tensor shape: {degraded_audio_tensor.shape}, dtype: {degraded_audio_tensor.dtype}")
+    #     LOG.debug(f"Degraded audio info - SR: {degraded_sr}, Tensor shape: {degraded_audio_tensor.shape}, dtype: {degraded_audio_tensor.dtype}")
 
-        # Prepare the degraded audio for use by the model
-        LOG.debug(f"Preparing degraded audio - target SR: {model.sample_rate}, target length: {audio_sample_size}, target channels: {model.pretransform.io_channels}")
-        degraded_audio = prepare_audio(
-            degraded_audio_tensor,
-            in_sr=degraded_sr,
-            target_sr=model.sample_rate,
-            target_length=audio_sample_size,
-            target_channels=model.pretransform.io_channels,
-            device=device,
-        )
-        LOG.debug(f"Prepared degraded audio shape: {degraded_audio.shape}")
+    #     # Prepare the degraded audio for use by the model
+    #     LOG.debug(f"Preparing degraded audio - target SR: {model.sample_rate}, target length: {audio_sample_size}, target channels: {model.pretransform.io_channels}")
+    #     degraded_audio = prepare_audio(
+    #         degraded_audio_tensor,
+    #         in_sr=degraded_sr,
+    #         target_sr=model.sample_rate,
+    #         target_length=audio_sample_size,
+    #         target_channels=model.pretransform.io_channels,
+    #         device=device,
+    #     )
+    #     LOG.debug(f"Prepared degraded audio shape: {degraded_audio.shape}")
 
-        # Encode the degraded audio into latents
-        LOG.debug("Encoding degraded audio into latents")
-        with torch.no_grad():
-            degraded_latent = model.pretransform.encode(degraded_audio)
-        LOG.debug(f"Encoded degraded latent shape: {degraded_latent.shape}")
+    #     # Encode the degraded audio into latents
+    #     LOG.debug("Encoding degraded audio into latents")
+    #     with torch.no_grad():
+    #         degraded_latent = model.pretransform.encode(degraded_audio)
+    #     LOG.debug(f"Encoded degraded latent shape: {degraded_latent.shape}")
 
-        # Repeat to match the batch size
-        degraded_latent = degraded_latent.repeat(batch_size, 1, 1)
-        LOG.debug(f"Repeated degraded latent to batch size {batch_size}, new shape: {degraded_latent.shape}")
+    #     # Repeat to match the batch size
+    #     degraded_latent = degraded_latent.repeat(batch_size, 1, 1)
+    #     LOG.debug(f"Repeated degraded latent to batch size {batch_size}, new shape: {degraded_latent.shape}")
 
-        # Add the degraded latent to the conditioning tensors using the correct key
-        if "degraded_latent" not in conditioning_tensors:
-            LOG.debug("Adding degraded latent to conditioning tensors with key 'degraded_latent'")
-            print("Adding degraded latent to conditioning tensors")
-            conditioning_tensors["degraded_latent"] = (
-                degraded_latent,
-                torch.ones(
-                    degraded_latent.shape[0],
-                    degraded_latent.shape[2],
-                    device=degraded_latent.device,
-                ).bool(),
-            )
-        else:
-            # Optionnel : Gérer le cas où la clé existe déjà (écrasement probable)
-            LOG.debug("Warning: 'degraded_latent' key already present in conditioning_tensors. Overwriting.")
-            print("Warning: 'degraded_latent' key already present in conditioning_tensors. Overwriting.")
-            conditioning_tensors["degraded_latent"] = (
-                degraded_latent,
-                torch.ones(
-                    degraded_latent.shape[0],
-                    degraded_latent.shape[2],
-                    device=degraded_latent.device,
-                ).bool(),
-            )
+    #     # Add the degraded latent to the conditioning tensors using the correct key
+    #     if "degraded_latent" not in conditioning_tensors:
+    #         LOG.debug("Adding degraded latent to conditioning tensors with key 'degraded_latent'")
+    #         print("Adding degraded latent to conditioning tensors")
+    #         conditioning_tensors["degraded_latent"] = (
+    #             degraded_latent,
+    #             torch.ones(
+    #                 degraded_latent.shape[0],
+    #                 degraded_latent.shape[2],
+    #                 device=degraded_latent.device,
+    #             ).bool(),
+    #         )
+    #     else:
+    #         # Optionnel : Gérer le cas où la clé existe déjà (écrasement probable)
+    #         LOG.debug("Warning: 'degraded_latent' key already present in conditioning_tensors. Overwriting.")
+    #         print("Warning: 'degraded_latent' key already present in conditioning_tensors. Overwriting.")
+    #         conditioning_tensors["degraded_latent"] = (
+    #             degraded_latent,
+    #             torch.ones(
+    #                 degraded_latent.shape[0],
+    #                 degraded_latent.shape[2],
+    #                 device=degraded_latent.device,
+    #             ).bool(),
+    #         )
 
     conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
 

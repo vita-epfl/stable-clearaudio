@@ -441,9 +441,8 @@ def generate_cond_restoration(
         degraded_audio = (sample_rate, degraded_audio)
         LOG.debug(f"Final degraded_audio tuple created: SR={sample_rate}, tensor.shape={degraded_audio[1].shape}")
 
-    # Return fake stereo audio
     conditioning_dict = {
-        "degraded_audio": degraded_audio,
+        "degraded_audio": degraded_audio[1],
     }
 
     conditioning = [conditioning_dict] * batch_size
