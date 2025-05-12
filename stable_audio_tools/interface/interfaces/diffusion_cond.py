@@ -350,6 +350,194 @@ def generate_cond(
     return (output_filename, [audio_spectrogram, *preview_images])
 
 
+def generate_cond_restoration(
+    steps=250,
+    preview_every=None,
+    seed=-1,
+    sampler_type="dpmpp-3m-sde",
+    sigma_min=0.03,
+    sigma_max=1000,
+    rho=1.0,
+    cfg_rescale=0.0,
+    file_format="wav",
+    file_naming="verbose",
+    degraded_audio=None,
+    batch_size=1,
+):
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
+
+    global preview_images
+    preview_images = []
+    if preview_every == 0:
+        preview_every = None
+
+    # Get the device from the model
+    device = next(model.parameters()).device
+
+    seed = int(seed)
+    # if seed is -1, define the seed value now, randomly, so we can save it in the filename
+    if seed == -1:
+        seed = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
+
+    input_sample_size = sample_size
+
+    if degraded_audio is not None:
+        LOG.debug("Degraded audio provided")
+        in_sr, degraded_audio = degraded_audio
+
+        if degraded_audio.dtype == np.float32:
+            degraded_audio = torch.from_numpy(degraded_audio)
+        elif degraded_audio.dtype == np.int16:
+            degraded_audio = torch.from_numpy(degraded_audio).float().div(32767)
+        elif degraded_audio.dtype == np.int32:
+            degraded_audio = torch.from_numpy(degraded_audio).float().div(2147483647)
+        else:
+            raise ValueError(f"Unsupported audio data type: {degraded_audio.dtype}")
+
+        if model_half:
+            degraded_audio = degraded_audio.to(torch.float16)
+
+        if degraded_audio.dim() == 1:
+            degraded_audio = degraded_audio.unsqueeze(0)  # [1, n]
+        elif degraded_audio.dim() == 2:
+            degraded_audio = degraded_audio.transpose(0, 1)  # [n, 2] -> [2, n]
+
+        if in_sr != sample_rate:
+            resample_tf = (
+                T.Resample(in_sr, sample_rate)
+                .to(degraded_audio.device)
+                .to(degraded_audio.dtype)
+            )
+            degraded_audio = resample_tf(degraded_audio)
+
+        audio_length = degraded_audio.shape[-1]
+
+        if audio_length > sample_size:
+            # input_sample_size = audio_length + (model.min_input_length - (audio_length % model.min_input_length)) % model.min_input_length
+            degraded_audio = degraded_audio[:, :sample_size]
+
+        degraded_audio = (sample_rate, degraded_audio)
+        LOG.debug("Degraded audio: %s", degraded_audio)
+
+    def progress_callback(callback_info):
+        global preview_images
+        denoised = callback_info["denoised"]
+        current_step = callback_info["i"]
+        sigma = callback_info["sigma"]
+
+        if (current_step - 1) % preview_every == 0:
+            if model.pretransform is not None:
+                denoised = model.pretransform.decode(denoised)
+            denoised = rearrange(denoised, "b d n -> d (b n)")
+            denoised = denoised.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
+            audio_spectrogram = audio_spectrogram_image(
+                denoised, sample_rate=sample_rate
+            )
+            preview_images.append(
+                (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
+            )
+
+    generate_args = {
+        "model": model,
+        "steps": steps,
+        "batch_size": batch_size,
+        "sample_size": input_sample_size,
+        "seed": seed,
+        "device": device,
+        "sampler_type": sampler_type,
+        "sigma_min": sigma_min,
+        "sigma_max": sigma_max,
+        "init_audio": degraded_audio,
+        "degraded_audio": degraded_audio,   
+        "callback": progress_callback if preview_every is not None else None,
+        "scale_phi": cfg_rescale,
+        "rho": rho,
+    }
+
+    # Do the audio generation
+    audio = generate_diffusion_cond(**generate_args)
+
+    # simple e.g. "output.wav"
+    basename = "output"
+
+    if file_format:
+        filename_extension = file_format.split(" ")[0].lower()
+    else:
+        filename_extension = "wav"
+    output_filename = "%s.%s" % (basename, filename_extension)
+    output_wav = "%s.wav" % basename
+
+    # Encode the audio to WAV format
+    audio = rearrange(audio, "b d n -> d (b n)")
+
+    # Check if the audio tensor is empty before normalization
+    if audio.numel() == 0:
+        # Return None for the audio path, but keep preview images
+        return (None, preview_images)
+
+    # If audio is not empty, proceed with normalization
+    # Adding a small epsilon to prevent division by zero if max(abs(audio)) is zero
+    max_abs_val = torch.max(torch.abs(audio))
+    if (
+        max_abs_val > 1e-7
+    ):  # Use a small threshold instead of exact zero for float stability
+        audio = (
+            audio.to(torch.float32)
+            .div(max_abs_val)
+            .clamp(-1, 1)
+            .mul(32767)
+            .to(torch.int16)
+            .cpu()
+        )
+    else:
+        # Handle silence or very near silence: just convert type
+        audio = audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
+
+    # save as wav file
+    try:
+        torchaudio.save(output_wav, audio, sample_rate)
+    except Exception as e:
+        print(f"Error saving WAV file {output_wav}: {e}")
+        # If saving fails, return None for the path
+        return (None, preview_images)
+
+    # If file_format is other than wav, convert to other file format
+    cmd = ""
+    if file_format == "m4a aac_he_v2 32k":
+        # note: need to compile ffmpeg with --enable-libfdk_aac
+        cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 32k -y "{output_filename}"'
+    elif file_format == "m4a aac_he_v2 64k":
+        cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 64k -y "{output_filename}"'
+    elif file_format == "flac":
+        cmd = f'ffmpeg -i "{output_wav}" -y "{output_filename}"'
+    elif file_format == "mp3 320k":
+        cmd = f'ffmpeg -i "{output_wav}" -b:a 320k -y "{output_filename}"'
+    elif file_format == "mp3 128k":
+        cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
+    elif file_format == "mp3 v0":
+        cmd = f'ffmpeg -i "{output_wav}" -q:a 0 -y "{output_filename}"'
+    else:  # wav
+        pass
+    if cmd:
+        cmd += " -loglevel error"  # make output less verbose in the cmd window
+        subprocess.run(cmd, shell=True, check=True)
+
+    # Let's look at a nice spectrogram too
+    try:
+        # Assuming audio_spectrogram_image can handle int16 tensor
+        audio_spectrogram = audio_spectrogram_image(audio, sample_rate=sample_rate)
+    except Exception as e:
+        print(f"Warning: Could not generate spectrogram: {e}")
+        audio_spectrogram = None  # Set to None if generation fails
+
+    # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
+    if file_naming in ["verbose", "prompt"]:
+        delete_files_async([output_wav, output_filename], 30)
+
+    return (output_filename, [audio_spectrogram, *preview_images])
+
 #  Asynchronously delete the given list of filenames after delay seconds. Sets up thread that sleeps for delay then deletes.
 def delete_files_async(filenames, delay):
     def delete_files_after_delay(filenames, delay):
