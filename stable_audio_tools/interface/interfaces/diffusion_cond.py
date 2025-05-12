@@ -441,6 +441,13 @@ def generate_cond_restoration(
         degraded_audio = (sample_rate, degraded_audio)
         LOG.debug(f"Final degraded_audio tuple created: SR={sample_rate}, tensor.shape={degraded_audio[1].shape}")
 
+    # Return fake stereo audio
+    conditioning_dict = {
+        "degraded_audio": degraded_audio,
+    }
+
+    conditioning = [conditioning_dict] * batch_size
+
     def progress_callback(callback_info):
         global preview_images
         denoised = callback_info["denoised"]
@@ -461,6 +468,7 @@ def generate_cond_restoration(
 
     generate_args = {
         "model": model,
+        "conditioning": conditioning,
         "steps": steps,
         "batch_size": batch_size,
         "sample_size": input_sample_size,
