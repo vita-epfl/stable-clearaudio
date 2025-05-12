@@ -12,6 +12,8 @@ def get_custom_metadata(info, audio):
     # Get the path to the clean audio file from info
     clean_path = info['path']
     
+    t_start, t_end = info["timestamps"]
+    total_length = info["total_length"]
     # Convert clean path to degraded path
     # Assuming degraded files are in a parallel directory structure
     # For example, if clean files are in /data/clean/...
@@ -35,6 +37,7 @@ def get_custom_metadata(info, audio):
     # Ensure degraded audio matches clean audio size
     target_length = audio.shape[-1]  # Get length from clean audio
     current_length = degraded_audio.shape[-1]
+    degraded_audio = degraded_audio[:, round(t_start*total_length):round(t_end*total_length)]
     
     if current_length < target_length:
         # Pad with zeros if degraded audio is shorter
