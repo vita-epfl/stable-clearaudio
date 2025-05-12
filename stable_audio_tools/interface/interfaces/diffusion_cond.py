@@ -553,32 +553,53 @@ def create_sampling_ui(model_config):
     has_inpainting = model_config["model_type"] == "diffusion_cond_inpaint"
 
     model_conditioning_config = model_config["model"].get("conditioning", None)
+    
+    # Check if this is a specific audio restoration model
+    input_concat_ids = model_config["model"].get("diffusion", {}).get("input_concat_ids", [])
+    is_audio_restoration = "degraded_audio" in input_concat_ids
+    
+    LOG.info(f"Input concat IDs: {input_concat_ids}")
+    LOG.info(f"Is audio restoration model: {is_audio_restoration}")
+    
+    # Define noise_level_slider as a global variable to access it from generate_cond
+    global noise_level_slider
 
     diffusion_objective = model.diffusion_objective
 
     is_rf = diffusion_objective == "rectified_flow"
-
-    has_seconds_start = False
-    has_seconds_total = False
-
-    if model_conditioning_config is not None:
-        for conditioning_config in model_conditioning_config["configs"]:
-            if conditioning_config["id"] == "seconds_start":
-                has_seconds_start = True
-            if conditioning_config["id"] == "seconds_total":
-                has_seconds_total = True
-
+    
+    # Interface adaptée au type de modèle
     with gr.Row():
         with gr.Column(scale=6):
-            prompt = gr.Textbox(show_label=False, placeholder="Prompt")
+            # L'entrée texte n'est visible que si le modèle n'est pas de type restauration audio
+            prompt_visible = not is_audio_restoration
+            prompt = gr.Textbox(show_label=False, placeholder="Prompt", visible=prompt_visible)
             negative_prompt = gr.Textbox(
-                show_label=False, placeholder="Negative prompt"
+                show_label=False, placeholder="Negative prompt", visible=prompt_visible
             )
-        generate_button = gr.Button("Generate", variant="primary", scale=1)
-
+            
+            # Information message for audio restoration model
+            if is_audio_restoration:
+                gr.Markdown("### Audio Restoration Model\nUpload an audio file to restore below")
+                
+        generate_button = gr.Button("Restore", variant="primary", scale=1)
+        
     with gr.Row(equal_height=False):
         with gr.Column():
-            with gr.Row(visible=has_seconds_start or has_seconds_total):
+            # Variables pour suivre si ces conditionnements sont nécessaires
+            has_seconds_start = False
+            has_seconds_total = False
+            
+            if model_conditioning_config:
+                for config in model_conditioning_config.get("configs", []):
+                    if config.get("id") == "seconds_start":
+                        has_seconds_start = True
+                    if config.get("id") == "seconds_total":
+                        has_seconds_total = True
+            
+            # N'afficher les contrôles de timing que si nécessaire et pas pour la restauration audio
+            timing_visible = (has_seconds_start or has_seconds_total) and not is_audio_restoration
+            with gr.Row(visible=timing_visible):
                 # Timing controls
                 seconds_start_slider = gr.Slider(
                     minimum=0,
@@ -598,14 +619,20 @@ def create_sampling_ui(model_config):
                 )
 
             with gr.Row():
+                # Controls for audio restoration
+                if is_audio_restoration:
+                    # Add information about how the model uses the audio
+                    gr.Markdown("The uploaded audio will be used as conditioning input for the model")
+                
                 # Steps slider
-                default_steps = 50 if is_rf else 100
+                default_steps = 25 if is_audio_restoration else (50 if is_rf else 100)
                 steps_slider = gr.Slider(
                     minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
                 )
                 # CFG scale
+                default_cfg = 1.0 if is_audio_restoration else 7.0
                 cfg_scale_slider = gr.Slider(
-                    minimum=0.0, maximum=25.0, step=0.1, value=7.0, label="CFG scale"
+                    minimum=0.0, maximum=25.0, step=0.1, value=default_cfg, label="CFG scale"
                 )
 
             with gr.Accordion("Sampler params", open=False):
@@ -718,19 +745,32 @@ def create_sampling_ui(model_config):
                         value=0,
                         label="Spec Preview Every N Steps",
                     )
-
-            # Default generation tab
-            with gr.Accordion("Init audio", open=False):
-                init_audio_input = gr.Audio(label="Init audio")
-                min_noise_level = 0.01 if is_rf else 0.1
-                max_noise_level = 1.0 if is_rf else 100.0
-                init_noise_level_slider = gr.Slider(
-                    minimum=min_noise_level,
-                    maximum=max_noise_level,
-                    step=0.01,
-                    value=0.1,
-                    label="Init noise level",
-                )
+            if is_audio_restoration:
+                # Degraded audio tab
+                with gr.Accordion("Degraded audio", open=False):
+                    degraded_audio_input = gr.Audio(label="Degraded audio")
+                    min_noise_level = 0.01 if is_rf else 0.1
+                    max_noise_level = 1.0 if is_rf else 100.0
+                    init_noise_level_slider = gr.Slider(
+                        minimum=min_noise_level,
+                        maximum=max_noise_level,
+                        step=0.01,
+                        value=0.1,
+                        label="Init noise level",
+                    )
+            else:
+                # Default generation tab
+                with gr.Accordion("Init audio", open=False):
+                    init_audio_input = gr.Audio(label="Init audio")
+                    min_noise_level = 0.01 if is_rf else 0.1
+                    max_noise_level = 1.0 if is_rf else 100.0
+                    init_noise_level_slider = gr.Slider(
+                        minimum=min_noise_level,
+                        maximum=max_noise_level,
+                        step=0.01,
+                        value=0.1,
+                        label="Init noise level",
+                    )
 
             with gr.Accordion("Inpainting", open=False, visible=has_inpainting):
                 inpaint_audio_input = gr.Audio(label="Inpaint audio")
@@ -749,43 +789,69 @@ def create_sampling_ui(model_config):
                     label="Mask End (sec)",
                 )
 
-            inputs = [
-                prompt,
-                negative_prompt,
-                seconds_start_slider,
-                seconds_total_slider,
-                cfg_scale_slider,
-                steps_slider,
-                preview_every_slider,
-                seed_textbox,
-                sampler_type_dropdown,
-                sigma_min_slider,
-                sigma_max_slider,
-                rho_slider,
-                cfg_interval_min_slider,
-                cfg_interval_max_slider,
-                cfg_rescale_slider,
-                file_format_dropdown,
-                file_naming_dropdown,
-                cut_to_seconds_total_checkbox,
-                init_audio_input,
-                init_noise_level_slider,
-                mask_maskstart_slider,
-                mask_maskend_slider,
-                inpaint_audio_input,
-            ]
+            if is_audio_restoration:
+                inputs = [
+                        steps_slider,
+                        preview_every_slider,
+                        seed_textbox,
+                        sampler_type_dropdown,
+                        sigma_min_slider,
+                        sigma_max_slider,
+                        rho_slider,
+                        cfg_rescale_slider,
+                        file_format_dropdown,
+                        file_naming_dropdown,
+                        degraded_audio_input,
+                    ]
+            else:
+                inputs = [
+                    prompt,
+                    negative_prompt,
+                    seconds_start_slider,
+                    seconds_total_slider,
+                    cfg_scale_slider,
+                    steps_slider,
+                    preview_every_slider,
+                    seed_textbox,
+                    sampler_type_dropdown,
+                    sigma_min_slider,
+                    sigma_max_slider,
+                    rho_slider,
+                    cfg_interval_min_slider,
+                    cfg_interval_max_slider,
+                    cfg_rescale_slider,
+                    file_format_dropdown,
+                    file_naming_dropdown,
+                    cut_to_seconds_total_checkbox,
+                    init_audio_input,
+                    init_noise_level_slider,
+                    mask_maskstart_slider,
+                    mask_maskend_slider,
+                    inpaint_audio_input,
+                ] 
+            
 
         with gr.Column():
             audio_output = gr.Audio(label="Output audio", interactive=False)
             audio_spectrogram_output = gr.Gallery(
                 label="Output spectrogram", show_label=False
             )
-            send_to_init_button = gr.Button("Send to init audio", scale=1)
-            send_to_init_button.click(
-                fn=lambda audio: audio,
-                inputs=[audio_output],
-                outputs=[init_audio_input],
-            )
+            
+            # Use different target based on model type
+            if is_audio_restoration:
+                send_to_init_button = gr.Button("Send to degraded audio", scale=1)
+                send_to_init_button.click(
+                    fn=lambda audio: audio,
+                    inputs=[audio_output],
+                    outputs=[degraded_audio_input],
+                )
+            else:
+                send_to_init_button = gr.Button("Send to init audio", scale=1)
+                send_to_init_button.click(
+                    fn=lambda audio: audio,
+                    inputs=[audio_output],
+                    outputs=[init_audio_input],
+                )
 
             if has_inpainting:
                 send_to_inpaint_button = gr.Button("Send to inpaint audio", scale=1)
@@ -796,7 +862,7 @@ def create_sampling_ui(model_config):
                 )
 
     generate_button.click(
-        fn=generate_cond,
+        fn=generate_cond_restoration if is_audio_restoration else generate_cond,
         inputs=inputs,
         outputs=[audio_output, audio_spectrogram_output],
         api_name="generate",
