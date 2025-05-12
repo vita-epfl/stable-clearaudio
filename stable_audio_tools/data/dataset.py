@@ -201,6 +201,8 @@ class SampleDataset(torch.utils.data.Dataset):
         try:
             start_time = time.time()
             audio = self.load_file(audio_filename)
+            info = {}
+            info["total_length"] = audio.shape[-1]
 
             audio, t_start, t_end, seconds_start, seconds_total, padding_mask = self.pad_crop(audio)
 
@@ -218,7 +220,6 @@ class SampleDataset(torch.utils.data.Dataset):
             if self.encoding is not None:
                 audio = self.encoding(audio)
 
-            info = {}
 
             info["path"] = audio_filename
 

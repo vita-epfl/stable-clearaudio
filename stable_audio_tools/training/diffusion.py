@@ -692,7 +692,7 @@ class DiffusionCondDemoCallback(pl.Callback):
 
             if self.display_audio_cond:
                 try:
-                    audio_inputs = torch.cat([cond["degraded_audio"] for cond in demo_cond], dim=0)
+                    audio_inputs = torch.stack([cond["degraded_audio"] for cond in demo_cond], dim=0)
                 except KeyError:
                     audio_inputs = torch.cat([cond["audio"] for cond in demo_cond], dim=0)
                 
