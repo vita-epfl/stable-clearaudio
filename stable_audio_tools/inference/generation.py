@@ -2,10 +2,16 @@ import numpy as np
 import torch 
 import typing as tp
 import math 
+import logging
 from torch.nn.functional import interpolate
 
 from .utils import prepare_audio
 from .sampling import sample, sample_k, sample_rf
+
+LOG = logging.getLogger(__name__)
+# handler
+LOG.addHandler(logging.StreamHandler())
+LOG.setLevel(logging.DEBUG)
 
 def generate_diffusion_uncond(
         model,
@@ -125,13 +131,23 @@ def generate_diffusion_cond(
         return_latents: Whether to return the latents used for generation instead of the decoded audio.
         **sampler_kwargs: Additional keyword arguments to pass to the sampler.    
     """
+    LOG.debug("Starting generate_diffusion_cond with parameters:")
+    LOG.debug(f"  steps: {steps}, cfg_scale: {cfg_scale}, batch_size: {batch_size}")
+    LOG.debug(f"  sample_size: {sample_size}, sample_rate: {sample_rate}, seed: {seed}")
+    LOG.debug(f"  device: {device}, init_noise_level: {init_noise_level}")
+    LOG.debug(f"  init_audio present: {init_audio is not None}")
+    LOG.debug(f"  degraded_audio present: {degraded_audio is not None}")
+    LOG.debug(f"  conditioning present: {conditioning is not None}")
+    LOG.debug(f"  conditioning_tensors present: {conditioning_tensors is not None}")
 
     # The length of the output in audio samples
     audio_sample_size = sample_size
+    LOG.debug(f"audio_sample_size: {audio_sample_size}")
 
     # If this is latent diffusion, change sample_size instead to the downsampled latent size
     if model.pretransform is not None:
         sample_size = sample_size // model.pretransform.downsampling_ratio
+        LOG.debug(f"Using latent diffusion, adjusted sample_size: {sample_size} with downsampling_ratio: {model.pretransform.downsampling_ratio}")
 
     # Seed
     # The user can explicitly set the seed to deterministically generate the same output. Otherwise, use a random seed.
@@ -151,33 +167,45 @@ def generate_diffusion_cond(
     assert conditioning is not None or conditioning_tensors is not None, (
         "Must provide either conditioning or conditioning_tensors"
     )
+    LOG.debug("Checking and preparing conditioning tensors")
     if conditioning_tensors is None:
+        LOG.debug(f"Computing conditioning_tensors from conditioning dictionary: {conditioning}")
         conditioning_tensors = model.conditioner(conditioning, device)
+        LOG.debug(f"Generated conditioning_tensors with keys: {list(conditioning_tensors.keys()) if conditioning_tensors else 'None'}")
 
     # For audio restoration, if a degraded audio path is provided, use it as initial input
     degraded_latent = None
     if degraded_audio is not None and model.pretransform is not None:
-        degraded_audio, degraded_sr = degraded_audio
+        LOG.debug("Processing degraded audio for restoration")
+        degraded_sr, degraded_audio_tensor = degraded_audio
+        
+        LOG.debug(f"Degraded audio info - SR: {degraded_sr}, Tensor shape: {degraded_audio_tensor.shape}, dtype: {degraded_audio_tensor.dtype}")
 
         # Prepare the degraded audio for use by the model
+        LOG.debug(f"Preparing degraded audio - target SR: {model.sample_rate}, target length: {audio_sample_size}, target channels: {model.pretransform.io_channels}")
         degraded_audio = prepare_audio(
-            degraded_audio,
+            degraded_audio_tensor,
             in_sr=degraded_sr,
             target_sr=model.sample_rate,
             target_length=audio_sample_size,
             target_channels=model.pretransform.io_channels,
             device=device,
         )
+        LOG.debug(f"Prepared degraded audio shape: {degraded_audio.shape}")
 
         # Encode the degraded audio into latents
+        LOG.debug("Encoding degraded audio into latents")
         with torch.no_grad():
             degraded_latent = model.pretransform.encode(degraded_audio)
+        LOG.debug(f"Encoded degraded latent shape: {degraded_latent.shape}")
 
         # Repeat to match the batch size
         degraded_latent = degraded_latent.repeat(batch_size, 1, 1)
+        LOG.debug(f"Repeated degraded latent to batch size {batch_size}, new shape: {degraded_latent.shape}")
 
         # Add the degraded latent to the conditioning tensors using the correct key
         if "degraded_latent" not in conditioning_tensors:
+            LOG.debug("Adding degraded latent to conditioning tensors with key 'degraded_latent'")
             print("Adding degraded latent to conditioning tensors")
             conditioning_tensors["degraded_latent"] = (
                 degraded_latent,
@@ -189,6 +217,7 @@ def generate_diffusion_cond(
             )
         else:
             # Optionnel : Gérer le cas où la clé existe déjà (écrasement probable)
+            LOG.debug("Warning: 'degraded_latent' key already present in conditioning_tensors. Overwriting.")
             print("Warning: 'degraded_latent' key already present in conditioning_tensors. Overwriting.")
             conditioning_tensors["degraded_latent"] = (
                 degraded_latent,
@@ -234,6 +263,7 @@ def generate_diffusion_cond(
     model_dtype = next(model.model.parameters()).dtype
     noise = noise.type(model_dtype)
     conditioning_inputs = {k: v.type(model_dtype) if v is not None else v for k, v in conditioning_inputs.items()}
+    LOG.debug(f"Preparing to run sampling with sampler_type: {sampler_kwargs.get('sampler_type', 'k-diffusion')}")
     # Now the generative AI part:
     # k-diffusion denoising process go!
 
@@ -261,12 +291,14 @@ def generate_diffusion_cond(
     # Denoising process done. 
     # If this is latent diffusion, decode latents back into audio
     if model.pretransform is not None and not return_latents:
-        #cast sampled latents to pretransform dtype
-        sampled = sampled.to(next(model.pretransform.parameters()).dtype)
-        sampled = model.pretransform.decode(sampled)
+        LOG.debug("Decoding sampled latents with pretransform")
+        with torch.no_grad():
+            sampled = model.pretransform.decode(sampled)
+        LOG.debug(f"Decoded audio shape: {sampled.shape}")
 
-    # Return audio
+    LOG.debug("Completed generate_diffusion_cond, returning sampled audio")
     return sampled
+
 
 def generate_diffusion_cond_inpaint(
         model,
