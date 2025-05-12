@@ -2,12 +2,10 @@ import numpy as np
 import torch 
 import typing as tp
 import math 
-from torchaudio import transforms as T
 from torch.nn.functional import interpolate
 
 from .utils import prepare_audio
 from .sampling import sample, sample_k, sample_rf
-from ..data.utils import PadCrop
 
 def generate_diffusion_uncond(
         model,
@@ -102,6 +100,7 @@ def generate_diffusion_cond(
         seed: int = -1,
         device: str = "cuda",
         init_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
+        degraded_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
         init_noise_level: float = 1.0,
         return_latents = False,
         **sampler_kwargs
@@ -157,11 +156,8 @@ def generate_diffusion_cond(
 
     # For audio restoration, if a degraded audio path is provided, use it as initial input
     degraded_latent = None
-    if degraded_audio_path is not None and model.pretransform is not None:
-        # Load the degraded audio
-        import torchaudio
-
-        degraded_audio, degraded_sr = torchaudio.load(degraded_audio_path)
+    if degraded_audio is not None and model.pretransform is not None:
+        degraded_audio, degraded_sr = degraded_audio
 
         # Prepare the degraded audio for use by the model
         degraded_audio = prepare_audio(
@@ -182,6 +178,7 @@ def generate_diffusion_cond(
 
         # Add the degraded latent to the conditioning tensors using the correct key
         if "degraded_latent" not in conditioning_tensors:
+            print("Adding degraded latent to conditioning tensors")
             conditioning_tensors["degraded_latent"] = (
                 degraded_latent,
                 torch.ones(
