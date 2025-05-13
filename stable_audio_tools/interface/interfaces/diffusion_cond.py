@@ -210,9 +210,34 @@ def generate_cond(
                 (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
             )
 
+    LOG.debug("Préparation du conditionnement similaire à DiffusionCondDemoCallback")
+    
+    # Calculer la taille d'échantillon latent si nécessaire
+    demo_samples = input_sample_size
+    if model.pretransform is not None:
+        demo_samples = demo_samples // model.pretransform.downsampling_ratio
+        LOG.debug(f"Taille d'échantillon ajustée pour l'espace latent: {demo_samples}")
+    
+    # IMPORTANT: Pré-traiter les tenseurs de conditionnement comme dans DiffusionCondDemoCallback
+    LOG.debug("Pré-traitement des tenseurs de conditionnement avec model.conditioner")
+    conditioning_tensors = model.conditioner(conditioning, device)
+    LOG.debug(f"Tenseurs de conditionnement obtenus - clés: {list(conditioning_tensors.keys())}")
+    
+    # Obtenir les entrées de conditionnement
+    LOG.debug("Obtention des entrées de conditionnement")
+    cond_inputs = model.get_conditioning_inputs(conditioning_tensors)
+    LOG.debug(f"Entrées de conditionnement - clés: {list(cond_inputs.keys())}")
+    
+    # Ajuster la taille de input_concat_cond si nécessaire
+    if "input_concat_cond" in cond_inputs and cond_inputs["input_concat_cond"].shape[2] > demo_samples:
+        LOG.debug(f"Troncation de input_concat_cond de {cond_inputs['input_concat_cond'].shape[2]} à {demo_samples}")
+        cond_inputs["input_concat_cond"] = cond_inputs["input_concat_cond"][:, :, :demo_samples]
+    
+    # Préparer les arguments pour generate_diffusion_cond avec les tenseurs de conditionnement pré-traités
+    # Pour conserver la compatibilité avec le reste du code
     generate_args = {
         "model": model,
-        "conditioning": conditioning,
+        "conditioning_tensors": conditioning_tensors,  # Utiliser les tenseurs pré-traités plutôt que le dictionnaire brut
         "negative_conditioning": negative_conditioning,
         "steps": steps,
         "cfg_scale": cfg_scale,
@@ -231,18 +256,16 @@ def generate_cond(
         "rho": rho,
     }
 
-    # If inpainting, send mask args
-    # This will definitely change in the future
-    LOG.debug("Preparing to call generation function based on model type")
-    LOG.debug(f"Model type: {model_type}")
-    LOG.debug(f"Generate args: {generate_args.keys()}")
+    LOG.debug("Préparation pour appeler la fonction de génération basée sur le type de modèle")
+    LOG.debug(f"Type de modèle: {model_type}")
+    LOG.debug(f"Arguments pour generate_diffusion_cond: {generate_args.keys()}")
     
     if model_type == "diffusion_cond":
-        LOG.debug("Calling generate_diffusion_cond for audio generation")
+        LOG.debug("Appel à generate_diffusion_cond avec tenseurs de conditionnement pré-traités")
         # Do the audio generation
         audio = generate_diffusion_cond(**generate_args)
-        LOG.debug(f"generate_diffusion_cond returned audio - shape: {audio.shape}, dtype: {audio.dtype}")
-        LOG.debug(f"Audio stats: min={audio.min().item():.4f}, max={audio.max().item():.4f}, mean={audio.mean().item():.4f}, std={audio.std().item():.4f}")
+        LOG.debug(f"generate_diffusion_cond a retourné audio - shape: {audio.shape}, dtype: {audio.dtype}")
+        LOG.debug(f"Statistiques audio: min={audio.min().item():.4f}, max={audio.max().item():.4f}, mean={audio.mean().item():.4f}, std={audio.std().item():.4f}")
 
     elif model_type == "diffusion_cond_inpaint":
         LOG.debug("Model type is diffusion_cond_inpaint")
