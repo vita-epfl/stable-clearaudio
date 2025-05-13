@@ -361,6 +361,7 @@ def generate_cond_restoration(
     cfg_rescale=0.0,
     file_format="wav",
     file_naming="verbose",
+    init_audio=None,
     degraded_audio=None,
     batch_size=1,
 ):
@@ -476,8 +477,8 @@ def generate_cond_restoration(
         "sampler_type": sampler_type,
         "sigma_min": sigma_min,
         "sigma_max": sigma_max,
-        "init_audio": degraded_audio,
-        "degraded_audio": degraded_audio,   
+        "init_audio": init_audio,
+        # "degraded_audio": degraded_audio,   
         "callback": progress_callback if preview_every is not None else None,
         "scale_phi": cfg_rescale,
         "rho": rho,
@@ -787,9 +788,9 @@ def create_sampling_ui(model_config):
                         label="Spec Preview Every N Steps",
                     )
             if is_audio_restoration:
-                # Degraded audio tab
                 with gr.Accordion("Degraded audio", open=False):
-                    degraded_audio_input = gr.Audio(label="Degraded audio")
+                    init_audio_input = gr.Audio(label="Init audio", visible=False)
+                    degraded_audio = gr.Audio(label="Degraded audio")
                     min_noise_level = 0.01 if is_rf else 0.1
                     max_noise_level = 1.0 if is_rf else 100.0
                     init_noise_level_slider = gr.Slider(
@@ -831,6 +832,7 @@ def create_sampling_ui(model_config):
                 )
 
             if is_audio_restoration:
+                LOG.debug("Audio restoration mode enabled")
                 inputs = [
                         steps_slider,
                         preview_every_slider,
@@ -842,9 +844,11 @@ def create_sampling_ui(model_config):
                         cfg_rescale_slider,
                         file_format_dropdown,
                         file_naming_dropdown,
-                        degraded_audio_input,
+                        init_audio_input,
+                        degraded_audio,
                     ]
             else:
+                LOG.debug("Default generation mode enabled")
                 inputs = [
                     prompt,
                     negative_prompt,
@@ -884,7 +888,7 @@ def create_sampling_ui(model_config):
                 send_to_init_button.click(
                     fn=lambda audio: audio,
                     inputs=[audio_output],
-                    outputs=[degraded_audio_input],
+                    outputs=[degraded_audio],
                 )
             else:
                 send_to_init_button = gr.Button("Send to init audio", scale=1)
