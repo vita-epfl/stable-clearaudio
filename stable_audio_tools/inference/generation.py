@@ -106,7 +106,7 @@ def generate_diffusion_cond(
         seed: int = -1,
         device: str = "cuda",
         init_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
-        degraded_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
+        # degraded_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
         init_noise_level: float = 1.0,
         return_latents = False,
         **sampler_kwargs
@@ -136,7 +136,7 @@ def generate_diffusion_cond(
     LOG.debug(f"  sample_size: {sample_size}, sample_rate: {sample_rate}, seed: {seed}")
     LOG.debug(f"  device: {device}, init_noise_level: {init_noise_level}")
     LOG.debug(f"  init_audio present: {init_audio is not None}")
-    LOG.debug(f"  degraded_audio present: {degraded_audio is not None}")
+    # LOG.debug(f"  degraded_audio present: {degraded_audio is not None}")
     LOG.debug(f"  conditioning present: {conditioning is not None}")
     LOG.debug(f"  conditioning_tensors present: {conditioning_tensors is not None}")
 
@@ -170,65 +170,112 @@ def generate_diffusion_cond(
     LOG.debug("Checking and preparing conditioning tensors")
     if conditioning_tensors is None:
         LOG.debug(f"Computing conditioning_tensors from conditioning dictionary: {conditioning}")
-        conditioning_tensors = model.conditioner(conditioning, device)
-        LOG.debug(f"Generated conditioning_tensors with keys: {list(conditioning_tensors.keys()) if conditioning_tensors else 'None'}")
-
-    # # For audio restoration, if a degraded audio path is provided, use it as initial input
-    # degraded_latent = None
-    # if degraded_audio is not None and model.pretransform is not None:
-    #     LOG.debug("Processing degraded audio for restoration")
-    #     degraded_sr, degraded_audio_tensor = degraded_audio
+        # Check if degraded_audio is in the conditioning and log its details
+        if conditioning and any('degraded_audio' in cond for cond in conditioning):
+            LOG.debug("Found 'degraded_audio' in conditioning dictionary")
+            for i, cond in enumerate(conditioning):
+                if 'degraded_audio' in cond:
+                    degraded = cond['degraded_audio']
+                    LOG.debug(f"degraded_audio in conditioning[{i}]: shape={degraded.shape if isinstance(degraded, torch.Tensor) else 'not a tensor'}, type={type(degraded)}, device={degraded.device if isinstance(degraded, torch.Tensor) else 'N/A'}")
+        else:
+            LOG.debug("WARNING: 'degraded_audio' NOT found in conditioning dictionary!")
+            
+        # Log input_concat_ids from model config
+        input_concat_ids = model.input_concat_ids if hasattr(model, 'input_concat_ids') else []
+        LOG.debug(f"Model input_concat_ids: {input_concat_ids}")
         
-    #     LOG.debug(f"Degraded audio info - SR: {degraded_sr}, Tensor shape: {degraded_audio_tensor.shape}, dtype: {degraded_audio_tensor.dtype}")
+        # Process the conditioning with detailed logging
+        LOG.debug("Calling model.conditioner to generate conditioning_tensors")
+        conditioning_tensors = model.conditioner(conditioning, device)
+        LOG.debug(f"Generated conditioning_tensors with keys: {list(conditioning_tensors.keys()) if conditioning_tensors else 'None'}")        
+        
+        # Verify if degraded_audio made it into the conditioning_tensors
+        if 'degraded_audio' in conditioning_tensors:
+            tensor, mask = conditioning_tensors['degraded_audio']
+            LOG.debug(f"degraded_audio in conditioning_tensors: tensor.shape={tensor.shape}, tensor.dtype={tensor.dtype}, tensor.device={tensor.device}")
+            LOG.debug(f"degraded_audio mask: shape={mask.shape}, dtype={mask.dtype}, device={mask.device}, all_true={mask.all().item()}")
+            LOG.debug(f"degraded_audio tensor stats: min={tensor.min().item()}, max={tensor.max().item()}, mean={tensor.mean().item()}, std={tensor.std().item()}")
+        else:
+            LOG.debug("WARNING: 'degraded_audio' NOT found in conditioning_tensors after conditioning!")
 
-    #     # Prepare the degraded audio for use by the model
-    #     LOG.debug(f"Preparing degraded audio - target SR: {model.sample_rate}, target length: {audio_sample_size}, target channels: {model.pretransform.io_channels}")
-    #     degraded_audio = prepare_audio(
-    #         degraded_audio_tensor,
-    #         in_sr=degraded_sr,
-    #         target_sr=model.sample_rate,
-    #         target_length=audio_sample_size,
-    #         target_channels=model.pretransform.io_channels,
-    #         device=device,
-    #     )
-    #     LOG.debug(f"Prepared degraded audio shape: {degraded_audio.shape}")
+    # Add critical logging about the model's configuration for restoration
+    if hasattr(model, 'input_concat_ids'):
+        LOG.debug(f"[CRITICAL] Model input_concat_ids: {model.input_concat_ids}")
+        if 'degraded_audio' in model.input_concat_ids:
+            LOG.debug("[CRITICAL] This model expects degraded_audio as input concat")
+            LOG.debug(f"[CRITICAL] conditioning has 'degraded_audio': {'degraded_audio' in conditioning[0] if conditioning and len(conditioning) > 0 else False}")
+    
+    # For audio restoration, if a degraded_audio is in conditioning, we need to potentially process it
+    degraded_latent = None
+    if conditioning and any('degraded_audio' in cond for cond in conditioning) and model.pretransform is not None:
+        LOG.debug("[CRITICAL] Processing degraded_audio from conditioning for restoration")
+        for i, cond in enumerate(conditioning):
+            if 'degraded_audio' in cond:
+                degraded_audio_tensor = cond['degraded_audio']
+                LOG.debug(f"[CRITICAL] Found degraded_audio in conditioning[{i}]: {type(degraded_audio_tensor)}")
+                
+                if hasattr(model, 'pretransform') and model.pretransform is not None:
+                    LOG.debug("[CRITICAL] Model has pretransform, will encode degraded_audio")
+                    with torch.no_grad():
+                        if isinstance(degraded_audio_tensor, torch.Tensor):
+                            # Check if we need to convert mono to stereo
+                            LOG.debug(f"[CRITICAL] Original degraded_audio shape: {degraded_audio_tensor.shape}, device: {degraded_audio_tensor.device}")
+                            
+                            # Move tensor to the device of the model
+                            model_device = next(model.parameters()).device
+                            LOG.debug(f"[CRITICAL] Moving tensor from {degraded_audio_tensor.device} to {model_device}")
+                            degraded_audio_tensor = degraded_audio_tensor.to(model_device)
+                            
+                            if degraded_audio_tensor.dim() == 2:  # [batch, samples]
+                                # Convert to [batch, channels, samples]
+                                degraded_audio_tensor = degraded_audio_tensor.unsqueeze(1)
+                                LOG.debug(f"[CRITICAL] Added channel dimension: {degraded_audio_tensor.shape}")
+                            
+                            # Check if we need 2 channels (stereo) and we only have 1 (mono)
+                            if degraded_audio_tensor.shape[1] == 1 and model.pretransform.io_channels == 2:
+                                LOG.debug(f"[CRITICAL] Converting mono to stereo by duplicating channel")
+                                # Duplicate the mono channel to create stereo
+                                degraded_audio_tensor = degraded_audio_tensor.repeat(1, 2, 1)
+                                LOG.debug(f"[CRITICAL] After stereo conversion: {degraded_audio_tensor.shape}, device: {degraded_audio_tensor.device}")
+                            
+                            # Now encode the properly shaped tensor
+                            degraded_latent = model.pretransform.encode(degraded_audio_tensor)
+                            LOG.debug(f"[CRITICAL] Encoded degraded latent shape: {degraded_latent.shape}")
 
-    #     # Encode the degraded audio into latents
-    #     LOG.debug("Encoding degraded audio into latents")
-    #     with torch.no_grad():
-    #         degraded_latent = model.pretransform.encode(degraded_audio)
-    #     LOG.debug(f"Encoded degraded latent shape: {degraded_latent.shape}")
+                            # Repeat to match the batch size if needed
+                            if degraded_latent.shape[0] != batch_size:
+                                degraded_latent = degraded_latent.repeat(batch_size, 1, 1)
+                                LOG.debug(f"[CRITICAL] Repeated degraded latent to batch size {batch_size}, new shape: {degraded_latent.shape}")
+                            
+                            # Check if we need this latent in the conditioning tensors
+                            if 'degraded_latent' in model.input_concat_ids if hasattr(model, 'input_concat_ids') else []:
+                                LOG.debug("[CRITICAL] Adding degraded_latent to conditioning_tensors")
+                                conditioning_tensors['degraded_latent'] = (
+                                    degraded_latent,
+                                    torch.ones(
+                                        degraded_latent.shape[0],
+                                        degraded_latent.shape[2],
+                                        device=degraded_latent.device,
+                                    ).bool(),
+                                )
 
-    #     # Repeat to match the batch size
-    #     degraded_latent = degraded_latent.repeat(batch_size, 1, 1)
-    #     LOG.debug(f"Repeated degraded latent to batch size {batch_size}, new shape: {degraded_latent.shape}")
-
-    #     # Add the degraded latent to the conditioning tensors using the correct key
-    #     if "degraded_latent" not in conditioning_tensors:
-    #         LOG.debug("Adding degraded latent to conditioning tensors with key 'degraded_latent'")
-    #         print("Adding degraded latent to conditioning tensors")
-    #         conditioning_tensors["degraded_latent"] = (
-    #             degraded_latent,
-    #             torch.ones(
-    #                 degraded_latent.shape[0],
-    #                 degraded_latent.shape[2],
-    #                 device=degraded_latent.device,
-    #             ).bool(),
-    #         )
-    #     else:
-    #         # Optionnel : Gérer le cas où la clé existe déjà (écrasement probable)
-    #         LOG.debug("Warning: 'degraded_latent' key already present in conditioning_tensors. Overwriting.")
-    #         print("Warning: 'degraded_latent' key already present in conditioning_tensors. Overwriting.")
-    #         conditioning_tensors["degraded_latent"] = (
-    #             degraded_latent,
-    #             torch.ones(
-    #                 degraded_latent.shape[0],
-    #                 degraded_latent.shape[2],
-    #                 device=degraded_latent.device,
-    #             ).bool(),
-    #         )
-
-    conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
+    LOG.debug("Calling model.get_conditioning_inputs to process conditioning_tensors")
+    try:
+        conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
+        LOG.debug(f"Got conditioning_inputs with keys: {list(conditioning_inputs.keys())}")
+        
+        # Log details about each conditioning input
+        for key, value in conditioning_inputs.items():
+            if isinstance(value, torch.Tensor):
+                LOG.debug(f"conditioning_input[{key}]: shape={value.shape}, dtype={value.dtype}, device={value.device}")
+                LOG.debug(f"conditioning_input[{key}] stats: min={value.min().item()}, max={value.max().item()}, mean={value.mean().item()}, std={value.std().item() if value.numel() > 1 else 0}")
+            else:
+                LOG.debug(f"conditioning_input[{key}] is not a tensor: {type(value)}")
+    except Exception as e:
+        LOG.error(f"Error in model.get_conditioning_inputs: {e}")
+        import traceback
+        LOG.error(traceback.format_exc())
+        raise
 
     if negative_conditioning is not None or negative_conditioning_tensors is not None:
         
@@ -264,6 +311,27 @@ def generate_diffusion_cond(
     noise = noise.type(model_dtype)
     conditioning_inputs = {k: v.type(model_dtype) if v is not None else v for k, v in conditioning_inputs.items()}
     LOG.debug(f"Preparing to run sampling with sampler_type: {sampler_kwargs.get('sampler_type', 'k-diffusion')}")
+    
+    # Get the diffusion objective before logging it
+    diff_objective = model.diffusion_objective
+    
+    # Log the sampling parameters in detail
+    LOG.debug(f"Sampling parameters: {sampler_kwargs}")
+    LOG.debug(f"CFG scale: {cfg_scale}")
+    LOG.debug(f"Initial noise shape: {noise.shape}, dtype: {noise.dtype}, device: {noise.device}")
+    LOG.debug(f"Init_audio status: {'Present' if init_audio is not None else 'None'}, sigma_max: {sampler_kwargs.get('sigma_max', 'default')}")
+    LOG.debug(f"Diffusion objective: {diff_objective}")
+    
+    # Check model sampling method
+    forward_method = getattr(model.model, 'forward', None)
+    LOG.debug(f"Model forward method: {'exists' if forward_method else 'missing'}, signature: {str(forward_method).split('(')[0] if forward_method else 'N/A'}")
+    
+    # Check model input concat
+    if hasattr(model, 'input_concat'):
+        LOG.debug(f"Model has input_concat method: {model.input_concat.__name__ if callable(model.input_concat) else type(model.input_concat)}")
+    else:
+        LOG.debug("Model does not have input_concat attribute")
+        
     # Now the generative AI part:
     # k-diffusion denoising process go!
 
@@ -271,7 +339,22 @@ def generate_diffusion_cond(
 
     if diff_objective == "v":    
         # k-diffusion denoising process go!
-        sampled = sample_k(model.model, noise, init_audio, steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
+        LOG.debug("Starting k-diffusion sampling process")
+        try:
+            # Log what gets passed to sample_k
+            LOG.debug(f"sample_k arguments: model={type(model.model).__name__}, noise.shape={noise.shape}, init_audio={'provided' if init_audio is not None else 'None'}, steps={steps}")
+            LOG.debug(f"sample_k conditioning_inputs keys: {list(conditioning_inputs.keys())}")
+            LOG.debug(f"sample_k negative_conditioning_tensors keys: {list(negative_conditioning_tensors.keys())}")
+            
+            sampled = sample_k(model.model, noise, init_audio, steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
+            
+            LOG.debug(f"Sampling completed successfully, sampled.shape: {sampled.shape}, dtype: {sampled.dtype}, device: {sampled.device}")
+            LOG.debug(f"Sampled stats: min={sampled.min().item()}, max={sampled.max().item()}, mean={sampled.mean().item()}, std={sampled.std().item()}")
+        except Exception as e:
+            LOG.error(f"Error during k-diffusion sampling: {e}")
+            import traceback
+            LOG.error(traceback.format_exc())
+            raise
     elif diff_objective == "rectified_flow":
 
         if "sigma_min" in sampler_kwargs:
@@ -292,6 +375,18 @@ def generate_diffusion_cond(
     # If this is latent diffusion, decode latents back into audio
     if model.pretransform is not None and not return_latents:
         LOG.debug("Decoding sampled latents with pretransform")
+        LOG.debug(f"Pre-decode sampled.shape: {sampled.shape}, dtype: {sampled.dtype}, device: {sampled.device}")
+        LOG.debug(f"Pre-decode sampled stats: min={sampled.min().item()}, max={sampled.max().item()}, mean={sampled.mean().item()}, std={sampled.std().item()}")
+        LOG.debug(f"Using pretransform: {type(model.pretransform).__name__}")
+        
+        # Log detailed model configuration for restoration models
+        if hasattr(model, 'input_concat_ids') and 'degraded_audio' in model.input_concat_ids:
+            LOG.debug("This is a restoration model with degraded_audio in input_concat_ids")
+            LOG.debug(f"Model input_concat method: {model.input_concat.__name__ if hasattr(model, 'input_concat') and callable(model.input_concat) else 'not available'}")
+            LOG.debug(f"Model architecture: {type(model.model).__name__}")
+            if hasattr(model, 'model') and hasattr(model.model, 'concat_keys'):
+                LOG.debug(f"Model concat_keys: {model.model.concat_keys}")
+        
         with torch.no_grad():
             sampled = model.pretransform.decode(sampled)
         LOG.debug(f"Decoded audio shape: {sampled.shape}")
