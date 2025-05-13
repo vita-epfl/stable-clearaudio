@@ -233,24 +233,42 @@ def generate_cond(
 
     # If inpainting, send mask args
     # This will definitely change in the future
+    LOG.debug("Preparing to call generation function based on model type")
+    LOG.debug(f"Model type: {model_type}")
+    LOG.debug(f"Generate args: {generate_args.keys()}")
+    
     if model_type == "diffusion_cond":
+        LOG.debug("Calling generate_diffusion_cond for audio generation")
         # Do the audio generation
         audio = generate_diffusion_cond(**generate_args)
+        LOG.debug(f"generate_diffusion_cond returned audio - shape: {audio.shape}, dtype: {audio.dtype}")
+        LOG.debug(f"Audio stats: min={audio.min().item():.4f}, max={audio.max().item():.4f}, mean={audio.mean().item():.4f}, std={audio.std().item():.4f}")
 
     elif model_type == "diffusion_cond_inpaint":
+        LOG.debug("Model type is diffusion_cond_inpaint")
         if inpaint_audio is not None:
+            LOG.debug("inpaint_audio provided, preparing mask")
             # Convert mask start and end from percentages to sample indices
             mask_start = int(mask_maskstart * sample_rate)
             mask_end = int(mask_maskend * sample_rate)
+            LOG.debug(f"Mask range: {mask_start} to {mask_end} samples")
 
             inpaint_mask = torch.ones(1, sample_size, device=device)
             inpaint_mask[:, mask_start:mask_end] = 0
+            LOG.debug(f"Created inpaint_mask - shape: {inpaint_mask.shape}, min: {inpaint_mask.min().item()}, max: {inpaint_mask.max().item()}")
 
             generate_args.update(
                 {"inpaint_audio": inpaint_audio, "inpaint_mask": inpaint_mask}
             )
+            LOG.debug("Updated generate_args with inpaint_audio and inpaint_mask")
 
+        LOG.debug("Calling generate_diffusion_cond_inpaint")
         audio = generate_diffusion_cond_inpaint(**generate_args)
+        LOG.debug(f"generate_diffusion_cond_inpaint returned audio - shape: {audio.shape}, dtype: {audio.dtype}")
+        LOG.debug(f"Audio stats: min={audio.min().item():.4f}, max={audio.max().item():.4f}, mean={audio.mean().item():.4f}, std={audio.std().item():.4f}")
+    
+    LOG.debug("Generation completed")
+
 
     # Filenaming convention
     prompt_condensed = condense_prompt(prompt)
@@ -365,12 +383,20 @@ def generate_cond_restoration(
     degraded_audio=None,
     batch_size=1,
 ):
+    LOG.debug("========== GENERATE_COND_RESTORATION CALLED ==========")
     LOG.debug("Starting generate_cond_restoration with parameters:")
     LOG.debug(f"  steps: {steps}, preview_every: {preview_every}, seed: {seed}")
     LOG.debug(f"  sampler_type: {sampler_type}, sigma_min: {sigma_min}, sigma_max: {sigma_max}")
     LOG.debug(f"  rho: {rho}, cfg_rescale: {cfg_rescale}, file_format: {file_format}")
     LOG.debug(f"  file_naming: {file_naming}, batch_size: {batch_size}")
     LOG.debug(f"  degraded_audio provided: {degraded_audio is not None}")
+    LOG.debug(f"  init_audio provided: {init_audio is not None}")
+    
+    # Log model information
+    LOG.debug(f"Model type: {type(model)}, model diffusion objective: {model.diffusion_objective if hasattr(model, 'diffusion_objective') else 'unknown'}")
+    if hasattr(model, 'input_concat_ids'):
+        LOG.debug(f"Model input_concat_ids: {model.input_concat_ids}")
+    
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     gc.collect()
@@ -382,18 +408,26 @@ def generate_cond_restoration(
 
     # Get the device from the model
     device = next(model.parameters()).device
+    LOG.debug(f"Using device: {device}")
 
     seed = int(seed)
     # if seed is -1, define the seed value now, randomly, so we can save it in the filename
     if seed == -1:
         seed = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
+    LOG.debug(f"Using seed: {seed}")
 
     input_sample_size = sample_size
+    LOG.debug(f"Initial input_sample_size: {input_sample_size}")
 
     if degraded_audio is not None:
-        LOG.debug("Degraded audio provided for conditioning")
+        LOG.debug("Degraded audio provided for conditioning - DETAILED PROCESSING LOGS FOLLOW:")
         in_sr, degraded_audio = degraded_audio
         LOG.debug(f"Degraded audio - SR: {in_sr}, shape: {degraded_audio.shape if hasattr(degraded_audio, 'shape') else 'unknown'}, type: {type(degraded_audio)}, dtype: {degraded_audio.dtype if hasattr(degraded_audio, 'dtype') else 'unknown'}")
+        if hasattr(degraded_audio, 'shape') and degraded_audio.size > 0:
+            if isinstance(degraded_audio, np.ndarray):
+                LOG.debug(f"Degraded audio stats (numpy) - min: {degraded_audio.min()}, max: {degraded_audio.max()}, mean: {degraded_audio.mean()}, std: {degraded_audio.std()}")
+            elif isinstance(degraded_audio, torch.Tensor):
+                LOG.debug(f"Degraded audio stats (torch) - min: {degraded_audio.min().item()}, max: {degraded_audio.max().item()}, mean: {degraded_audio.mean().item()}, std: {degraded_audio.std().item()}")
 
         if degraded_audio.dtype == np.float32:
             LOG.debug("Converting float32 numpy array to torch tensor")
@@ -418,7 +452,8 @@ def generate_cond_restoration(
         elif degraded_audio.dim() == 2:
             LOG.debug("Transposing 2D audio from [n, 2] to [2, n]")
             degraded_audio = degraded_audio.transpose(0, 1)  # [n, 2] -> [2, n]
-        LOG.debug(f"Reshaped degraded_audio tensor shape: {degraded_audio.shape}")
+        LOG.debug(f"Reshaped degraded_audio tensor shape: {degraded_audio.shape}, dtype: {degraded_audio.dtype}")
+        LOG.debug(f"Reshaped degraded_audio stats - min: {degraded_audio.min().item()}, max: {degraded_audio.max().item()}, mean: {degraded_audio.mean().item()}, std: {degraded_audio.std().item()}")
 
         if in_sr != sample_rate:
             LOG.debug(f"Resampling audio from {in_sr}Hz to {sample_rate}Hz")
@@ -429,6 +464,7 @@ def generate_cond_restoration(
             )
             degraded_audio = resample_tf(degraded_audio)
             LOG.debug(f"Resampled degraded_audio shape: {degraded_audio.shape}")
+            LOG.debug(f"Resampled degraded_audio stats - min: {degraded_audio.min().item()}, max: {degraded_audio.max().item()}, mean: {degraded_audio.mean().item()}, std: {degraded_audio.std().item()}")
 
         audio_length = degraded_audio.shape[-1]
         LOG.debug(f"Audio length: {audio_length}, sample_size: {sample_size}")
@@ -438,14 +474,23 @@ def generate_cond_restoration(
             # input_sample_size = audio_length + (model.min_input_length - (audio_length % model.min_input_length)) % model.min_input_length
             degraded_audio = degraded_audio[:, :sample_size]
             LOG.debug(f"Truncated degraded_audio shape: {degraded_audio.shape}")
+            LOG.debug(f"Truncated degraded_audio stats - min: {degraded_audio.min().item()}, max: {degraded_audio.max().item()}, mean: {degraded_audio.mean().item()}, std: {degraded_audio.std().item()}")
 
         degraded_audio = (sample_rate, degraded_audio)
-        LOG.debug(f"Final degraded_audio tuple created: SR={sample_rate}, tensor.shape={degraded_audio[1].shape}")
+        LOG.debug(f"Final degraded_audio tuple created: SR={sample_rate}, tensor.shape={degraded_audio[1].shape}, dtype={degraded_audio[1].dtype}")
+        LOG.debug(f"Final degraded_audio tensor stats - min: {degraded_audio[1].min().item()}, max: {degraded_audio[1].max().item()}, mean: {degraded_audio[1].mean().item()}, std: {degraded_audio[1].std().item()}")
 
+    LOG.debug("Creating conditioning dictionary")
     conditioning_dict = {
-        "degraded_audio": degraded_audio[1],
+        "degraded_audio": degraded_audio[1] if degraded_audio is not None else None,
     }
+    LOG.debug(f"Conditioning dict keys: {conditioning_dict.keys()}")
+    for key, value in conditioning_dict.items():
+        if value is not None and hasattr(value, 'shape'):
+            LOG.debug(f"Conditioning dict '{key}' - shape: {value.shape}, dtype: {value.dtype}, device: {value.device}")
+            LOG.debug(f"Conditioning dict '{key}' stats - min: {value.min().item()}, max: {value.max().item()}, mean: {value.mean().item()}, std: {value.std().item()}")
 
+    LOG.debug(f"Creating conditioning list with {batch_size} copies of conditioning_dict")
     conditioning = [conditioning_dict] * batch_size
 
     def progress_callback(callback_info):

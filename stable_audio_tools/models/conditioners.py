@@ -504,7 +504,8 @@ class PretransformConditioner(Conditioner):
     """
     def __init__(self, pretransform: Pretransform, output_dim: int, save_pretransform: bool = False):
         super().__init__(pretransform.encoded_channels, output_dim)
-
+        import logging
+        self.LOG = logging.getLogger(__name__)
 
         if not save_pretransform:
             self.__dict__["pretransform"] = pretransform
@@ -513,28 +514,38 @@ class PretransformConditioner(Conditioner):
         
 
     def forward(self, audio: tp.Union[torch.Tensor, tp.List[torch.Tensor], tp.Tuple[torch.Tensor]], device: tp.Union[torch.device, str]) -> tp.Tuple[torch.Tensor, torch.Tensor]:
+        self.LOG.debug(f"[PretransformConditioner] Forward called with audio type: {type(audio)}")
 
         self.pretransform.to(device)
         self.proj_out.to(device)
 
         if isinstance(audio[0], str):
             import torchaudio
+            self.LOG.debug(f"[PretransformConditioner] Loading audio from path: {audio[0]}")
             audio, _ = torchaudio.load(audio[0])
         elif isinstance(audio, list) or isinstance(audio, tuple):
+            self.LOG.debug(f"[PretransformConditioner] Converting list/tuple to tensor, length: {len(audio)}")
             audio = torch.stack(audio, dim=0)
 
         # Add batch dimension if needed
         if audio.dim() == 2:
+            self.LOG.debug(f"[PretransformConditioner] Adding batch dimension to audio")
             audio = audio.unsqueeze(0)
 
+        self.LOG.debug(f"[PretransformConditioner] Audio before channel conversion - shape: {audio.shape}, dtype: {audio.dtype}, min: {audio.min().item():.4f}, max: {audio.max().item():.4f}, mean: {audio.mean().item():.4f}, std: {audio.std().item():.4f}")
+        
         # Convert audio to pretransform input channels
         audio = set_audio_channels(audio, self.pretransform.io_channels)
+        self.LOG.debug(f"[PretransformConditioner] Audio after channel conversion - shape: {audio.shape}, channels: {self.pretransform.io_channels}")
 
         audio = audio.to(device)
+        self.LOG.debug(f"[PretransformConditioner] Audio before encoding - shape: {audio.shape}, dtype: {audio.dtype}, device: {audio.device}, min: {audio.min().item():.4f}, max: {audio.max().item():.4f}, mean: {audio.mean().item():.4f}, std: {audio.std().item():.4f}")
         
         latents = self.pretransform.encode(audio)
+        self.LOG.debug(f"[PretransformConditioner] Latents after encoding - shape: {latents.shape}, min: {latents.min().item():.4f}, max: {latents.max().item():.4f}, mean: {latents.mean().item():.4f}, std: {latents.std().item():.4f}")
 
         latents = self.proj_out(latents)
+        self.LOG.debug(f"[PretransformConditioner] Latents after projection - shape: {latents.shape}, min: {latents.min().item():.4f}, max: {latents.max().item():.4f}, mean: {latents.mean().item():.4f}, std: {latents.std().item():.4f}")
 
         return [latents, torch.ones(latents.shape[0], latents.shape[2]).to(latents.device)]
 

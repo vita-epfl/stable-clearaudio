@@ -133,6 +133,19 @@ def generate_diffusion_cond(
         return_latents: Whether to return the latents used for generation instead of the decoded audio.
         **sampler_kwargs: Additional keyword arguments to pass to the sampler.    
     """
+    LOG.debug("========== GENERATE_DIFFUSION_COND CALLED ==========")
+    LOG.debug(f"Parameters: steps={steps}, cfg_scale={cfg_scale}, batch_size={batch_size}, sample_size={sample_size}")
+    LOG.debug(f"init_audio provided: {init_audio is not None}, init_noise_level: {init_noise_level}")
+    LOG.debug(f"conditioning provided: {conditioning is not None}, conditioning_tensors provided: {conditioning_tensors is not None}")
+    LOG.debug(f"negative_conditioning provided: {negative_conditioning is not None}, negative_conditioning_tensors provided: {negative_conditioning_tensors is not None}")
+    
+    if conditioning is not None:
+        LOG.debug(f"Conditioning keys: {list(conditioning[0].keys()) if isinstance(conditioning, list) else list(conditioning.keys())}")
+        if isinstance(conditioning, list) and 'degraded_audio' in conditioning[0]:
+            degraded = conditioning[0]['degraded_audio']
+            LOG.debug(f"Degraded audio in conditioning - shape: {degraded.shape if hasattr(degraded, 'shape') else 'unknown'}, type: {type(degraded)}, dtype: {degraded.dtype if hasattr(degraded, 'dtype') else 'unknown'}")
+            if hasattr(degraded, 'shape'):
+                LOG.debug(f"Degraded audio stats - min: {degraded.min().item() if degraded.numel() > 0 else 'N/A'}, max: {degraded.max().item() if degraded.numel() > 0 else 'N/A'}, mean: {degraded.mean().item() if degraded.numel() > 0 else 'N/A'}, std: {degraded.std().item() if degraded.numel() > 0 else 'N/A'}")
 
     # The length of the output in audio samples
     audio_sample_size = sample_size
@@ -140,15 +153,18 @@ def generate_diffusion_cond(
     # If this is latent diffusion, change sample_size instead to the downsampled latent size
     if model.pretransform is not None:
         sample_size = sample_size // model.pretransform.downsampling_ratio
+        LOG.debug(f"Using latent diffusion, adjusted sample_size to {sample_size} (downsampling ratio: {model.pretransform.downsampling_ratio})")
 
     # Seed
     # The user can explicitly set the seed to deterministically generate the same output. Otherwise, use a random seed.
     seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
+    LOG.debug(f"Using seed: {seed}")
     print(seed)
     torch.manual_seed(seed)
 
     # Define the initial noise immediately after setting the seed
     noise = torch.randn([batch_size, model.io_channels, sample_size], device=device)
+    LOG.debug(f"Generated initial noise - shape: {noise.shape}, device: {noise.device}")
 
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
@@ -162,42 +178,62 @@ def generate_diffusion_cond(
     if conditioning_tensors is None:
         LOG.debug("Conditioning tensors not provided, computing them now")
         conditioning_tensors = model.conditioner(conditioning, device)
+        LOG.debug(f"Computed conditioning_tensors - keys: {list(conditioning_tensors.keys())}, sizes: {[(k, [t.shape for t in v] if isinstance(v, list) else v.shape) for k, v in conditioning_tensors.items()]}")
 
+    LOG.debug("Getting conditioning inputs from tensors")
     conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
+    LOG.debug(f"Conditioning inputs - keys: {list(conditioning_inputs.keys())}, sizes: {[(k, v.shape if hasattr(v, 'shape') else 'N/A') for k, v in conditioning_inputs.items()]}")
 
     if negative_conditioning is not None or negative_conditioning_tensors is not None:
-        
+        LOG.debug("Processing negative conditioning")
         if negative_conditioning_tensors is None:
+            LOG.debug("Computing negative conditioning tensors")
             negative_conditioning_tensors = model.conditioner(negative_conditioning, device)
+            LOG.debug(f"Computed negative_conditioning_tensors - keys: {list(negative_conditioning_tensors.keys())}")
             
         negative_conditioning_tensors = model.get_conditioning_inputs(negative_conditioning_tensors, negative=True)
+        LOG.debug(f"Negative conditioning inputs - keys: {list(negative_conditioning_tensors.keys())}")
     else:
+        LOG.debug("No negative conditioning provided")
         negative_conditioning_tensors = {}
 
     if init_audio is not None:
+        LOG.debug("Processing init_audio")
         # The user supplied some initial audio (for inpainting or variation). Let us prepare the input audio.
         in_sr, init_audio = init_audio
+        LOG.debug(f"Initial audio - SR: {in_sr}, shape: {init_audio.shape if hasattr(init_audio, 'shape') else 'unknown'}, type: {type(init_audio)}, dtype: {init_audio.dtype if hasattr(init_audio, 'dtype') else 'unknown'}")
 
         io_channels = model.io_channels
+        LOG.debug(f"Model io_channels: {io_channels}")
 
         # For latent models, set the io_channels to the autoencoder's io_channels
         if model.pretransform is not None:
             io_channels = model.pretransform.io_channels
+            LOG.debug(f"Using pretransform io_channels: {io_channels}")
 
         # Prepare the initial audio for use by the model
+        LOG.debug("Preparing initial audio")
         init_audio = prepare_audio(init_audio, in_sr=in_sr, target_sr=model.sample_rate, target_length=audio_sample_size, target_channels=io_channels, device=device)
+        LOG.debug(f"Prepared init_audio - shape: {init_audio.shape}, min: {init_audio.min().item():.4f}, max: {init_audio.max().item():.4f}, mean: {init_audio.mean().item():.4f}")
 
         # For latent models, encode the initial audio into latents
         if model.pretransform is not None:
+            LOG.debug("Encoding initial audio with pretransform")
             init_audio = model.pretransform.encode(init_audio)
+            LOG.debug(f"Encoded init_audio - shape: {init_audio.shape}, min: {init_audio.min().item():.4f}, max: {init_audio.max().item():.4f}, mean: {init_audio.mean().item():.4f}")
 
         init_audio = init_audio.repeat(batch_size, 1, 1)
+        LOG.debug(f"Final init_audio after batch repeat - shape: {init_audio.shape}")
 
-        sampler_kwargs["sigma_max"] = init_noise_level        
+        sampler_kwargs["sigma_max"] = init_noise_level
+        LOG.debug(f"Set sigma_max to init_noise_level: {init_noise_level}")
 
+    # Convert to model dtype
     model_dtype = next(model.model.parameters()).dtype
+    LOG.debug(f"Model dtype: {model_dtype}")
     noise = noise.type(model_dtype)
-    conditioning_inputs = {k: v.type(model_dtype) if v is not None else v for k, v in conditioning_inputs.items()}
+    LOG.debug("Converting conditioning inputs to model dtype")
+    conditioning_inputs = {k: v.type(model_dtype) if v is not None and hasattr(v, 'type') else v for k, v in conditioning_inputs.items()}
     # Now the generative AI part:
     # k-diffusion denoising process go!
 
@@ -387,22 +423,42 @@ def generate_diffusion_cond_inpaint(
     # k-diffusion denoising process go!
 
     diff_objective = model.diffusion_objective
+    LOG.debug(f"Diffusion objective: {diff_objective}")
+    LOG.debug(f"Sampler kwargs: {sampler_kwargs}")
+
+    # Log input_concat_ids to understand what gets concatenated in the model
+    if hasattr(model, 'input_concat_ids'):
+        LOG.debug(f"Model input_concat_ids: {model.input_concat_ids}")
+
+    # Debug conditioning inputs before sampling
+    for k, v in conditioning_inputs.items():
+        if hasattr(v, 'shape'):
+            LOG.debug(f"Conditioning input '{k}' shape: {v.shape}, dtype: {v.dtype}, min: {v.min().item():.4f}, max: {v.max().item():.4f}, mean: {v.mean().item():.4f}")
+        else:
+            LOG.debug(f"Conditioning input '{k}' is not a tensor")
 
     if diff_objective == "v":    
+        LOG.debug("Starting k-diffusion sampling process (sample_k)")
         # k-diffusion denoising process go!
         sampled = sample_k(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
+        LOG.debug(f"sample_k completed - output shape: {sampled.shape}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
     elif diff_objective == "rectified_flow":
+        LOG.debug("Starting rectified flow sampling process (sample_rf)")
 
         if "sigma_min" in sampler_kwargs:
+            LOG.debug(f"Removing sigma_min={sampler_kwargs['sigma_min']} from sampler_kwargs for RF sampling")
             del sampler_kwargs["sigma_min"]
 
         if "rho" in sampler_kwargs:
+            LOG.debug(f"Removing rho={sampler_kwargs['rho']} from sampler_kwargs for RF sampling")
             del sampler_kwargs["rho"]
 
         sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
+        LOG.debug(f"sample_rf completed - output shape: {sampled.shape}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
 
     # v-diffusion: 
     #sampled = sample(model.model, noise, steps, 0, **conditioning_tensors, embedding_scale=cfg_scale)
+    LOG.debug("Sampling completed, cleaning up")
     del noise
     del conditioning_tensors
     del conditioning_inputs
@@ -410,11 +466,16 @@ def generate_diffusion_cond_inpaint(
     # Denoising process done. 
     # If this is latent diffusion, decode latents back into audio
     if model.pretransform is not None and not return_latents:
+        LOG.debug("Decoding latents to audio with pretransform")
         #cast sampled latents to pretransform dtype
         sampled = sampled.to(next(model.pretransform.parameters()).dtype)
+        LOG.debug(f"Latents before decoding - shape: {sampled.shape}, dtype: {sampled.dtype}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
         sampled = model.pretransform.decode(sampled)
+        LOG.debug(f"Decoded audio - shape: {sampled.shape}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
 
     # Return audio
+    LOG.debug(f"Final output - shape: {sampled.shape}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
+    LOG.debug("========== GENERATE_DIFFUSION_COND COMPLETED ==========")
     return sampled
 
 
