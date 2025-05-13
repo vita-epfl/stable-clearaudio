@@ -9,6 +9,13 @@ from .utils import prepare_audio
 from .sampling import sample, sample_k, sample_rf
 from ..data.utils import PadCrop
 
+import logging
+LOG = logging.getLogger(__name__)
+# handler
+LOG.addHandler(logging.StreamHandler())
+LOG.setLevel(logging.DEBUG)
+
+
 def generate_diffusion_uncond(
         model,
         steps: int = 250,
@@ -153,6 +160,7 @@ def generate_diffusion_cond(
         "Must provide either conditioning or conditioning_tensors"
     )
     if conditioning_tensors is None:
+        LOG.debug("Conditioning tensors not provided, computing them now")
         conditioning_tensors = model.conditioner(conditioning, device)
 
     conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
