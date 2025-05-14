@@ -139,6 +139,16 @@ def generate_diffusion_cond(
     LOG.debug(f"conditioning provided: {conditioning is not None}, conditioning_tensors provided: {conditioning_tensors is not None}")
     LOG.debug(f"negative_conditioning provided: {negative_conditioning is not None}, negative_conditioning_tensors provided: {negative_conditioning_tensors is not None}")
     
+    # Vérifier si le modèle a des attributs input_concat_ids et diffusion
+    LOG.debug(f"Model has attribute input_concat_ids: {hasattr(model, 'input_concat_ids')}")
+    if hasattr(model, 'input_concat_ids'):
+        LOG.debug(f"Model input_concat_ids: {model.input_concat_ids}")
+    LOG.debug(f"Model has attribute diffusion: {hasattr(model, 'diffusion')}")
+    if hasattr(model, 'diffusion'):
+        LOG.debug(f"Model diffusion has input_concat_ids: {hasattr(model.diffusion, 'input_concat_ids')}")
+        if hasattr(model.diffusion, 'input_concat_ids'):
+            LOG.debug(f"Model diffusion input_concat_ids: {model.diffusion.input_concat_ids}")
+    
     if conditioning is not None:
         LOG.debug(f"Conditioning keys: {list(conditioning[0].keys()) if isinstance(conditioning, list) else list(conditioning.keys())}")
         if isinstance(conditioning, list) and 'degraded_audio' in conditioning[0]:
@@ -146,6 +156,12 @@ def generate_diffusion_cond(
             LOG.debug(f"Degraded audio in conditioning - shape: {degraded.shape if hasattr(degraded, 'shape') else 'unknown'}, type: {type(degraded)}, dtype: {degraded.dtype if hasattr(degraded, 'dtype') else 'unknown'}")
             if hasattr(degraded, 'shape'):
                 LOG.debug(f"Degraded audio stats - min: {degraded.min().item() if degraded.numel() > 0 else 'N/A'}, max: {degraded.max().item() if degraded.numel() > 0 else 'N/A'}, mean: {degraded.mean().item() if degraded.numel() > 0 else 'N/A'}, std: {degraded.std().item() if degraded.numel() > 0 else 'N/A'}")
+            
+            # S'assurer que l'audio dégradé est bien un tensor et non un tuple
+            if isinstance(degraded, tuple) and len(degraded) == 2:
+                LOG.debug(f"Degraded audio is a tuple, extracting tensor part")
+                # Extraire le tensor de l'audio du tuple (sample_rate, audio_tensor)
+                conditioning[0]['degraded_audio'] = degraded[1]
 
     # The length of the output in audio samples
     audio_sample_size = sample_size
@@ -177,11 +193,34 @@ def generate_diffusion_cond(
     )
     if conditioning_tensors is None:
         LOG.debug("Conditioning tensors not provided, computing them now")
-        conditioning_tensors = model.conditioner(conditioning, device)
+        
+        # Vérifier si nous avons déjà des latents encodés pour degraded_audio
+        if isinstance(conditioning, list) and len(conditioning) > 0 and 'degraded_audio' in conditioning[0]:
+            degraded_audio = conditioning[0]['degraded_audio']
+            
+            # Si l'audio dégradé a déjà la taille attendue des latents, c'est probablement déjà encodé
+            if hasattr(model, 'input_concat_ids') and 'degraded_audio' in model.input_concat_ids and hasattr(degraded_audio, 'shape'):
+                expected_latent_size = sample_size
+                LOG.debug(f"Checking if degraded_audio is already encoded: shape={degraded_audio.shape[-1]}, expected={expected_latent_size}")
+                
+                if degraded_audio.shape[-1] == expected_latent_size:
+                    LOG.debug("Degraded audio appears to be already encoded, using directly")
+                    # Créer directement le tensor de conditionnement
+                    conditioning_tensors = {'degraded_audio': [degraded_audio, torch.ones(degraded_audio.shape[0], degraded_audio.shape[-1]).to(device)]}
+                else:
+                    LOG.debug("Degraded audio needs encoding by conditioner")
+                    conditioning_tensors = model.conditioner(conditioning, device)
+            else:
+                conditioning_tensors = model.conditioner(conditioning, device)
+        else:
+            conditioning_tensors = model.conditioner(conditioning, device)
+            
         LOG.debug(f"Computed conditioning_tensors - keys: {list(conditioning_tensors.keys())}, sizes: {[(k, [t.shape for t in v] if isinstance(v, list) else v.shape) for k, v in conditioning_tensors.items()]}")
+
 
     LOG.debug("Getting conditioning inputs from tensors")
     conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
+    conditioning_inputs["input_concat_cond"] = conditioning_inputs["input_concat_cond"][:, :, :sample_size]
     LOG.debug(f"Conditioning inputs - keys: {list(conditioning_inputs.keys())}, sizes: {[(k, v.shape if hasattr(v, 'shape') else 'N/A') for k, v in conditioning_inputs.items()]}")
 
     if negative_conditioning is not None or negative_conditioning_tensors is not None:
@@ -233,17 +272,18 @@ def generate_diffusion_cond(
     LOG.debug(f"Model dtype: {model_dtype}")
     noise = noise.type(model_dtype)
     LOG.debug("Converting conditioning inputs to model dtype")
-    conditioning_inputs = {k: v.type(model_dtype) if v is not None and hasattr(v, 'type') else v for k, v in conditioning_inputs.items()}
+    # conditioning_inputs = {k: v.type(model_dtype) if v is not None and hasattr(v, 'type') else v for k, v in conditioning_inputs.items()}
     # Now the generative AI part:
     # k-diffusion denoising process go!
 
     diff_objective = model.diffusion_objective
 
     if diff_objective == "v":    
+        LOG.debug("Using v-diffusion")
         # k-diffusion denoising process go!
-        sampled = sample_k(model.model, noise, init_audio, steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
+        sampled = sample(model.model, noise, steps, 0, **conditioning_inputs, cfg_scale=cfg_scale, dist_shift=model.dist_shift, batch_cfg=True)
     elif diff_objective == "rectified_flow":
-
+        LOG.debug("Using rectified flow")
         if "sigma_min" in sampler_kwargs:
             del sampler_kwargs["sigma_min"]
 
