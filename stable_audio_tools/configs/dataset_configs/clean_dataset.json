@@ -4,7 +4,7 @@
         {
             "id": "my_audio",
             "path": "/path/to/clean/audio/dataset/",
-            "custom_metadata_module": "./custom_metadata/custom_md_degraded_audio.py"
+            "custom_metadata_module": "./custom_metadata/precomputed_degraded_audio_md.py"
         }
     ],
     "random_crop": true
