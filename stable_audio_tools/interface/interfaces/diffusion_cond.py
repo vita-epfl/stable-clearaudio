@@ -831,7 +831,7 @@ def create_sampling_ui(model_config):
                 )
 
             if is_audio_restoration:
-                LOG.debug("Audio restoration mode enabled")
+                LOG.info("Audio restoration mode enabled")
                 inputs = [
                         steps_slider,
                         preview_every_slider,
@@ -847,13 +847,12 @@ def create_sampling_ui(model_config):
                         clean_audio,
                     ]
             else:
-                LOG.debug("Default generation mode enabled")
+                LOG.info("Default generation mode enabled")
                 inputs = [
                     prompt,
                     negative_prompt,
                     seconds_start_slider,
                     seconds_total_slider,
-                    cfg_scale_slider,
                     steps_slider,
                     preview_every_slider,
                     seed_textbox,

@@ -509,42 +509,25 @@ def generate_diffusion_cond_inpaint(
     # k-diffusion denoising process go!
 
     diff_objective = model.diffusion_objective
-    LOG.debug(f"Diffusion objective: {diff_objective}")
-    LOG.debug(f"Sampler kwargs: {sampler_kwargs}")
 
-    # Log input_concat_ids to understand what gets concatenated in the model
-    if hasattr(model, 'input_concat_ids'):
-        LOG.debug(f"Model input_concat_ids: {model.input_concat_ids}")
 
-    # Debug conditioning inputs before sampling
-    for k, v in conditioning_inputs.items():
-        if hasattr(v, 'shape'):
-            LOG.debug(f"Conditioning input '{k}' shape: {v.shape}, dtype: {v.dtype}, min: {v.min().item():.4f}, max: {v.max().item():.4f}, mean: {v.mean().item():.4f}")
-        else:
-            LOG.debug(f"Conditioning input '{k}' is not a tensor")
 
     if diff_objective == "v":    
-        LOG.debug("Starting k-diffusion sampling process (sample_k)")
         # k-diffusion denoising process go!
         sampled = sample_k(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
-        LOG.debug(f"sample_k completed - output shape: {sampled.shape}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
     elif diff_objective == "rectified_flow":
-        LOG.debug("Starting rectified flow sampling process (sample_rf)")
 
         if "sigma_min" in sampler_kwargs:
-            LOG.debug(f"Removing sigma_min={sampler_kwargs['sigma_min']} from sampler_kwargs for RF sampling")
             del sampler_kwargs["sigma_min"]
 
         if "rho" in sampler_kwargs:
-            LOG.debug(f"Removing rho={sampler_kwargs['rho']} from sampler_kwargs for RF sampling")
             del sampler_kwargs["rho"]
 
         sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
-        LOG.debug(f"sample_rf completed - output shape: {sampled.shape}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
 
     # v-diffusion: 
     #sampled = sample(model.model, noise, steps, 0, **conditioning_tensors, embedding_scale=cfg_scale)
-    LOG.debug("Sampling completed, cleaning up")
+    LOG.info("Sampling completed, cleaning up")
     del noise
     del conditioning_tensors
     del conditioning_inputs
@@ -552,16 +535,10 @@ def generate_diffusion_cond_inpaint(
     # Denoising process done. 
     # If this is latent diffusion, decode latents back into audio
     if model.pretransform is not None and not return_latents:
-        LOG.debug("Decoding latents to audio with pretransform")
         #cast sampled latents to pretransform dtype
         sampled = sampled.to(next(model.pretransform.parameters()).dtype)
-        LOG.debug(f"Latents before decoding - shape: {sampled.shape}, dtype: {sampled.dtype}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
         sampled = model.pretransform.decode(sampled)
-        LOG.debug(f"Decoded audio - shape: {sampled.shape}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
 
-    # Return audio
-    LOG.debug(f"Final output - shape: {sampled.shape}, min: {sampled.min().item():.4f}, max: {sampled.max().item():.4f}, mean: {sampled.mean().item():.4f}")
-    LOG.debug("========== GENERATE_DIFFUSION_COND COMPLETED ==========")
     return sampled
 
 
