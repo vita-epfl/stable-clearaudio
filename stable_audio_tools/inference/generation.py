@@ -141,54 +141,26 @@ def generate_diffusion_cond(
         return_latents: Whether to return the latents used for generation instead of the decoded audio.
         **sampler_kwargs: Additional keyword arguments to pass to the sampler.    
     """
-    LOG.debug("========== GENERATE_DIFFUSION_COND CALLED ==========")
-    LOG.debug(f"Parameters: steps={steps}, cfg_scale={cfg_scale}, batch_size={batch_size}, sample_size={sample_size}")
-    LOG.debug(f"init_audio provided: {init_audio is not None}, init_noise_level: {init_noise_level}")
-    LOG.debug(f"conditioning provided: {conditioning is not None}, conditioning_tensors provided: {conditioning_tensors is not None}")
-    LOG.debug(f"negative_conditioning provided: {negative_conditioning is not None}, negative_conditioning_tensors provided: {negative_conditioning_tensors is not None}")
+    LOG.info("Starting audio generation")
     
-    # Vérifier si le modèle a des attributs input_concat_ids et diffusion
-    LOG.debug(f"Model has attribute input_concat_ids: {hasattr(model, 'input_concat_ids')}")
-    if hasattr(model, 'input_concat_ids'):
-        LOG.debug(f"Model input_concat_ids: {model.input_concat_ids}")
-    LOG.debug(f"Model has attribute diffusion: {hasattr(model, 'diffusion')}")
-    if hasattr(model, 'diffusion'):
-        LOG.debug(f"Model diffusion has input_concat_ids: {hasattr(model.diffusion, 'input_concat_ids')}")
-        if hasattr(model.diffusion, 'input_concat_ids'):
-            LOG.debug(f"Model diffusion input_concat_ids: {model.diffusion.input_concat_ids}")
+    # Initialize metrics dictionary
+    metrics_dict = {}
     
-    if conditioning is not None:
-        LOG.debug(f"Conditioning keys: {list(conditioning[0].keys()) if isinstance(conditioning, list) else list(conditioning.keys())}")
-        if isinstance(conditioning, list) and 'degraded_audio' in conditioning[0]:
-            degraded = conditioning[0]['degraded_audio']
-            LOG.debug(f"Degraded audio in conditioning - shape: {degraded.shape if hasattr(degraded, 'shape') else 'unknown'}, type: {type(degraded)}, dtype: {degraded.dtype if hasattr(degraded, 'dtype') else 'unknown'}")
-            if hasattr(degraded, 'shape'):
-                LOG.debug(f"Degraded audio stats - min: {degraded.min().item() if degraded.numel() > 0 else 'N/A'}, max: {degraded.max().item() if degraded.numel() > 0 else 'N/A'}, mean: {degraded.mean().item() if degraded.numel() > 0 else 'N/A'}, std: {degraded.std().item() if degraded.numel() > 0 else 'N/A'}")
-            
-            # S'assurer que l'audio dégradé est bien un tensor et non un tuple
-            if isinstance(degraded, tuple) and len(degraded) == 2:
-                LOG.debug(f"Degraded audio is a tuple, extracting tensor part")
-                # Extraire le tensor de l'audio du tuple (sample_rate, audio_tensor)
-                conditioning[0]['degraded_audio'] = degraded[1]
-
     # The length of the output in audio samples
     audio_sample_size = sample_size
 
     # If this is latent diffusion, change sample_size instead to the downsampled latent size
     if model.pretransform is not None:
         sample_size = sample_size // model.pretransform.downsampling_ratio
-        LOG.debug(f"Using latent diffusion, adjusted sample_size to {sample_size} (downsampling ratio: {model.pretransform.downsampling_ratio})")
+        LOG.info(f"Using latent diffusion, adjusted sample_size to {sample_size}")
 
     # Seed
-    # The user can explicitly set the seed to deterministically generate the same output. Otherwise, use a random seed.
     seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
-    LOG.debug(f"Using seed: {seed}")
-    print(seed)
+    LOG.info(f"Using seed: {seed}")
     torch.manual_seed(seed)
 
-    # Define the initial noise immediately after setting the seed
+    # Define the initial noise
     noise = torch.randn([batch_size, model.io_channels, sample_size], device=device)
-    LOG.debug(f"Generated initial noise - shape: {noise.shape}, device: {noise.device}")
 
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
@@ -200,123 +172,77 @@ def generate_diffusion_cond(
         "Must provide either conditioning or conditioning_tensors"
     )
     if conditioning_tensors is None:
-        LOG.debug("Conditioning tensors not provided, computing them now")
-        
-        # Vérifier si nous avons déjà des latents encodés pour degraded_audio
         if isinstance(conditioning, list) and len(conditioning) > 0 and 'degraded_audio' in conditioning[0]:
             degraded_audio = conditioning[0]['degraded_audio']
             
-            # Si l'audio dégradé a déjà la taille attendue des latents, c'est probablement déjà encodé
             if hasattr(model, 'input_concat_ids') and 'degraded_audio' in model.input_concat_ids and hasattr(degraded_audio, 'shape'):
                 expected_latent_size = sample_size
-                LOG.debug(f"Checking if degraded_audio is already encoded: shape={degraded_audio.shape[-1]}, expected={expected_latent_size}")
                 
                 if degraded_audio.shape[-1] == expected_latent_size:
-                    LOG.debug("Degraded audio appears to be already encoded, using directly")
-                    # Créer directement le tensor de conditionnement
                     conditioning_tensors = {'degraded_audio': [degraded_audio, torch.ones(degraded_audio.shape[0], degraded_audio.shape[-1]).to(device)]}
                 else:
-                    LOG.debug("Degraded audio needs encoding by conditioner")
                     conditioning_tensors = model.conditioner(conditioning, device)
             else:
                 conditioning_tensors = model.conditioner(conditioning, device)
         else:
             conditioning_tensors = model.conditioner(conditioning, device)
-            
-        LOG.debug(f"Computed conditioning_tensors - keys: {list(conditioning_tensors.keys())}, sizes: {[(k, [t.shape for t in v] if isinstance(v, list) else v.shape) for k, v in conditioning_tensors.items()]}")
 
-
-    LOG.debug("Getting conditioning inputs from tensors")
     conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
     conditioning_inputs["input_concat_cond"] = conditioning_inputs["input_concat_cond"][:, :, :sample_size]
-    LOG.debug(f"Conditioning inputs - keys: {list(conditioning_inputs.keys())}, sizes: {[(k, v.shape if hasattr(v, 'shape') else 'N/A') for k, v in conditioning_inputs.items()]}")
 
     if negative_conditioning is not None or negative_conditioning_tensors is not None:
-        LOG.debug("Processing negative conditioning")
         if negative_conditioning_tensors is None:
-            LOG.debug("Computing negative conditioning tensors")
             negative_conditioning_tensors = model.conditioner(negative_conditioning, device)
-            LOG.debug(f"Computed negative_conditioning_tensors - keys: {list(negative_conditioning_tensors.keys())}")
-            
         negative_conditioning_tensors = model.get_conditioning_inputs(negative_conditioning_tensors, negative=True)
-        LOG.debug(f"Negative conditioning inputs - keys: {list(negative_conditioning_tensors.keys())}")
     else:
-        LOG.debug("No negative conditioning provided")
         negative_conditioning_tensors = {}
 
     if init_audio is not None:
-        LOG.debug("Processing init_audio")
-        # The user supplied some initial audio (for inpainting or variation). Let us prepare the input audio.
         in_sr, init_audio = init_audio
-        LOG.debug(f"Initial audio - SR: {in_sr}, shape: {init_audio.shape if hasattr(init_audio, 'shape') else 'unknown'}, type: {type(init_audio)}, dtype: {init_audio.dtype if hasattr(init_audio, 'dtype') else 'unknown'}")
-
         io_channels = model.io_channels
-        LOG.debug(f"Model io_channels: {io_channels}")
 
-        # For latent models, set the io_channels to the autoencoder's io_channels
         if model.pretransform is not None:
             io_channels = model.pretransform.io_channels
-            LOG.debug(f"Using pretransform io_channels: {io_channels}")
 
-        # Prepare the initial audio for use by the model
-        LOG.debug("Preparing initial audio")
         init_audio = prepare_audio(init_audio, in_sr=in_sr, target_sr=model.sample_rate, target_length=audio_sample_size, target_channels=io_channels, device=device)
-        LOG.debug(f"Prepared init_audio - shape: {init_audio.shape}, min: {init_audio.min().item():.4f}, max: {init_audio.max().item():.4f}, mean: {init_audio.mean().item():.4f}")
 
-        # For latent models, encode the initial audio into latents
         if model.pretransform is not None:
-            LOG.debug("Encoding initial audio with pretransform")
             init_audio = model.pretransform.encode(init_audio)
-            LOG.debug(f"Encoded init_audio - shape: {init_audio.shape}, min: {init_audio.min().item():.4f}, max: {init_audio.max().item():.4f}, mean: {init_audio.mean().item():.4f}")
 
         init_audio = init_audio.repeat(batch_size, 1, 1)
-        LOG.debug(f"Final init_audio after batch repeat - shape: {init_audio.shape}")
-
         sampler_kwargs["sigma_max"] = init_noise_level
-        LOG.debug(f"Set sigma_max to init_noise_level: {init_noise_level}")
 
     # Convert to model dtype
     model_dtype = next(model.model.parameters()).dtype
-    LOG.debug(f"Model dtype: {model_dtype}")
     noise = noise.type(model_dtype)
-    LOG.debug("Converting conditioning inputs to model dtype")
-    # conditioning_inputs = {k: v.type(model_dtype) if v is not None and hasattr(v, 'type') else v for k, v in conditioning_inputs.items()}
-    # Now the generative AI part:
-    # k-diffusion denoising process go!
 
+    # Generate audio
     diff_objective = model.diffusion_objective
+    LOG.info(f"Using diffusion objective: {diff_objective}")
 
     if diff_objective == "v":    
-        LOG.debug("Using v-diffusion")
-        # k-diffusion denoising process go!
         sampled = sample(model.model, noise, steps, 0, **conditioning_inputs, cfg_scale=cfg_scale, dist_shift=model.dist_shift, batch_cfg=True)
     elif diff_objective == "rectified_flow":
-        LOG.debug("Using rectified flow")
         if "sigma_min" in sampler_kwargs:
             del sampler_kwargs["sigma_min"]
-
         if "rho" in sampler_kwargs:
             del sampler_kwargs["rho"]
-
         sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, dist_shift=model.dist_shift, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
 
-    # v-diffusion: 
-    #sampled = sample(model.model, noise, steps, 0, **conditioning_tensors, embedding_scale=cfg_scale)
+    # Cleanup
     del noise
     del conditioning_tensors
     del conditioning_inputs
     torch.cuda.empty_cache()
-    # Denoising process done. 
-    # If this is latent diffusion, decode latents back into audio
+
+    # Decode latents if needed
     if model.pretransform is not None and not return_latents:
-        #cast sampled latents to pretransform dtype
         sampled = sampled.to(next(model.pretransform.parameters()).dtype)
         sampled = model.pretransform.decode(sampled)
 
-
-    # After sampling and before returning, calculate metrics if clean audio is provided
+    # Calculate metrics if clean audio is provided
     if clean_audio is not None and not return_latents:
-        LOG.debug("Calculating metrics between generated and clean audio")
+        LOG.info("Calculating metrics between generated and clean audio")
     
         from ..training.losses.metrics import (
             LogSpectralDistance,
@@ -327,7 +253,6 @@ def generate_diffusion_cond(
             MelDistance
         )
         
-        # Initialize metrics
         metrics = {
             'lsd': LogSpectralDistance().to(device),
             'ltas': LTASDistance().to(device),
@@ -337,8 +262,6 @@ def generate_diffusion_cond(
             'mel': MelDistance(sample_rate=model.sample_rate).to(device)
         }
         
-        # Calculate metrics
-        metrics_dict = {}
         clean_audio_tensor = clean_audio[1].unsqueeze(0).to(device)
         clean_audio_latent = model.pretransform.encode(clean_audio_tensor)
         clean_audio_tensor = model.pretransform.decode(clean_audio_latent)
@@ -351,7 +274,7 @@ def generate_diffusion_cond(
             LOG.info(f"Metric {name} (generated vs clean): {metrics_dict[f'demo_{name}']}")
 
         # Calculate metrics between degraded and clean audio if degraded audio is available
-        LOG.debug("Calculating metrics between degraded and clean audio")
+        LOG.info("Calculating metrics between degraded and clean audio")
         degraded_audio_tensor = degraded_audio.unsqueeze(0).to(device)
         degraded_audio_latent = model.pretransform.encode(degraded_audio_tensor)
         degraded_audio_tensor = model.pretransform.decode(degraded_audio_latent)
@@ -365,7 +288,7 @@ def generate_diffusion_cond(
             # Create date-based directory structure
             current_date = time.strftime("%Y-%m-%d")
             current_time = time.strftime("%H-%M-%S")
-            output_dir = os.path.join("stable_audio_tools/output", current_date)
+            output_dir = os.path.join("stable_audio_tools\output", current_date)
             os.makedirs(output_dir, exist_ok=True)
             
             # Create a subdirectory for this specific generation

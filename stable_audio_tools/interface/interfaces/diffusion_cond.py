@@ -406,22 +406,11 @@ def generate_cond_restoration(
     clean_audio=None,
     batch_size=1,
 ):
-    LOG.debug("========== GENERATE_COND_RESTORATION CALLED ==========")
-    LOG.debug("Starting generate_cond_restoration with parameters:")
-    LOG.debug(f"  steps: {steps}, preview_every: {preview_every}, seed: {seed}")
-    LOG.debug(f"  sampler_type: {sampler_type}, sigma_min: {sigma_min}, sigma_max: {sigma_max}")
-    LOG.debug(f"  rho: {rho}, cfg_rescale: {cfg_rescale}, file_format: {file_format}")
-    LOG.debug(f"  file_naming: {file_naming}, batch_size: {batch_size}")
-    LOG.debug(f"  degraded_audio provided: {degraded_audio is not None}")
-    LOG.debug(f"  clean_audio provided: {clean_audio is not None}")
+    LOG.info("Starting audio restoration")
     
     # Initialize metrics dictionary
     metrics_dict = {}
-    
-    # Log model information
-    LOG.debug(f"Model type: {type(model)}, model diffusion objective: {model.diffusion_objective if hasattr(model, 'diffusion_objective') else 'unknown'}")
-    if hasattr(model, 'input_concat_ids'):
-        LOG.debug(f"Model input_concat_ids: {model.input_concat_ids}")
+
     
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -434,114 +423,75 @@ def generate_cond_restoration(
 
     # Get the device from the model
     device = next(model.parameters()).device
-    LOG.debug(f"Using device: {device}")
 
     seed = int(seed)
     # if seed is -1, define the seed value now, randomly, so we can save it in the filename
     if seed == -1:
         seed = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
-    LOG.debug(f"Using seed: {seed}")
+    LOG.info(f"Using seed: {seed}")
 
     input_sample_size = sample_size
-    LOG.debug(f"Initial input_sample_size: {input_sample_size}")
 
     if degraded_audio is not None:
-        LOG.debug("Degraded audio provided for conditioning - DETAILED PROCESSING LOGS FOLLOW:")
         in_sr, degraded_audio = degraded_audio
-        LOG.debug(f"Degraded audio - SR: {in_sr}, shape: {degraded_audio.shape if hasattr(degraded_audio, 'shape') else 'unknown'}, type: {type(degraded_audio)}, dtype: {degraded_audio.dtype if hasattr(degraded_audio, 'dtype') else 'unknown'}")
-        if hasattr(degraded_audio, 'shape') and degraded_audio.size > 0:
-            if isinstance(degraded_audio, np.ndarray):
-                LOG.debug(f"Degraded audio stats (numpy) - min: {degraded_audio.min()}, max: {degraded_audio.max()}, mean: {degraded_audio.mean()}, std: {degraded_audio.std()}")
-            elif isinstance(degraded_audio, torch.Tensor):
-                LOG.debug(f"Degraded audio stats (torch) - min: {degraded_audio.min().item()}, max: {degraded_audio.max().item()}, mean: {degraded_audio.mean().item()}, std: {degraded_audio.std().item()}")
 
         if degraded_audio.dtype == np.float32:
-            LOG.debug("Converting float32 numpy array to torch tensor")
             degraded_audio = torch.from_numpy(degraded_audio)
         elif degraded_audio.dtype == np.int16:
-            LOG.debug("Converting int16 numpy array to normalized float torch tensor")
             degraded_audio = torch.from_numpy(degraded_audio).float().div(32767)
         elif degraded_audio.dtype == np.int32:
-            LOG.debug("Converting int32 numpy array to normalized float torch tensor")
             degraded_audio = torch.from_numpy(degraded_audio).float().div(2147483647)
         else:
-            LOG.debug(f"Unsupported audio data type: {degraded_audio.dtype}")
             raise ValueError(f"Unsupported audio data type: {degraded_audio.dtype}")
 
         if model_half:
-            LOG.debug("Converting audio to float16 to match model precision")
             degraded_audio = degraded_audio.to(torch.float16)
 
         if degraded_audio.dim() == 1:
-            LOG.debug("Reshaping 1D audio to [1, n]")
-            degraded_audio = degraded_audio.unsqueeze(0)  # [1, n]
+            degraded_audio = degraded_audio.unsqueeze(0)
         elif degraded_audio.dim() == 2:
-            LOG.debug("Transposing 2D audio from [n, 2] to [2, n]")
-            degraded_audio = degraded_audio.transpose(0, 1)  # [n, 2] -> [2, n]
-        LOG.debug(f"Reshaped degraded_audio tensor shape: {degraded_audio.shape}, dtype: {degraded_audio.dtype}")
-        LOG.debug(f"Reshaped degraded_audio stats - min: {degraded_audio.min().item()}, max: {degraded_audio.max().item()}, mean: {degraded_audio.mean().item()}, std: {degraded_audio.std().item()}")
+            degraded_audio = degraded_audio.transpose(0, 1)
 
         if in_sr != sample_rate:
-            LOG.debug(f"Resampling audio from {in_sr}Hz to {sample_rate}Hz")
             resample_tf = (
                 T.Resample(in_sr, sample_rate)
                 .to(degraded_audio.device)
                 .to(degraded_audio.dtype)
             )
             degraded_audio = resample_tf(degraded_audio)
-            LOG.debug(f"Resampled degraded_audio shape: {degraded_audio.shape}")
-            LOG.debug(f"Resampled degraded_audio stats - min: {degraded_audio.min().item()}, max: {degraded_audio.max().item()}, mean: {degraded_audio.mean().item()}, std: {degraded_audio.std().item()}")
 
         audio_length = degraded_audio.shape[-1]
-        LOG.debug(f"Audio length: {audio_length}, sample_size: {sample_size}")
 
         if audio_length > sample_size:
-            LOG.debug(f"Audio too long ({audio_length} > {sample_size}), truncating to sample_size")
-            # input_sample_size = audio_length + (model.min_input_length - (audio_length % model.min_input_length)) % model.min_input_length
             degraded_audio = degraded_audio[:, :sample_size]
-            LOG.debug(f"Truncated degraded_audio shape: {degraded_audio.shape}")
-            LOG.debug(f"Truncated degraded_audio stats - min: {degraded_audio.min().item()}, max: {degraded_audio.max().item()}, mean: {degraded_audio.mean().item()}, std: {degraded_audio.std().item()}")
 
         if degraded_audio.shape[0] == 1:
             degraded_audio = degraded_audio.repeat(2, 1)
-            LOG.info(f"Size of degraded_audio: {degraded_audio.shape}")
         
         degraded_audio = (sample_rate, degraded_audio)
-        LOG.debug(f"Final degraded_audio tuple created: SR={sample_rate}, tensor.shape={degraded_audio[1].shape}, dtype={degraded_audio[1].dtype}")
-        LOG.debug(f"Final degraded_audio tensor stats - min: {degraded_audio[1].min().item()}, max: {degraded_audio[1].max().item()}, mean: {degraded_audio[1].mean().item()}, std: {degraded_audio[1].std().item()}")
 
     # Handle clean audio if provided
     if clean_audio is not None:
-        LOG.debug("Clean audio provided for metrics - DETAILED PROCESSING LOGS FOLLOW:")
         in_sr, clean_audio = clean_audio
-        LOG.debug(f"Clean audio - SR: {in_sr}, shape: {clean_audio.shape if hasattr(clean_audio, 'shape') else 'unknown'}, type: {type(clean_audio)}, dtype: {clean_audio.dtype if hasattr(clean_audio, 'dtype') else 'unknown'}")
         
         if clean_audio.dtype == np.float32:
-            LOG.debug("Converting float32 numpy array to torch tensor")
             clean_audio = torch.from_numpy(clean_audio)
         elif clean_audio.dtype == np.int16:
-            LOG.debug("Converting int16 numpy array to normalized float torch tensor")
             clean_audio = torch.from_numpy(clean_audio).float().div(32767)
         elif clean_audio.dtype == np.int32:
-            LOG.debug("Converting int32 numpy array to normalized float torch tensor")
             clean_audio = torch.from_numpy(clean_audio).float().div(2147483647)
         else:
-            LOG.debug(f"Unsupported audio data type: {clean_audio.dtype}")
             raise ValueError(f"Unsupported audio data type: {clean_audio.dtype}")
 
         if model_half:
-            LOG.debug("Converting audio to float16 to match model precision")
             clean_audio = clean_audio.to(torch.float16)
 
         if clean_audio.dim() == 1:
-            LOG.debug("Reshaping 1D audio to [1, n]")
-            clean_audio = clean_audio.unsqueeze(0)  # [1, n]
+            clean_audio = clean_audio.unsqueeze(0)
         elif clean_audio.dim() == 2:
-            LOG.debug("Transposing 2D audio from [n, 2] to [2, n]")
-            clean_audio = clean_audio.transpose(0, 1)  # [n, 2] -> [2, n]
+            clean_audio = clean_audio.transpose(0, 1)
 
         if in_sr != sample_rate:
-            LOG.debug(f"Resampling audio from {in_sr}Hz to {sample_rate}Hz")
             resample_tf = (
                 T.Resample(in_sr, sample_rate)
                 .to(clean_audio.device)
@@ -551,28 +501,16 @@ def generate_cond_restoration(
 
         audio_length = clean_audio.shape[-1]
         if audio_length > sample_size:
-            LOG.debug(f"Audio too long ({audio_length} > {sample_size}), truncating to sample_size")
             clean_audio = clean_audio[:, :sample_size]
         
-        # Repeat the tensor to make it stereo
         if clean_audio.shape[0] == 1:
             clean_audio = clean_audio.repeat(2, 1)
-        LOG.info(f"Size of clean_audio: {clean_audio.shape}")
         
         clean_audio = (sample_rate, clean_audio)
-        LOG.debug(f"Final clean_audio tuple created: SR={sample_rate}, tensor.shape={clean_audio[1].shape}, dtype={clean_audio[1].dtype}")
 
-    LOG.debug("Creating conditioning dictionary")
     conditioning_dict = {
         "degraded_audio": degraded_audio[1] if degraded_audio is not None else None,
     }
-    LOG.debug(f"Conditioning dict keys: {conditioning_dict.keys()}")
-    for key, value in conditioning_dict.items():
-        if value is not None and hasattr(value, 'shape'):
-            LOG.debug(f"Conditioning dict '{key}' - shape: {value.shape}, dtype: {value.dtype}, device: {value.device}")
-            LOG.debug(f"Conditioning dict '{key}' stats - min: {value.min().item()}, max: {value.max().item()}, mean: {value.mean().item()}, std: {value.std().item()}")
-
-    LOG.debug(f"Creating conditioning list with {batch_size} copies of conditioning_dict")
     conditioning = [conditioning_dict] * batch_size
 
     def progress_callback(callback_info):
@@ -609,48 +547,32 @@ def generate_cond_restoration(
         "rho": rho,
         "clean_audio": clean_audio,
     }
-    LOG.debug("Prepared generate_args dictionary with keys:")
-    for key, value in generate_args.items():
-        if key not in ["model", "callback", "init_audio", "degraded_audio", "clean_audio"]:
-            LOG.debug(f"  {key}: {value}")
-        else:
-            LOG.debug(f"  {key}: {'<function>' if key == 'callback' else '<model object>' if key == 'model' else 'present' if value is not None else 'None'}")
 
     # Do the audio generation
-    LOG.debug("Calling generate_diffusion_cond with prepared arguments")
+    LOG.info("Generating audio")
     audio, metrics_dict = generate_diffusion_cond(**generate_args)
-    LOG.debug(f"Received audio from generate_diffusion_cond with shape: {audio.shape if hasattr(audio, 'shape') else 'unknown'}, type: {type(audio)}")
 
     # simple e.g. "output.wav"
     basename = "output"
-    LOG.debug(f"Using base filename: {basename}")
 
     if file_format:
         filename_extension = file_format.split(" ")[0].lower()
     else:
         filename_extension = "wav"
-    LOG.debug(f"File extension: {filename_extension}")
     output_filename = "%s.%s" % (basename, filename_extension)
     output_wav = "%s.wav" % basename
-    LOG.debug(f"Output filenames - wav: {output_wav}, final: {output_filename}")
 
     # Encode the audio to WAV format
-    LOG.debug(f"Rearranging audio with shape {audio.shape}")
     audio = rearrange(audio, "b d n -> d (b n)")
-    LOG.debug(f"Rearranged audio shape: {audio.shape}")
 
     # Check if the audio tensor is empty before normalization
     if audio.numel() == 0:
-        LOG.debug("Audio tensor is empty, returning None for audio path")
-        # Return None for the audio path, but keep preview images
+        LOG.warning("Generated audio is empty")
         return (None, preview_images, metrics_dict)
 
     # If audio is not empty, proceed with normalization
-    # Adding a small epsilon to prevent division by zero if max(abs(audio)) is zero
     max_abs_val = torch.max(torch.abs(audio))
-    if (
-        max_abs_val > 1e-7
-    ):  # Use a small threshold instead of exact zero for float stability
+    if max_abs_val > 1e-7:
         audio = (
             audio.to(torch.float32)
             .div(max_abs_val)
@@ -660,21 +582,13 @@ def generate_cond_restoration(
             .cpu()
         )
     else:
-        # Handle silence or very near silence: just convert type
         audio = audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
 
-    # save as wav file
-    try:
-        torchaudio.save(output_wav, audio, sample_rate)
-    except Exception as e:
-        print(f"Error saving WAV file {output_wav}: {e}")
-        # If saving fails, return None for the path
-        return (None, preview_images, metrics_dict)
+    
 
     # If file_format is other than wav, convert to other file format
     cmd = ""
     if file_format == "m4a aac_he_v2 32k":
-        # note: need to compile ffmpeg with --enable-libfdk_aac
         cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 32k -y "{output_filename}"'
     elif file_format == "m4a aac_he_v2 64k":
         cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 64k -y "{output_filename}"'
@@ -692,19 +606,18 @@ def generate_cond_restoration(
         cmd += " -loglevel error"  # make output less verbose in the cmd window
         subprocess.run(cmd, shell=True, check=True)
 
-    # Let's look at a nice spectrogram too
+    # Generate spectrogram
     try:
-        # Assuming audio_spectrogram_image can handle int16 tensor
         audio_spectrogram = audio_spectrogram_image(audio, sample_rate=sample_rate)
     except Exception as e:
-        print(f"Warning: Could not generate spectrogram: {e}")
-        audio_spectrogram = None  # Set to None if generation fails
+        LOG.warning(f"Could not generate spectrogram: {e}")
+        audio_spectrogram = None
 
     # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
     if file_naming in ["verbose", "prompt"]:
         delete_files_async([output_wav, output_filename], 30)
 
-    # Return audio, spectrogram, and metrics
+    LOG.info("Audio restoration completed")
     return (output_filename, [audio_spectrogram, *preview_images], metrics_dict)
 
 #  Asynchronously delete the given list of filenames after delay seconds. Sets up thread that sleeps for delay then deletes.
@@ -797,11 +710,6 @@ def create_sampling_ui(model_config):
                 default_steps = 25 if is_audio_restoration else (50 if is_rf else 100)
                 steps_slider = gr.Slider(
                     minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
-                )
-                # CFG scale
-                default_cfg = 1.0 if is_audio_restoration else 7.0
-                cfg_scale_slider = gr.Slider(
-                    minimum=0.0, maximum=25.0, step=0.1, value=default_cfg, label="CFG scale"
                 )
 
             with gr.Accordion("Sampler params", open=False):
@@ -918,15 +826,6 @@ def create_sampling_ui(model_config):
                 with gr.Accordion("Audio Inputs", open=True):
                     degraded_audio = gr.Audio(label="Degraded audio")
                     clean_audio = gr.Audio(label="Clean reference audio (optional)")
-                    min_noise_level = 0.01 if is_rf else 0.1
-                    max_noise_level = 1.0 if is_rf else 100.0
-                    init_noise_level_slider = gr.Slider(
-                        minimum=min_noise_level,
-                        maximum=max_noise_level,
-                        step=0.01,
-                        value=0.1,
-                        label="Init noise level",
-                    )
             else:
                 # Default generation tab
                 with gr.Accordion("Init audio", open=False):
