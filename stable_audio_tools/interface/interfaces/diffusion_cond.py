@@ -210,31 +210,18 @@ def generate_cond(
                 (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
             )
 
-    LOG.debug("Préparation du conditionnement similaire à DiffusionCondDemoCallback")
     
-    # Calculer la taille d'échantillon latent si nécessaire
     demo_samples = input_sample_size
     if model.pretransform is not None:
         demo_samples = demo_samples // model.pretransform.downsampling_ratio
-        LOG.debug(f"Taille d'échantillon ajustée pour l'espace latent: {demo_samples}")
     
-    # IMPORTANT: Pré-traiter les tenseurs de conditionnement comme dans DiffusionCondDemoCallback
-    LOG.debug("Pré-traitement des tenseurs de conditionnement avec model.conditioner")
     conditioning_tensors = model.conditioner(conditioning, device)
-    LOG.debug(f"Tenseurs de conditionnement obtenus - clés: {list(conditioning_tensors.keys())}")
     
-    # Obtenir les entrées de conditionnement
-    LOG.debug("Obtention des entrées de conditionnement")
     cond_inputs = model.get_conditioning_inputs(conditioning_tensors)
-    LOG.debug(f"Entrées de conditionnement - clés: {list(cond_inputs.keys())}")
     
-    # Ajuster la taille de input_concat_cond si nécessaire
     if "input_concat_cond" in cond_inputs and cond_inputs["input_concat_cond"].shape[2] > demo_samples:
-        LOG.debug(f"Troncation de input_concat_cond de {cond_inputs['input_concat_cond'].shape[2]} à {demo_samples}")
         cond_inputs["input_concat_cond"] = cond_inputs["input_concat_cond"][:, :, :demo_samples]
     
-    # Préparer les arguments pour generate_diffusion_cond avec les tenseurs de conditionnement pré-traités
-    # Pour conserver la compatibilité avec le reste du code
     generate_args = {
         "model": model,
         "conditioning_tensors": conditioning_tensors,  # Utiliser les tenseurs pré-traités plutôt que le dictionnaire brut
@@ -256,41 +243,27 @@ def generate_cond(
         "rho": rho,
     }
 
-    LOG.debug("Préparation pour appeler la fonction de génération basée sur le type de modèle")
-    LOG.debug(f"Type de modèle: {model_type}")
-    LOG.debug(f"Arguments pour generate_diffusion_cond: {generate_args.keys()}")
-    
+
     if model_type == "diffusion_cond":
-        LOG.debug("Appel à generate_diffusion_cond avec tenseurs de conditionnement pré-traités")
         # Do the audio generation
         audio = generate_diffusion_cond(**generate_args)
-        LOG.debug(f"generate_diffusion_cond a retourné audio - shape: {audio.shape}, dtype: {audio.dtype}")
-        LOG.debug(f"Statistiques audio: min={audio.min().item():.4f}, max={audio.max().item():.4f}, mean={audio.mean().item():.4f}, std={audio.std().item():.4f}")
 
     elif model_type == "diffusion_cond_inpaint":
-        LOG.debug("Model type is diffusion_cond_inpaint")
         if inpaint_audio is not None:
-            LOG.debug("inpaint_audio provided, preparing mask")
             # Convert mask start and end from percentages to sample indices
             mask_start = int(mask_maskstart * sample_rate)
             mask_end = int(mask_maskend * sample_rate)
-            LOG.debug(f"Mask range: {mask_start} to {mask_end} samples")
 
             inpaint_mask = torch.ones(1, sample_size, device=device)
             inpaint_mask[:, mask_start:mask_end] = 0
-            LOG.debug(f"Created inpaint_mask - shape: {inpaint_mask.shape}, min: {inpaint_mask.min().item()}, max: {inpaint_mask.max().item()}")
 
             generate_args.update(
                 {"inpaint_audio": inpaint_audio, "inpaint_mask": inpaint_mask}
             )
-            LOG.debug("Updated generate_args with inpaint_audio and inpaint_mask")
 
-        LOG.debug("Calling generate_diffusion_cond_inpaint")
         audio = generate_diffusion_cond_inpaint(**generate_args)
-        LOG.debug(f"generate_diffusion_cond_inpaint returned audio - shape: {audio.shape}, dtype: {audio.dtype}")
-        LOG.debug(f"Audio stats: min={audio.min().item():.4f}, max={audio.max().item():.4f}, mean={audio.mean().item():.4f}, std={audio.std().item():.4f}")
     
-    LOG.debug("Generation completed")
+    LOG.info("Generation completed")
 
 
     # Filenaming convention
