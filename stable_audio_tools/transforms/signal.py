@@ -67,7 +67,21 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
         Returns:
             Tensor: The processed audio
         """
-        # path is "/home/alefevre/programs/clearaudio/clearaudio/conf/dataset/low_quality_effect" + effects_file + .yaml
+        # Conversion des chemins relatifs en chemins absolus
+        if low_quality_effects_dir.startswith("/") and not os.path.exists(low_quality_effects_dir):
+            # Obtenir le chemin de base du projet
+            base_path = Path(__file__).resolve().parent.parent.parent
+            
+            if low_quality_effects_dir.startswith("/stable-clearaudio/"):
+                relative_path = low_quality_effects_dir[len("/stable-clearaudio/"):]
+                low_quality_effects_dir = str(base_path / relative_path)
+            elif low_quality_effects_dir.startswith("/stable_audio_tools/"):
+                relative_path = low_quality_effects_dir[len("/stable_audio_tools/"):]
+                low_quality_effects_dir = str(base_path / "stable_audio_tools" / relative_path)
+            
+            LOG.debug(f"Chemin résolu: {low_quality_effects_dir}")
+            
+        # Construire le chemin final
         effects_config_path = os.path.join(
             low_quality_effects_dir,
             effects_file + ".yaml",
