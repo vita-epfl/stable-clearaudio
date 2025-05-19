@@ -19,6 +19,13 @@ from typing import Optional, Callable, List
 
 from .utils import Stereo, Mono, PhaseFlipper, PadCrop_Normalized_T, VolumeNorm
 
+import logging
+
+LOG = logging.getLogger(__name__)
+# handler
+LOG.addHandler(logging.StreamHandler())
+LOG.setLevel(logging.INFO)
+
 AUDIO_KEYS = ("flac", "wav", "mp3", "m4a", "ogg", "opus")
 
 # fast_scandir implementation by Scott Hawley originally in https://github.com/zqevans/audio-diffusion/blob/main/dataset/dataset.py
@@ -136,11 +143,13 @@ class LocalDatasetConfig:
         self,
         id: str,
         path: str,
-        custom_metadata_fn: Optional[Callable[[str], str]] = None
+        custom_metadata_fn: Optional[Callable[[str], str]] = None,
+        custom_metadata_args=None
     ):
         self.id = id
         self.path = path
         self.custom_metadata_fn = custom_metadata_fn
+        self.custom_metadata_args = custom_metadata_args
 
 class SampleDataset(torch.utils.data.Dataset):
     def __init__(
@@ -150,7 +159,8 @@ class SampleDataset(torch.utils.data.Dataset):
         sample_rate=48000, 
         keywords=None, 
         random_crop=True,
-        force_channels="stereo"
+        force_channels="stereo",
+        custom_metadata_args=None
     ):
         super().__init__()
         self.filenames = []
@@ -173,12 +183,16 @@ class SampleDataset(torch.utils.data.Dataset):
         self.sr = sample_rate
 
         self.custom_metadata_fns = {}
+        self.custom_metadata_args_map = {}
 
         for config in configs:
             self.root_paths.append(config.path)
             self.filenames.extend(get_audio_filenames(config.path, keywords))
             if config.custom_metadata_fn is not None:
                 self.custom_metadata_fns[config.path] = config.custom_metadata_fn
+                # Store custom_metadata_args for each path
+                if hasattr(config, 'custom_metadata_args') and config.custom_metadata_args is not None:
+                    self.custom_metadata_args_map[config.path] = config.custom_metadata_args
 
         print(f'Found {len(self.filenames)} files')
 
@@ -240,7 +254,11 @@ class SampleDataset(torch.utils.data.Dataset):
             for custom_md_path in self.custom_metadata_fns.keys():
                 if custom_md_path in audio_filename:
                     custom_metadata_fn = self.custom_metadata_fns[custom_md_path]
-                    custom_metadata = custom_metadata_fn(info, audio)
+                    # Get config-specific args
+                    config_args = self.custom_metadata_args_map.get(custom_md_path, None)
+                    LOG.debug(f"Applying custom metadata function {custom_metadata_fn} to {audio_filename} in class {self.__class__} with args: {config_args}")
+                    # Always pass the config-specific custom_metadata_args
+                    custom_metadata = custom_metadata_fn(info, audio, config_args)
                     info.update(custom_metadata)
 
                 if "__reject__" in info and info["__reject__"]:
@@ -271,19 +289,24 @@ class PreEncodedDataset(torch.utils.data.Dataset):
         min_length_sec=None,
         max_length_sec=None,
         random_crop=False,
-        latent_extension='npy'
+        latent_extension='npy',
+        custom_metadata_args=None
     ):
         super().__init__()
         self.filenames = []
 
         self.custom_metadata_fns = {}
-
+        self.custom_metadata_args_map = {}
+        
         self.latent_extension = latent_extension
 
         for config in configs:
             self.filenames.extend(get_latent_filenames(config.path, [latent_extension]))
             if config.custom_metadata_fn is not None:
                 self.custom_metadata_fns[config.path] = config.custom_metadata_fn
+                # Store custom_metadata_args for each path
+                if hasattr(config, 'custom_metadata_args') and config.custom_metadata_args is not None:
+                    self.custom_metadata_args_map[config.path] = config.custom_metadata_args
 
         self.latent_crop_length = latent_crop_length
         self.random_crop = random_crop
@@ -341,7 +364,11 @@ class PreEncodedDataset(torch.utils.data.Dataset):
             for custom_md_path in self.custom_metadata_fns.keys():
                 if custom_md_path in latent_filename:
                     custom_metadata_fn = self.custom_metadata_fns[custom_md_path]
-                    custom_metadata = custom_metadata_fn(info, None)
+                    # Get config-specific args
+                    config_args = self.custom_metadata_args_map.get(custom_md_path, None)
+                    LOG.debug(f"Applying custom metadata function {custom_metadata_fn} to {latent_filename} in class {self.__class__} with args: {config_args}")
+                    # Always pass the config-specific custom_metadata_args
+                    custom_metadata = custom_metadata_fn(info, None, config_args)
                     info.update(custom_metadata)
 
                 if "__reject__" in info and info["__reject__"]:
@@ -792,7 +819,10 @@ class WebDatasetDataLoader():
                 continue
         
             if dataset.path in sample["__url__"]:
-                custom_metadata = dataset.custom_metadata_fn(sample["json"], audio)
+                LOG.debug(f"Applying custom metadata function {dataset.custom_metadata_fn} to {sample['__url__']} in class {self.__class__}")
+                # Get the dataset's custom metadata args from datasets list
+                custom_metadata_args = getattr(dataset, 'custom_metadata_args', None)
+                custom_metadata = dataset.custom_metadata_fn(sample["json"], audio, custom_metadata_args)
                 sample["json"].update(custom_metadata)
 
         sample["audio"] = audio
@@ -834,11 +864,18 @@ def create_dataloader_from_config(dataset_config, batch_size, sample_size, sampl
 
                 custom_metadata_fn = metadata_module.get_custom_metadata
 
+            LOG.debug(f"Custom metadata function for dataset type {dataset_type}: {custom_metadata_fn}")
+
+            # Extract custom_metadata_args from each dataset config
+            custom_metadata_args = audio_dir_config.get("custom_metadata_args", None)
+            LOG.debug(f"Custom metadata args for dataset {audio_dir_config['id']}: {custom_metadata_args}")
+            
             configs.append(
                 LocalDatasetConfig(
                     id=audio_dir_config["id"],
                     path=audio_dir_path,
-                    custom_metadata_fn=custom_metadata_fn
+                    custom_metadata_fn=custom_metadata_fn,
+                    custom_metadata_args=custom_metadata_args
                 )
             )
 
@@ -847,7 +884,8 @@ def create_dataloader_from_config(dataset_config, batch_size, sample_size, sampl
             sample_rate=sample_rate,
             sample_size=sample_size,
             random_crop=dataset_config.get("random_crop", True),
-            force_channels=force_channels
+            force_channels=force_channels,
+            custom_metadata_args=dataset_config.get("custom_metadata_args", None)
         )
 
         return torch.utils.data.DataLoader(train_set, batch_size, shuffle=shuffle,
@@ -881,6 +919,8 @@ def create_dataloader_from_config(dataset_config, batch_size, sample_size, sampl
 
                 custom_metadata_fn = metadata_module.get_custom_metadata
 
+            LOG.debug(f"Custom metadata function for dataset type {dataset_type}: {custom_metadata_fn}")
+
             configs.append(
                 LocalDatasetConfig(
                     id=pre_encoded_dir_config["id"],
@@ -897,7 +937,8 @@ def create_dataloader_from_config(dataset_config, batch_size, sample_size, sampl
             min_length_sec=min_length_sec, 
             max_length_sec=max_length_sec, 
             random_crop=random_crop, 
-            latent_extension=latent_extension
+            latent_extension=latent_extension,
+            custom_metadata_args=dataset_config.get("custom_metadata_args", None)
         )
 
         return torch.utils.data.DataLoader(train_set, batch_size, shuffle=shuffle,
@@ -917,6 +958,8 @@ def create_dataloader_from_config(dataset_config, batch_size, sample_size, sampl
                 spec.loader.exec_module(metadata_module)                
 
                 custom_metadata_fn = metadata_module.get_custom_metadata
+
+            LOG.debug(f"Custom metadata function for dataset type {dataset_type}: {custom_metadata_fn}")
 
             if "s3_path" in wds_config:
 

@@ -3,7 +3,7 @@ import torch
 import logging
 
 
-def get_custom_metadata(info, audio):
+def get_custom_metadata(info, audio, args=None):
     """
     Maps clean audio files to their corresponding degraded versions.
     
