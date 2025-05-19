@@ -1,0 +1,16 @@
+{
+    "dataset_type": "audio_dir",
+    "datasets": [
+        {
+            "id": "maestro_short",
+            "path": "/mnt/vita/scratch/datasets/maestro_short/clean/",
+            "custom_metadata_module": "stable_audio_tools/configs/dataset_configs/custom_metadata/on_the_fly_degraded_audio_md.py",
+            "custom_metadata_args": {
+                "sox_noises_dir": "/mnt/vita/scratch/datasets/audio_effects/sox_noises",
+                "low_quality_effects_dir": "/stable-clearaudio/stable_audio_tools/configs/dataset_configs/low_quality_effect",
+                "low_quality_effect_files": ["strong_mp3_compression"]
+            }
+        }
+    ],
+    "random_crop": true
+}
