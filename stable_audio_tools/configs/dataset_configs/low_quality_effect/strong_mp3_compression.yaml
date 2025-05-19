@@ -1,0 +1,25 @@
+# @package dataset.low_quality_effect.strong_mp3_compression
+mode: set # Liste des effets spécifiés dans "effects". Peut être random si besoin.
+
+# Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
+transform_type: sox_audio_effect
+
+effects:
+- name: 'strong_mp3_compression'
+  params:
+  - "lowpass 8000" # Extremely restricted frequency cutoff (telephone quality)
+  - "compand 0.001,0.02 15:-90,-70,-30 -15 -90 0.01" # Maximum compression possible
+  - "equalizer 1000 1q 8" # Extreme emphasis on mid frequencies
+  - "equalizer 4000 2q -10" # Severe cut in upper mids
+  - "equalizer 8000 1q -20" # Drastic high frequency attenuation
+  - "pitch -60" # Very pronounced pitch artifacts
+  - "echo 0.9 0.8 30 0.4" # Strong pre-echo artifacts
+  - "bandreject 60 2q" # Filter out some frequencies
+  - "dither -s" # Heavy quantization noise
+  gain: 0.05
+
+external_sounds:  
+  - name: high_frequency_sine
+    sound_path: 
+      - "/mnt/vita/scratch/datasets/audio_effects/sox_noises/sine_2000Hz_to_2000Hz_10s.wav"
+    gain: 0.002  # Very low gain value to make the sine wave subtle

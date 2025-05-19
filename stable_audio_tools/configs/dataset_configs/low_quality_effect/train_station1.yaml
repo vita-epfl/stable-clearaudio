@@ -1,0 +1,14 @@
+# @package dataset.external_sounds.train_station1
+mode: set   # list of effects given in parameters, could be mode: random
+
+# Create several modified versions of the HQ audio
+# Space separated
+# equalizer, freq, Q factor, gain db
+# bass gain, freq, q factor
+# overdrive, gain db, colour db
+transform_type: sox_audio_effect
+
+external_sounds:  
+  - name: train_station
+    sound_path: 
+      - "/mnt/vita/scratch/datasets/external_sounds/train_station_1.wav"
