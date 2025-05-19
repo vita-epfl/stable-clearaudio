@@ -4,12 +4,19 @@ import typing as tp
 import math 
 from torchaudio import transforms as T
 from torch.nn.functional import interpolate
+from einops import rearrange
 
 from .utils import prepare_audio
 from .sampling import sample, sample_k, sample_rf
 from ..data.utils import PadCrop
 
 import logging
+import gc
+import json
+import os
+import time
+import torchaudio
+
 LOG = logging.getLogger(__name__)
 # handler
 LOG.addHandler(logging.StreamHandler())
@@ -110,9 +117,10 @@ def generate_diffusion_cond(
         device: str = "cuda",
         init_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
         init_noise_level: float = 1.0,
+        clean_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
         return_latents = False,
         **sampler_kwargs
-        ) -> torch.Tensor: 
+        ) -> tp.Tuple[torch.Tensor, tp.Optional[dict]]: 
     """
     Generate audio from a prompt using a diffusion model.
     
@@ -129,7 +137,7 @@ def generate_diffusion_cond(
         device: The device to use for generation.
         init_audio: A tuple of (sample_rate, audio) to use as the initial audio for generation.
         init_noise_level: The noise level to use when generating from an initial audio sample.
-        degraded_audio_path: Path to a degraded audio file to use as the initial input for restoration.
+        clean_audio: A tuple of (sample_rate, audio) containing the clean reference audio for metrics.
         return_latents: Whether to return the latents used for generation instead of the decoded audio.
         **sampler_kwargs: Additional keyword arguments to pass to the sampler.    
     """
@@ -305,8 +313,123 @@ def generate_diffusion_cond(
         sampled = sampled.to(next(model.pretransform.parameters()).dtype)
         sampled = model.pretransform.decode(sampled)
 
-    # Return audio
-    return sampled
+
+    # After sampling and before returning, calculate metrics if clean audio is provided
+    if clean_audio is not None and not return_latents:
+        LOG.debug("Calculating metrics between generated and clean audio")
+    
+        from ..training.losses.metrics import (
+            LogSpectralDistance,
+            LTASDistance,
+            SISDRMetric,
+            SNRMetric,
+            STFTDistance,
+            MelDistance
+        )
+        
+        # Initialize metrics
+        metrics = {
+            'lsd': LogSpectralDistance().to(device),
+            'ltas': LTASDistance().to(device),
+            'sisdr': SISDRMetric().to(device),
+            'snr': SNRMetric().to(device),
+            'stft': STFTDistance().to(device),
+            'mel': MelDistance(sample_rate=model.sample_rate).to(device)
+        }
+        
+        # Calculate metrics
+        metrics_dict = {}
+        clean_audio_tensor = clean_audio[1].unsqueeze(0).to(device)
+        clean_audio_latent = model.pretransform.encode(clean_audio_tensor)
+        clean_audio_tensor = model.pretransform.decode(clean_audio_latent)
+        clean_audio_tensor = rearrange(clean_audio_tensor, 'b d n -> d (b n)')
+        sampled_metrics = rearrange(sampled, 'b d n -> d (b n)')
+
+        # Calculate metrics between generated and clean audio
+        for name, metric in metrics.items():
+            metrics_dict[f'demo_{name}'] = metric(sampled_metrics, clean_audio_tensor).item()
+            LOG.info(f"Metric {name} (generated vs clean): {metrics_dict[f'demo_{name}']}")
+
+        # Calculate metrics between degraded and clean audio if degraded audio is available
+        LOG.debug("Calculating metrics between degraded and clean audio")
+        degraded_audio_tensor = degraded_audio.unsqueeze(0).to(device)
+        degraded_audio_latent = model.pretransform.encode(degraded_audio_tensor)
+        degraded_audio_tensor = model.pretransform.decode(degraded_audio_latent)
+        degraded_audio_tensor = rearrange(degraded_audio_tensor, 'b d n -> d (b n)')
+        for name, metric in metrics.items():
+            metrics_dict[f'degraded_{name}'] = metric(degraded_audio_tensor, clean_audio_tensor).item()
+            LOG.info(f"Metric {name} (degraded vs clean): {metrics_dict[f'degraded_{name}']}")
+        
+        # Save metrics and audio files
+        try:
+            # Create date-based directory structure
+            current_date = time.strftime("%Y-%m-%d")
+            current_time = time.strftime("%H-%M-%S")
+            output_dir = os.path.join("stable_audio_tools/output", current_date)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Create a subdirectory for this specific generation
+            generation_dir = os.path.join(output_dir, f"generation_{current_time}")
+            os.makedirs(generation_dir, exist_ok=True)
+            
+            # Add additional metadata
+            metrics_dict.update({
+                "timestamp": f"{current_date}_{current_time}",
+                "steps": steps,
+                "cfg_scale": cfg_scale,
+                "sample_rate": model.sample_rate,
+                "sample_size": sample_size
+            })
+            
+            # Save metrics to JSON file
+            metrics_filename = os.path.join(generation_dir, "metrics.json")
+            with open(metrics_filename, 'w') as f:
+                json.dump(metrics_dict, f, indent=4)
+            
+            LOG.info(f"Metrics saved to {metrics_filename}")
+
+            # Save clean audio¨
+            if clean_audio is not None:
+                clean_audio_filename = os.path.join(generation_dir, "clean_audio.wav")
+                clean_audio_save = clean_audio_tensor.to(torch.float32)
+                if torch.max(torch.abs(clean_audio_save)) > 1e-7:
+                    clean_audio_save = clean_audio_save.div(torch.max(torch.abs(clean_audio_save)))
+                    clean_audio_save = clean_audio_save.mul(32767).to(torch.int16).cpu()
+                    torchaudio.save(clean_audio_filename, clean_audio_save, model.sample_rate)
+                    LOG.info(f"Clean audio saved to {clean_audio_filename}")
+
+            degraded_audio_filename = os.path.join(generation_dir, "degraded_audio.wav")
+            #degraded_audio_tensor = degraded_audio[1]
+            degraded_audio_save = degraded_audio_tensor.to(torch.float32)
+            if torch.max(torch.abs(degraded_audio_save)) > 1e-7:
+                degraded_audio_save = degraded_audio_save.div(torch.max(torch.abs(degraded_audio_save)))
+            degraded_audio_save = degraded_audio_save.mul(32767).to(torch.int16).cpu()
+            torchaudio.save(degraded_audio_filename, degraded_audio_save, model.sample_rate)
+            LOG.info(f"Degraded audio saved to {degraded_audio_filename}")
+
+            # Save generated audio
+            generated_audio_filename = os.path.join(generation_dir, "generated_audio.wav")
+            generated_audio_save = sampled_metrics.to(torch.float32)
+            if torch.max(torch.abs(generated_audio_save)) > 1e-7:
+                generated_audio_save = generated_audio_save.div(torch.max(torch.abs(generated_audio_save)))
+            generated_audio_save = generated_audio_save.mul(32767).to(torch.int16).cpu()
+            torchaudio.save(generated_audio_filename, generated_audio_save, model.sample_rate)
+            LOG.info(f"Generated audio saved to {generated_audio_filename}")
+
+        except Exception as e:
+            LOG.warning(f"Failed to save metrics or audio files: {e}")
+
+     # Add additional metadata
+        metrics_dict.update({
+            "timestamp": time.strftime("%Y-%m-%d_%H-%M-%S"),
+            "steps": steps,
+            "cfg_scale": cfg_scale,
+            "sample_rate": model.sample_rate,
+            "sample_size": sample_size
+        })
+
+    # Return audio and metrics
+    return sampled, metrics_dict if clean_audio is not None else None
 
 def generate_diffusion_cond_inpaint(
         model,
