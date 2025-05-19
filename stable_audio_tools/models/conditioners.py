@@ -503,9 +503,7 @@ class PretransformConditioner(Conditioner):
         output_dim: the dimension of the output embeddings
     """
     def __init__(self, pretransform: Pretransform, output_dim: int, save_pretransform: bool = False):
-        super().__init__(pretransform.encoded_channels, output_dim)
-        import logging
-        self.LOG = logging.getLogger(__name__)
+        super().__init__(pretransform.encoded_channels, output_dim))
 
         if not save_pretransform:
             self.__dict__["pretransform"] = pretransform
