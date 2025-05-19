@@ -1,3 +1,6 @@
+# System dependencies required (install with system package manager, e.g. apt-get):
+# sox libsox-dev libsox-fmt-all - required for audio processing via torchaudio
+
 absl-py==2.2.2
 accelerate==1.6.0
 aiofiles==23.2.1
