@@ -21,6 +21,7 @@ setup(
         'k-diffusion==0.1.1',
         'laion-clap==1.1.4',
         'local-attention==1.8.6',
+        'omegaconf==2.3.0',
         'pandas==2.0.2',
         'prefigure==0.0.9',
         'pytorch_lightning==2.1.0',

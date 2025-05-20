@@ -1,0 +1,19 @@
+# @package dataset.low_quality_effect.eq18
+mode: set   # list of effects given in parameters, could be mode: random
+
+# Create several modified versions of the HQ audio
+# Space separated
+# equalizer, freq, Q factor, gain db
+# bass gain, freq, q factor
+# overdrive, gain db, colour db
+transform_type: sox_audio_effect
+
+effects:
+#### TEST
+  - name: 'eq_18'
+    params: 
+      - "equalizer 2001 9 -31"
+      - "equalizer 2507 0.7 21"
+      - "equalizer 5130 2 -24"
+      - "equalizer 7900 2 -26"
+      - "equalizer 9000 1 17"

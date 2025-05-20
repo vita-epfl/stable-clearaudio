@@ -12,6 +12,9 @@ RUN groupadd --gid ${LDAP_GID} ${LDAP_GROUPNAME} \
 RUN apt update && apt-get install -y \
     python3-pip \
     python3-dev \
+    sox \
+    libsox-dev \
+    libsox-fmt-all \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the source code into the container

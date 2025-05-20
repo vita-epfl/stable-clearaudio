@@ -1,0 +1,18 @@
+# @package dataset.low_quality_effect.live_recording
+mode: set  # Liste des effets spécifiés dans "effects". Peut être random si besoin.
+
+# Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
+transform_type: sox_audio_effect
+
+effects:
+###### REAL WORLD
+  - name: 'live_recording'
+    params:
+      - "reverb 50 50 100 100" # Reverberation effect simulating a large room
+      - "channels 1" # Convert to mono as the model only supports mono audio
+
+external_sounds:  
+  - name: pink_noise
+    sound_path: 
+      - "/mnt/vita/scratch/datasets/audio_effects/sox_noises/pink_noise_10.0s.wav"
+    gain: 0.1  # Control the intensity of the pink noise
