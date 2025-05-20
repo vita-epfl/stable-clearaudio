@@ -318,70 +318,70 @@ class SoxEffectTransform(nn.Module):
             Dictionary of effect names and their corresponding SoxEffectTransform objects
         """
         transforms = []
-        try:
-            LOG.debug(f"Creating SoxEffectTransform objects from configuration: {cfg}")
-            # Check if eq_cfg exists in low_quality_effect
-            if eq_cfg_name not in cfg.dataset.low_quality_effect:
-                LOG.error(f"Configuration '{eq_cfg_name}' not found in cfg.dataset.low_quality_effect")
-                return []
-            
-            # Check if transform_type exists
-            if 'transform_type' not in cfg.dataset.low_quality_effect[eq_cfg_name]:
-                LOG.error(f"'transform_type' not found in cfg.dataset.low_quality_effect[{eq_cfg_name}]")
-                return []
-                
-            # Check transform type
-            if cfg.dataset.low_quality_effect[eq_cfg_name]['transform_type'] == 'sox_audio_effect':
-                # Check if effects exists
-                if 'effects' not in cfg.dataset.low_quality_effect[eq_cfg_name]:
-                    LOG.error(f"'effects' not found in cfg.dataset.low_quality_effect[{eq_cfg_name}]")
-                    return []
-                                        
-                for effect in cfg.dataset.low_quality_effect[eq_cfg_name]['effects']:
-                    sox_effect_transform = SoxEffectTransform(effect.name)
-                    
-                    # Check if params exists
-                    if not hasattr(effect, 'params'):
-                        LOG.error(f"'params' not found in effect {effect.name}")
-                        continue
-                        
-                    for param_string in effect.params:
-                        # si sox ne connait pas le nom de l'effet il renvoie une erreur
-                        if param_string.split(" ")[0] not in sox.effect_names():
-                            LOG.error(f"Sox does not recognize the effect: {param_string.split(' ')[0]} in {effect.name}")
-                            continue
-
-                        LOG.debug(f"Adding effect: {param_string}")
-
-                        # Special handling for gain -n parameter
-                        if param_string.startswith("gain -n"):
-                            parts = param_string.strip().split(" ")
-                            if len(parts) >= 3:
-                                level = parts[2]
-                                LOG.debug(f"Found gain -n parameter with level: {level}")
-                                sox_effect_transform.normalize_gain(float(level))
-                            else:
-                                sox_effect_transform.normalize_gain()
-                        else:
-                            params = param_string.strip().split(" ")
-                            sox_effect_transform.add_effect(params)
-                    
-                    # Check for effect-level gain parameter
-                    if hasattr(effect, 'gain'):
-                        effect_gain = effect.gain
-                        LOG.debug(f"Found effect-level gain parameter for {effect.name}: {effect_gain} (will be applied separately, not added to SoX effects)")
-                        sox_effect_transform.original_gain = float(effect_gain) # Store gain here
-                        # sox_effect_transform.add_gain(float(effect_gain)) # Don't add gain here, it's handled later
-                    elif cfg.dataset.normalize_inputs_post_eq:
-                        sox_effect_transform.normalize_gain()
-                        
-                    transforms.append(sox_effect_transform)
-            else:
-                LOG.error(f"Transformation type '{cfg.dataset.low_quality_effect[eq_cfg_name]['transform_type']}' is not supported. Only sox_audio_effect is supported for now.")
-                return []
-        except Exception as e:
-            LOG.error(f"Error in from_config for eq_cfg={eq_cfg_name}: {str(e)}")
+        # try:
+        LOG.debug(f"Creating SoxEffectTransform objects from configuration: {cfg}")
+        # Check if eq_cfg exists in low_quality_effect
+        if eq_cfg_name not in cfg.dataset.low_quality_effect:
+            LOG.error(f"Configuration '{eq_cfg_name}' not found in cfg.dataset.low_quality_effect")
             return []
+        
+        # Check if transform_type exists
+        if 'transform_type' not in cfg.dataset.low_quality_effect[eq_cfg_name]:
+            LOG.error(f"'transform_type' not found in cfg.dataset.low_quality_effect[{eq_cfg_name}]")
+            return []
+            
+        # Check transform type
+        if cfg.dataset.low_quality_effect[eq_cfg_name]['transform_type'] == 'sox_audio_effect':
+            # Check if effects exists
+            if 'effects' not in cfg.dataset.low_quality_effect[eq_cfg_name]:
+                LOG.error(f"'effects' not found in cfg.dataset.low_quality_effect[{eq_cfg_name}]")
+                return []
+                                    
+            for effect in cfg.dataset.low_quality_effect[eq_cfg_name]['effects']:
+                sox_effect_transform = SoxEffectTransform(effect.name)
+                
+                # Check if params exists
+                if not hasattr(effect, 'params'):
+                    LOG.error(f"'params' not found in effect {effect.name}")
+                    continue
+                    
+                for param_string in effect.params:
+                    # si sox ne connait pas le nom de l'effet il renvoie une erreur
+                    if param_string.split(" ")[0] not in sox.effect_names():
+                        LOG.error(f"Sox does not recognize the effect: {param_string.split(' ')[0]} in {effect.name}")
+                        continue
+
+                    LOG.debug(f"Adding effect: {param_string}")
+
+                    # Special handling for gain -n parameter
+                    if param_string.startswith("gain -n"):
+                        parts = param_string.strip().split(" ")
+                        if len(parts) >= 3:
+                            level = parts[2]
+                            LOG.debug(f"Found gain -n parameter with level: {level}")
+                            sox_effect_transform.normalize_gain(float(level))
+                        else:
+                            sox_effect_transform.normalize_gain()
+                    else:
+                        params = param_string.strip().split(" ")
+                        sox_effect_transform.add_effect(params)
+                
+                # Check for effect-level gain parameter
+                if hasattr(effect, 'gain'):
+                    effect_gain = effect.gain
+                    LOG.debug(f"Found effect-level gain parameter for {effect.name}: {effect_gain} (will be applied separately, not added to SoX effects)")
+                    sox_effect_transform.original_gain = float(effect_gain) # Store gain here
+                    # sox_effect_transform.add_gain(float(effect_gain)) # Don't add gain here, it's handled later
+                elif cfg.dataset.normalize_inputs_post_eq:
+                    sox_effect_transform.normalize_gain()
+                    
+                transforms.append(sox_effect_transform)
+        else:
+            LOG.error(f"Transformation type '{cfg.dataset.low_quality_effect[eq_cfg_name]['transform_type']}' is not supported. Only sox_audio_effect is supported for now.")
+            return []
+        # except Exception as e:
+        #     LOG.error(f"Error in from_config for eq_cfg={eq_cfg_name}: {str(e)}")
+        #     return []
 
         return transforms
 
