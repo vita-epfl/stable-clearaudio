@@ -505,7 +505,6 @@ class PretransformConditioner(Conditioner):
     def __init__(self, pretransform: Pretransform, output_dim: int, save_pretransform: bool = False):
         super().__init__(pretransform.encoded_channels, output_dim)
 
-
         if not save_pretransform:
             self.__dict__["pretransform"] = pretransform
         else:
@@ -513,7 +512,6 @@ class PretransformConditioner(Conditioner):
         
 
     def forward(self, audio: tp.Union[torch.Tensor, tp.List[torch.Tensor], tp.Tuple[torch.Tensor]], device: tp.Union[torch.device, str]) -> tp.Tuple[torch.Tensor, torch.Tensor]:
-
         self.pretransform.to(device)
         self.proj_out.to(device)
 
@@ -526,14 +524,13 @@ class PretransformConditioner(Conditioner):
         # Add batch dimension if needed
         if audio.dim() == 2:
             audio = audio.unsqueeze(0)
-
+        
         # Convert audio to pretransform input channels
         audio = set_audio_channels(audio, self.pretransform.io_channels)
 
         audio = audio.to(device)
         
         latents = self.pretransform.encode(audio)
-
         latents = self.proj_out(latents)
 
         return [latents, torch.ones(latents.shape[0], latents.shape[2]).to(latents.device)]

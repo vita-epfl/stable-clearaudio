@@ -165,7 +165,7 @@ cython_debug/
 wandb/*
 .gradio/certificate.pem
 docs/to_do.md
-
+stable_audio_tools/output/*
 
 *.job
 *.out

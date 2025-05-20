@@ -26,6 +26,13 @@ from ...inference.generation import (
 from ...inference.utils import prepare_audio
 # from ..training.utils import copy_state_dict
 
+import logging
+
+LOG = logging.getLogger(__name__)
+# handler
+LOG.addHandler(logging.StreamHandler())
+LOG.setLevel(logging.DEBUG)
+
 model = None
 model_type = None
 sample_size = 2097152
@@ -203,9 +210,21 @@ def generate_cond(
                 (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
             )
 
+    
+    demo_samples = input_sample_size
+    if model.pretransform is not None:
+        demo_samples = demo_samples // model.pretransform.downsampling_ratio
+    
+    conditioning_tensors = model.conditioner(conditioning, device)
+    
+    cond_inputs = model.get_conditioning_inputs(conditioning_tensors)
+    
+    if "input_concat_cond" in cond_inputs and cond_inputs["input_concat_cond"].shape[2] > demo_samples:
+        cond_inputs["input_concat_cond"] = cond_inputs["input_concat_cond"][:, :, :demo_samples]
+    
     generate_args = {
         "model": model,
-        "conditioning": conditioning,
+        "conditioning_tensors": conditioning_tensors,  # Utiliser les tenseurs pré-traités plutôt que le dictionnaire brut
         "negative_conditioning": negative_conditioning,
         "steps": steps,
         "cfg_scale": cfg_scale,
@@ -224,8 +243,7 @@ def generate_cond(
         "rho": rho,
     }
 
-    # If inpainting, send mask args
-    # This will definitely change in the future
+
     if model_type == "diffusion_cond":
         # Do the audio generation
         audio = generate_diffusion_cond(**generate_args)
@@ -244,6 +262,9 @@ def generate_cond(
             )
 
         audio = generate_diffusion_cond_inpaint(**generate_args)
+    
+    LOG.info("Generation completed")
+
 
     # Filenaming convention
     prompt_condensed = condense_prompt(prompt)
@@ -343,6 +364,235 @@ def generate_cond(
     return (output_filename, [audio_spectrogram, *preview_images])
 
 
+def generate_cond_restoration(
+    steps=250,
+    preview_every=None,
+    seed=-1,
+    sampler_type="dpmpp-3m-sde",
+    sigma_min=0.03,
+    sigma_max=1000,
+    rho=1.0,
+    cfg_rescale=0.0,
+    file_format="wav",
+    file_naming="verbose",
+    degraded_audio=None,
+    clean_audio=None,
+    batch_size=1,
+):
+    LOG.info("Starting audio restoration")
+    
+    # Initialize metrics dictionary
+    metrics_dict = {}
+
+    
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
+
+    global preview_images
+    preview_images = []
+    if preview_every == 0:
+        preview_every = None
+
+    # Get the device from the model
+    device = next(model.parameters()).device
+
+    seed = int(seed)
+    # if seed is -1, define the seed value now, randomly, so we can save it in the filename
+    if seed == -1:
+        seed = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
+    LOG.info(f"Using seed: {seed}")
+
+    input_sample_size = sample_size
+
+    if degraded_audio is not None:
+        in_sr, degraded_audio = degraded_audio
+
+        if degraded_audio.dtype == np.float32:
+            degraded_audio = torch.from_numpy(degraded_audio)
+        elif degraded_audio.dtype == np.int16:
+            degraded_audio = torch.from_numpy(degraded_audio).float().div(32767)
+        elif degraded_audio.dtype == np.int32:
+            degraded_audio = torch.from_numpy(degraded_audio).float().div(2147483647)
+        else:
+            raise ValueError(f"Unsupported audio data type: {degraded_audio.dtype}")
+
+        if model_half:
+            degraded_audio = degraded_audio.to(torch.float16)
+
+        if degraded_audio.dim() == 1:
+            degraded_audio = degraded_audio.unsqueeze(0)
+        elif degraded_audio.dim() == 2:
+            degraded_audio = degraded_audio.transpose(0, 1)
+
+        if in_sr != sample_rate:
+            resample_tf = (
+                T.Resample(in_sr, sample_rate)
+                .to(degraded_audio.device)
+                .to(degraded_audio.dtype)
+            )
+            degraded_audio = resample_tf(degraded_audio)
+
+        audio_length = degraded_audio.shape[-1]
+
+        if audio_length > sample_size:
+            degraded_audio = degraded_audio[:, :sample_size]
+
+        if degraded_audio.shape[0] == 1:
+            degraded_audio = degraded_audio.repeat(2, 1)
+        
+        degraded_audio = (sample_rate, degraded_audio)
+
+    # Handle clean audio if provided
+    if clean_audio is not None:
+        in_sr, clean_audio = clean_audio
+        
+        if clean_audio.dtype == np.float32:
+            clean_audio = torch.from_numpy(clean_audio)
+        elif clean_audio.dtype == np.int16:
+            clean_audio = torch.from_numpy(clean_audio).float().div(32767)
+        elif clean_audio.dtype == np.int32:
+            clean_audio = torch.from_numpy(clean_audio).float().div(2147483647)
+        else:
+            raise ValueError(f"Unsupported audio data type: {clean_audio.dtype}")
+
+        if model_half:
+            clean_audio = clean_audio.to(torch.float16)
+
+        if clean_audio.dim() == 1:
+            clean_audio = clean_audio.unsqueeze(0)
+        elif clean_audio.dim() == 2:
+            clean_audio = clean_audio.transpose(0, 1)
+
+        if in_sr != sample_rate:
+            resample_tf = (
+                T.Resample(in_sr, sample_rate)
+                .to(clean_audio.device)
+                .to(clean_audio.dtype)
+            )
+            clean_audio = resample_tf(clean_audio)
+
+        audio_length = clean_audio.shape[-1]
+        if audio_length > sample_size:
+            clean_audio = clean_audio[:, :sample_size]
+        
+        if clean_audio.shape[0] == 1:
+            clean_audio = clean_audio.repeat(2, 1)
+        
+        clean_audio = (sample_rate, clean_audio)
+
+    conditioning_dict = {
+        "degraded_audio": degraded_audio[1] if degraded_audio is not None else None,
+    }
+    conditioning = [conditioning_dict] * batch_size
+
+    def progress_callback(callback_info):
+        global preview_images
+        denoised = callback_info["denoised"]
+        current_step = callback_info["i"]
+        sigma = callback_info["sigma"]
+
+        if (current_step - 1) % preview_every == 0:
+            if model.pretransform is not None:
+                denoised = model.pretransform.decode(denoised)
+            denoised = rearrange(denoised, "b d n -> d (b n)")
+            denoised = denoised.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
+            audio_spectrogram = audio_spectrogram_image(
+                denoised, sample_rate=sample_rate
+            )
+            preview_images.append(
+                (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
+            )
+
+    generate_args = {
+        "model": model,
+        "conditioning": conditioning,
+        "steps": steps,
+        "batch_size": batch_size,
+        "sample_size": input_sample_size,
+        "seed": seed,
+        "device": device,
+        "sampler_type": sampler_type,
+        "sigma_min": sigma_min,
+        "sigma_max": sigma_max,
+        "callback": progress_callback if preview_every is not None else None,
+        "scale_phi": cfg_rescale,
+        "rho": rho,
+        "clean_audio": clean_audio,
+    }
+
+    # Do the audio generation
+    LOG.info("Generating audio")
+    audio, metrics_dict = generate_diffusion_cond(**generate_args)
+
+    # simple e.g. "output.wav"
+    basename = "output"
+
+    if file_format:
+        filename_extension = file_format.split(" ")[0].lower()
+    else:
+        filename_extension = "wav"
+    output_filename = "%s.%s" % (basename, filename_extension)
+    output_wav = "%s.wav" % basename
+
+    # Encode the audio to WAV format
+    audio = rearrange(audio, "b d n -> d (b n)")
+
+    # Check if the audio tensor is empty before normalization
+    if audio.numel() == 0:
+        LOG.warning("Generated audio is empty")
+        return (None, preview_images, metrics_dict)
+
+    # If audio is not empty, proceed with normalization
+    max_abs_val = torch.max(torch.abs(audio))
+    if max_abs_val > 1e-7:
+        audio = (
+            audio.to(torch.float32)
+            .div(max_abs_val)
+            .clamp(-1, 1)
+            .mul(32767)
+            .to(torch.int16)
+            .cpu()
+        )
+    else:
+        audio = audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
+
+    
+
+    # If file_format is other than wav, convert to other file format
+    cmd = ""
+    if file_format == "m4a aac_he_v2 32k":
+        cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 32k -y "{output_filename}"'
+    elif file_format == "m4a aac_he_v2 64k":
+        cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 64k -y "{output_filename}"'
+    elif file_format == "flac":
+        cmd = f'ffmpeg -i "{output_wav}" -y "{output_filename}"'
+    elif file_format == "mp3 320k":
+        cmd = f'ffmpeg -i "{output_wav}" -b:a 320k -y "{output_filename}"'
+    elif file_format == "mp3 128k":
+        cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
+    elif file_format == "mp3 v0":
+        cmd = f'ffmpeg -i "{output_wav}" -q:a 0 -y "{output_filename}"'
+    else:  # wav
+        pass
+    if cmd:
+        cmd += " -loglevel error"  # make output less verbose in the cmd window
+        subprocess.run(cmd, shell=True, check=True)
+
+    # Generate spectrogram
+    try:
+        audio_spectrogram = audio_spectrogram_image(audio, sample_rate=sample_rate)
+    except Exception as e:
+        LOG.warning(f"Could not generate spectrogram: {e}")
+        audio_spectrogram = None
+
+    # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
+    if file_naming in ["verbose", "prompt"]:
+        delete_files_async([output_wav, output_filename], 30)
+
+    LOG.info("Audio restoration completed")
+    return (output_filename, [audio_spectrogram, *preview_images], metrics_dict)
+
 #  Asynchronously delete the given list of filenames after delay seconds. Sets up thread that sleeps for delay then deletes.
 def delete_files_async(filenames, delay):
     def delete_files_after_delay(filenames, delay):
@@ -358,32 +608,53 @@ def create_sampling_ui(model_config):
     has_inpainting = model_config["model_type"] == "diffusion_cond_inpaint"
 
     model_conditioning_config = model_config["model"].get("conditioning", None)
+    
+    # Check if this is a specific audio restoration model
+    input_concat_ids = model_config["model"].get("diffusion", {}).get("input_concat_ids", [])
+    is_audio_restoration = "degraded_audio" in input_concat_ids
+    
+    LOG.info(f"Input concat IDs: {input_concat_ids}")
+    LOG.info(f"Is audio restoration model: {is_audio_restoration}")
+    
+    # Define noise_level_slider as a global variable to access it from generate_cond
+    global noise_level_slider
 
     diffusion_objective = model.diffusion_objective
 
     is_rf = diffusion_objective == "rectified_flow"
-
-    has_seconds_start = False
-    has_seconds_total = False
-
-    if model_conditioning_config is not None:
-        for conditioning_config in model_conditioning_config["configs"]:
-            if conditioning_config["id"] == "seconds_start":
-                has_seconds_start = True
-            if conditioning_config["id"] == "seconds_total":
-                has_seconds_total = True
-
+    
+    # Interface adaptée au type de modèle
     with gr.Row():
         with gr.Column(scale=6):
-            prompt = gr.Textbox(show_label=False, placeholder="Prompt")
+            # L'entrée texte n'est visible que si le modèle n'est pas de type restauration audio
+            prompt_visible = not is_audio_restoration
+            prompt = gr.Textbox(show_label=False, placeholder="Prompt", visible=prompt_visible)
             negative_prompt = gr.Textbox(
-                show_label=False, placeholder="Negative prompt"
+                show_label=False, placeholder="Negative prompt", visible=prompt_visible
             )
-        generate_button = gr.Button("Generate", variant="primary", scale=1)
-
+            
+            # Information message for audio restoration model
+            if is_audio_restoration:
+                gr.Markdown("### Audio Restoration Model\nUpload an audio file to restore below")
+                
+        generate_button = gr.Button("Restore", variant="primary", scale=1)
+        
     with gr.Row(equal_height=False):
         with gr.Column():
-            with gr.Row(visible=has_seconds_start or has_seconds_total):
+            # Variables pour suivre si ces conditionnements sont nécessaires
+            has_seconds_start = False
+            has_seconds_total = False
+            
+            if model_conditioning_config:
+                for config in model_conditioning_config.get("configs", []):
+                    if config.get("id") == "seconds_start":
+                        has_seconds_start = True
+                    if config.get("id") == "seconds_total":
+                        has_seconds_total = True
+            
+            # N'afficher les contrôles de timing que si nécessaire et pas pour la restauration audio
+            timing_visible = (has_seconds_start or has_seconds_total) and not is_audio_restoration
+            with gr.Row(visible=timing_visible):
                 # Timing controls
                 seconds_start_slider = gr.Slider(
                     minimum=0,
@@ -403,14 +674,15 @@ def create_sampling_ui(model_config):
                 )
 
             with gr.Row():
+                # Controls for audio restoration
+                if is_audio_restoration:
+                    # Add information about how the model uses the audio
+                    gr.Markdown("The uploaded audio will be used as conditioning input for the model")
+                
                 # Steps slider
-                default_steps = 50 if is_rf else 100
+                default_steps = 25 if is_audio_restoration else (50 if is_rf else 100)
                 steps_slider = gr.Slider(
                     minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
-                )
-                # CFG scale
-                cfg_scale_slider = gr.Slider(
-                    minimum=0.0, maximum=25.0, step=0.1, value=7.0, label="CFG scale"
                 )
 
             with gr.Accordion("Sampler params", open=False):
@@ -523,19 +795,23 @@ def create_sampling_ui(model_config):
                         value=0,
                         label="Spec Preview Every N Steps",
                     )
-
-            # Default generation tab
-            with gr.Accordion("Init audio", open=False):
-                init_audio_input = gr.Audio(label="Init audio")
-                min_noise_level = 0.01 if is_rf else 0.1
-                max_noise_level = 1.0 if is_rf else 100.0
-                init_noise_level_slider = gr.Slider(
-                    minimum=min_noise_level,
-                    maximum=max_noise_level,
-                    step=0.01,
-                    value=0.1,
-                    label="Init noise level",
-                )
+            if is_audio_restoration:
+                with gr.Accordion("Audio Inputs", open=True):
+                    degraded_audio = gr.Audio(label="Degraded audio")
+                    clean_audio = gr.Audio(label="Clean reference audio (optional)")
+            else:
+                # Default generation tab
+                with gr.Accordion("Init audio", open=False):
+                    init_audio_input = gr.Audio(label="Init audio")
+                    min_noise_level = 0.01 if is_rf else 0.1
+                    max_noise_level = 1.0 if is_rf else 100.0
+                    init_noise_level_slider = gr.Slider(
+                        minimum=min_noise_level,
+                        maximum=max_noise_level,
+                        step=0.01,
+                        value=0.1,
+                        label="Init noise level",
+                    )
 
             with gr.Accordion("Inpainting", open=False, visible=has_inpainting):
                 inpaint_audio_input = gr.Audio(label="Inpaint audio")
@@ -554,43 +830,75 @@ def create_sampling_ui(model_config):
                     label="Mask End (sec)",
                 )
 
-            inputs = [
-                prompt,
-                negative_prompt,
-                seconds_start_slider,
-                seconds_total_slider,
-                cfg_scale_slider,
-                steps_slider,
-                preview_every_slider,
-                seed_textbox,
-                sampler_type_dropdown,
-                sigma_min_slider,
-                sigma_max_slider,
-                rho_slider,
-                cfg_interval_min_slider,
-                cfg_interval_max_slider,
-                cfg_rescale_slider,
-                file_format_dropdown,
-                file_naming_dropdown,
-                cut_to_seconds_total_checkbox,
-                init_audio_input,
-                init_noise_level_slider,
-                mask_maskstart_slider,
-                mask_maskend_slider,
-                inpaint_audio_input,
-            ]
+            if is_audio_restoration:
+                LOG.info("Audio restoration mode enabled")
+                inputs = [
+                        steps_slider,
+                        preview_every_slider,
+                        seed_textbox,
+                        sampler_type_dropdown,
+                        sigma_min_slider,
+                        sigma_max_slider,
+                        rho_slider,
+                        cfg_rescale_slider,
+                        file_format_dropdown,
+                        file_naming_dropdown,
+                        degraded_audio,
+                        clean_audio,
+                    ]
+            else:
+                LOG.info("Default generation mode enabled")
+                inputs = [
+                    prompt,
+                    negative_prompt,
+                    seconds_start_slider,
+                    seconds_total_slider,
+                    steps_slider,
+                    preview_every_slider,
+                    seed_textbox,
+                    sampler_type_dropdown,
+                    sigma_min_slider,
+                    sigma_max_slider,
+                    rho_slider,
+                    cfg_interval_min_slider,
+                    cfg_interval_max_slider,
+                    cfg_rescale_slider,
+                    file_format_dropdown,
+                    file_naming_dropdown,
+                    cut_to_seconds_total_checkbox,
+                    init_audio_input,
+                    init_noise_level_slider,
+                    mask_maskstart_slider,
+                    mask_maskend_slider,
+                    inpaint_audio_input,
+                ] 
+            
 
         with gr.Column():
             audio_output = gr.Audio(label="Output audio", interactive=False)
             audio_spectrogram_output = gr.Gallery(
                 label="Output spectrogram", show_label=False
             )
-            send_to_init_button = gr.Button("Send to init audio", scale=1)
-            send_to_init_button.click(
-                fn=lambda audio: audio,
-                inputs=[audio_output],
-                outputs=[init_audio_input],
-            )
+            
+            # Add metrics display section
+            with gr.Accordion("Restoration Metrics", open=True, visible=is_audio_restoration):
+                metrics_output = gr.JSON(label="Metrics", visible=is_audio_restoration)
+            
+            # Use different target based on model type
+            if is_audio_restoration:
+                send_to_init_button = gr.Button("Send to degraded audio", scale=1)
+                send_to_init_button.click(
+                    fn=lambda audio: audio,
+                    inputs=[audio_output],
+                    outputs=[degraded_audio],
+                )
+            else:
+                send_to_init_button = gr.Button("Send to init audio", scale=1)
+                send_to_init_button.click(
+                    fn=lambda audio: audio,
+                    inputs=[audio_output],
+                    outputs=[init_audio_input],
+                )
 
             if has_inpainting:
                 send_to_inpaint_button = gr.Button("Send to inpaint audio", scale=1)
@@ -601,9 +909,9 @@ def create_sampling_ui(model_config):
                 )
 
     generate_button.click(
-        fn=generate_cond,
+        fn=generate_cond_restoration if is_audio_restoration else generate_cond,
         inputs=inputs,
-        outputs=[audio_output, audio_spectrogram_output],
+        outputs=[audio_output, audio_spectrogram_output, metrics_output] if is_audio_restoration else [audio_output, audio_spectrogram_output],
         api_name="generate",
     )
 
