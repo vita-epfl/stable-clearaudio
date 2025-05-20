@@ -16,6 +16,7 @@ import json
 import os
 import time
 import torchaudio
+import torch.nn.functional as F
 
 LOG = logging.getLogger(__name__)
 # handler
@@ -237,6 +238,7 @@ def generate_diffusion_cond(
 
     # Decode latents if needed
     if model.pretransform is not None and not return_latents:
+        sampled_latent = sampled.clone().detach()
         sampled = sampled.to(next(model.pretransform.parameters()).dtype)
         sampled = model.pretransform.decode(sampled)
 
@@ -283,6 +285,24 @@ def generate_diffusion_cond(
             metrics_dict[f'degraded_{name}'] = metric(degraded_audio_tensor, clean_audio_tensor).item()
             LOG.info(f"Metric {name} (degraded vs clean): {metrics_dict[f'degraded_{name}']}")
         
+        # Latent space losses
+        mse_loss = F.mse_loss(sampled_latent, clean_audio_latent)
+        metrics_dict['latent_mse_loss'] = mse_loss.item()
+        LOG.info(f"Latent MSE Loss: {mse_loss.item()}")
+
+        l1_loss = F.l1_loss(sampled_latent, clean_audio_latent)
+        metrics_dict['latent_l1_loss'] = l1_loss.item()
+        LOG.info(f"Latent L1 Loss: {l1_loss.item()}")
+
+        # Waveform domain losses
+        waveform_mse_loss = F.mse_loss(sampled_metrics, clean_audio_tensor)
+        metrics_dict['waveform_mse_loss'] = waveform_mse_loss.item()
+        LOG.info(f"Waveform MSE Loss: {waveform_mse_loss.item()}")
+
+        waveform_l1_loss = F.l1_loss(sampled_metrics, clean_audio_tensor)
+        metrics_dict['waveform_l1_loss'] = waveform_l1_loss.item()
+        LOG.info(f"Waveform L1 Loss: {waveform_l1_loss.item()}")
+        
         # Save metrics and audio files
         try:
             # Create date-based directory structure
@@ -299,7 +319,6 @@ def generate_diffusion_cond(
             metrics_dict.update({
                 "timestamp": f"{current_date}_{current_time}",
                 "steps": steps,
-                "cfg_scale": cfg_scale,
                 "sample_rate": model.sample_rate,
                 "sample_size": sample_size
             })
