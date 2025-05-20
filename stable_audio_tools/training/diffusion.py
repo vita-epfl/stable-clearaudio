@@ -40,7 +40,7 @@ LOG = logging.getLogger(__name__)
 
 # handler
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.DEBUG)
+LOG.setLevel(logging.INFO)
 
 
 class Profiler:

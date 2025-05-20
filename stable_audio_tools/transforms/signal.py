@@ -16,7 +16,7 @@ from omegaconf import OmegaConf
 LOG = logging.getLogger(__name__)
 
 # Logging configuration
-logging.basicConfig(level=logging.DEBUG, 
+logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
 
@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.DEBUG,
 def resample_signal(waveform: Tensor, sample_rate: int, resample_rate: int) -> Tuple[Tensor, int]:
     if sample_rate == resample_rate:
         return waveform, sample_rate
-
+    
     ### kaiser_best
     resampler = T.Resample(
         sample_rate,
@@ -117,7 +117,7 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
 
                     # Apply the transformation
                     processed_wave, processed_sr = transform.apply_tensor(
-                        audio, info.sample_rate
+                        audio, info["sample_rate"]
                     )
                     
                     # Appliquer le gain s'il est spécifié dans l'effet
@@ -135,8 +135,8 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
                     
                     # Update the audio clip
                     audio = processed_wave
-                    info.sample_rate = processed_sr
-                    info.num_samples = processed_wave.shape[1]
+                    info["sample_rate"] = processed_sr
+                    info["num_samples"] = processed_wave.shape[1]
                     
                     LOG.debug(f"SoX effects applied successfully. New shape: {processed_wave.shape}")
             else:
@@ -158,12 +158,12 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
 
                         # Apply the transformation
                         processed_wave, processed_sr = transform.apply_external_sound(
-                            audio, info.sample_rate
+                            audio, info["sample_rate"]
                         )
 
                         # Update the audio clip
                         audio = processed_wave
-                        info.sample_rate = processed_sr
+                        info["sample_rate"] = processed_sr
 
                         LOG.debug(f"External sound added successfully: {transform.sound_name}")
                 else:
@@ -223,7 +223,7 @@ class ExternalSoundTransform(nn.Module):
                 LOG.debug(f"Converted external sound to mono: {external_waveform.shape}")
             
             if sample_rate != external_sr:
-                LOG.debug(f"Resampling external sound from {external_sr}Hz to {sample_rate}Hz")
+                LOG.warning(f"Resampling external sound: {self.sound_name} from {external_sr}Hz to {sample_rate}Hz. This may cause quality loss and take a long time.")
                 external_waveform, _ = resample_signal(external_waveform, external_sr, sample_rate)
                 LOG.debug(f"Resampled external sound shape: {external_waveform.shape}")
             

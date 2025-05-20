@@ -21,5 +21,5 @@ effects:
 external_sounds:  
   - name: high_frequency_sine
     sound_path: 
-      - "/mnt/vita/scratch/datasets/audio_effects/sox_noises/sine_2000Hz_to_2000Hz_10s.wav"
+      - "/mnt/vita/scratch/datasets/audio_effects/sox_noises/sine_1000-2000.wav"
     gain: 0.002  # Very low gain value to make the sine wave subtle

@@ -8,7 +8,7 @@ from omegaconf import OmegaConf
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.DEBUG)
+LOG.setLevel(logging.INFO)
 
 
 def get_custom_metadata(info, audio, args):

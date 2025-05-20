@@ -11,7 +11,7 @@ import time
 import torch
 import torchaudio
 import webdataset as wds
-
+from tqdm import tqdm
 from os import path
 from torch import nn
 from torchaudio import transforms as T
@@ -24,7 +24,7 @@ import logging
 LOG = logging.getLogger(__name__)
 # handler
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.INFO)
+LOG.setLevel(logging.DEBUG)
 
 AUDIO_KEYS = ("flac", "wav", "mp3", "m4a", "ogg", "opus")
 
@@ -184,6 +184,10 @@ class SampleDataset(torch.utils.data.Dataset):
 
         self.custom_metadata_fns = {}
         self.custom_metadata_args_map = {}
+        
+        # Initialiser le compteur pour le suivi avec tqdm
+        self.item_counter = 0
+        self.progress_bar = None
 
         for config in configs:
             self.root_paths.append(config.path)
@@ -211,12 +215,21 @@ class SampleDataset(torch.utils.data.Dataset):
         return len(self.filenames)
 
     def __getitem__(self, idx):
+        # Initialize progress bar if not already done
+        if self.progress_bar is None:
+            self.progress_bar = tqdm(total=len(self), desc="Processing audio files", position=0, leave=True)
+        
         audio_filename = self.filenames[idx]
         try:
             start_time = time.time()
             audio = self.load_file(audio_filename)
             info = {}
             info["total_length"] = audio.shape[-1]
+            
+            # Update progress bar
+            self.item_counter += 1
+            self.progress_bar.update(1)
+            self.progress_bar.set_postfix(file=os.path.basename(audio_filename))
 
             audio, t_start, t_end, seconds_start, seconds_total, padding_mask = self.pad_crop(audio)
 
@@ -256,7 +269,6 @@ class SampleDataset(torch.utils.data.Dataset):
                     custom_metadata_fn = self.custom_metadata_fns[custom_md_path]
                     # Get config-specific args
                     config_args = self.custom_metadata_args_map.get(custom_md_path, None)
-                    LOG.debug(f"Applying custom metadata function {custom_metadata_fn} to {audio_filename} in class {self.__class__} with args: {config_args}")
                     # Always pass the config-specific custom_metadata_args
                     custom_metadata = custom_metadata_fn(info, audio, config_args)
                     info.update(custom_metadata)
@@ -264,21 +276,21 @@ class SampleDataset(torch.utils.data.Dataset):
                 if "__reject__" in info and info["__reject__"]:
                     return self[random.randrange(len(self))]
 
-                # Provide audio inputs as their own dictionary to be merged into info, each audio element will be normalized in the same way as the main audio
-                if "__audio__" in info:
-                    for audio_key, audio_value in info["__audio__"].items():
-                        # Process the audio_value tensor, which should be a torch tensor
-                        audio_value, _, _, _, _, _ = self.pad_crop(audio_value)
-                        audio_value = audio_value.clamp(-1, 1)
-                        if self.encoding is not None:
-                            audio_value = self.encoding(audio_value)
-                        info[audio_key] = audio_value
-                
-                    del info["__audio__"]
+            if "__audio__" in info:
+                for audio_key, audio_value in info["__audio__"].items():
+                    # Process the audio_value tensor, which should be a torch tensor
+                    audio_value, _, _, _, _, _ = self.pad_crop(audio_value)
+                    audio_value = audio_value.clamp(-1, 1)
+                    if self.encoding is not None:
+                        audio_value = self.encoding(audio_value)
+                    info[audio_key] = audio_value
+        
+                del info["__audio__"]
 
             return (audio, info)
         except Exception as e:
-            print(f'Couldn\'t load file {audio_filename}: {e}')
+            logging.error(f'Couldn\'t load file {audio_filename}: {e}')
+            # Do not update the progress bar on error to avoid double counting
             return self[random.randrange(len(self))]
 
 class PreEncodedDataset(torch.utils.data.Dataset):
@@ -366,7 +378,6 @@ class PreEncodedDataset(torch.utils.data.Dataset):
                     custom_metadata_fn = self.custom_metadata_fns[custom_md_path]
                     # Get config-specific args
                     config_args = self.custom_metadata_args_map.get(custom_md_path, None)
-                    LOG.debug(f"Applying custom metadata function {custom_metadata_fn} to {latent_filename} in class {self.__class__} with args: {config_args}")
                     # Always pass the config-specific custom_metadata_args
                     custom_metadata = custom_metadata_fn(info, None, config_args)
                     info.update(custom_metadata)
@@ -819,7 +830,6 @@ class WebDatasetDataLoader():
                 continue
         
             if dataset.path in sample["__url__"]:
-                LOG.debug(f"Applying custom metadata function {dataset.custom_metadata_fn} to {sample['__url__']} in class {self.__class__}")
                 # Get the dataset's custom metadata args from datasets list
                 custom_metadata_args = getattr(dataset, 'custom_metadata_args', None)
                 custom_metadata = dataset.custom_metadata_fn(sample["json"], audio, custom_metadata_args)
