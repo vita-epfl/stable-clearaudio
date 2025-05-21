@@ -1,3 +1,5 @@
+transform_type: sox_audio_effect
+
 min_effects: 3
 max_effects: 4
 available_effects: ["equalizer", "band", "echo"]
