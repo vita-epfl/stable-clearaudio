@@ -45,12 +45,48 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
     low_quality_effects_dir = build_degraded_args.get("low_quality_effects_dir", None)
     effects_mode = build_degraded_args.get("effects_mode", "specific")
 
-    for degradation_preset_name in degradation_presets:
+    # Get the absolute path of the low quality effects directory
+    if low_quality_effects_dir.startswith("/") and not os.path.exists(low_quality_effects_dir):
+        # Obtenir le chemin de base du projet
+        base_path = Path(__file__).resolve().parent.parent.parent
+        
+        if low_quality_effects_dir.startswith("/stable-clearaudio/"):
+            relative_path = low_quality_effects_dir[len("/stable-clearaudio/"):]
+            low_quality_effects_dir = str(base_path / relative_path)
+        elif low_quality_effects_dir.startswith("/stable_audio_tools/"):
+            relative_path = low_quality_effects_dir[len("/stable_audio_tools/"):]
+            low_quality_effects_dir = str(base_path / "stable_audio_tools" / relative_path)
+
+    if effects_mode == "random":
+        # select a random preset from the random presets directory
+        preset_dir = os.path.join(low_quality_effects_dir, "random_presets")
+        random_preset_name = random.choice(os.listdir(preset_dir))
+        degradation_presets = [random_preset_name]
+
+    elif effects_mode == "specific":
+        preset_dir = os.path.join(low_quality_effects_dir, "specific_presets")
+        degradation_presets = build_degraded_args.get("degradation_presets", None)
+    else:
+        raise ValueError("Invalid effects_mode. Must be 'random' or 'specific'")
+
+
+    for preset_name in degradation_presets:
+        # Check if preset_name exists in low_quality_effects_dir
+        if preset_name not in os.listdir(preset_dir):
+            LOG.error(f"Configuration '{preset_name}' not found in {preset_dir}")
+            return []
+            
+        # Construire le chemin final
+        preset_path = os.path.join(
+            preset_dir,
+            preset_name + ".yaml",
+        )
+        LOG.debug(f"Applying effects from {preset_path}")
+
         audio = signal.apply_config_to_audio(
             info, 
             audio, 
-            degradation_preset_name,
-            low_quality_effects_dir,
+            preset_path,
             effects_mode
         )
 

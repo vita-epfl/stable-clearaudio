@@ -54,7 +54,7 @@ def load_yaml_config(file_path):
         config = yaml.safe_load(file)
     return config
 
-def apply_config_to_audio(info, audio, degradation_preset_name, low_quality_effects_dir, effects_mode):
+def apply_config_to_audio(info, audio, preset_path, effects_mode):
         """
         Retrieves an audio from the dataset, applies the effects from the configuration, and adds the specified external audio.
 
@@ -68,49 +68,20 @@ def apply_config_to_audio(info, audio, degradation_preset_name, low_quality_effe
             Tensor: The processed audio
         """
 
-        # Get the absolute path of the low quality effects directory
-        if low_quality_effects_dir.startswith("/") and not os.path.exists(low_quality_effects_dir):
-            # Obtenir le chemin de base du projet
-            base_path = Path(__file__).resolve().parent.parent.parent
-            
-            if low_quality_effects_dir.startswith("/stable-clearaudio/"):
-                relative_path = low_quality_effects_dir[len("/stable-clearaudio/"):]
-                low_quality_effects_dir = str(base_path / relative_path)
-            elif low_quality_effects_dir.startswith("/stable_audio_tools/"):
-                relative_path = low_quality_effects_dir[len("/stable_audio_tools/"):]
-                low_quality_effects_dir = str(base_path / "stable_audio_tools" / relative_path)
-            
-            LOG.debug(f"Chemin résolu: {low_quality_effects_dir}")
-            
-        # Construire le chemin final
-        effects_config_path = os.path.join(
-            low_quality_effects_dir,
-            degradation_preset_name + ".yaml",
-        )
-        LOG.debug(f"Applying effects from {effects_config_path}")
-
         # Check if the configuration file exists
-        if not effects_config_path or not Path(effects_config_path).exists():
-            LOG.error(f"Configuration file not found: {effects_config_path}")
+        if not preset_path or not Path(preset_path).exists():
+            LOG.error(f"Configuration file not found: {preset_path}")
             return audio
 
         # Load the configuration
         try:
-            config_raw = load_yaml_config(effects_config_path)
-            LOG.debug(f"Configuration loaded: {effects_config_path}")
-            
-            # Create a configuration dictionary compatible with SoxEffectTransform
-            low_quality_effect_files = Path(effects_config_path).stem
-            LOG.debug(f"Effect configuration: {low_quality_effect_files}")
-
-            # Create the config structure that matches SoxEffectTransform.from_config expectation
-            config_dict = {"dataset": {"low_quality_effect": {low_quality_effect_files: config_raw}}}
-            config = OmegaConf.create(config_dict)
+            preset_cfg = load_yaml_config(preset_path)
+            LOG.debug(f"Configuration loaded: {preset_path}")
             
             if effects_mode == "random":
-                transforms = SoxEffectTransform.get_random_effects_transforms(config, low_quality_effect_files)
+                transforms = SoxEffectTransform.get_random_effects_transforms(preset_cfg)
             elif effects_mode == "specific":
-                transforms = SoxEffectTransform.get_specific_effects_transforms(config, low_quality_effect_files)
+                transforms = SoxEffectTransform.get_specific_effects_transforms(preset_cfg)
             
             if transforms:
                 # Apply each transformation
@@ -124,8 +95,8 @@ def apply_config_to_audio(info, audio, degradation_preset_name, low_quality_effe
                     )
                     
                     # Appliquer le gain s'il est spécifié dans l'effet
-                    if "effects" in config_raw:
-                        for effect in config_raw["effects"]:
+                    if "effects" in preset_cfg: # TODO Check if redundant with lines 361
+                        for effect in preset_cfg["effects"]:
                             if "gain" in effect:
                                 gain_value = float(effect["gain"])
                                 LOG.debug(f"Applying gain after SOX effects: {gain_value}")
@@ -143,12 +114,13 @@ def apply_config_to_audio(info, audio, degradation_preset_name, low_quality_effe
                     
                     LOG.debug(f"SoX effects applied successfully. New shape: {processed_wave.shape}")
             else:
-                LOG.warning(f"No SoX effect transformations found in configuration {effects_config_path}")
+                LOG.warning(f"No SoX effect transformations found in configuration {preset_path}")
                 
             # Process external sounds if any
-            if "external_sounds" in config_raw:
+            if "external_sounds" in preset_cfg:
+                external_sounds_cfg = preset_cfg["external_sounds"]
                 LOG.debug("External sounds found in configuration. Adding...")
-                transforms = ExternalSoundTransform.get_external_sounds_transforms(config, degradation_preset_name)
+                transforms = ExternalSoundTransform.get_external_sounds_transforms(external_sounds_cfg)
 
                 if transforms:
                     # Apply each transformation
@@ -167,7 +139,7 @@ def apply_config_to_audio(info, audio, degradation_preset_name, low_quality_effe
                         LOG.debug(f"External sound added successfully: {transform.sound_name}")
                 else:
                     LOG.error(
-                        f"No external sound transformation found in configuration {effects_config_path}"
+                        f"No external sound transformation found in configuration {preset_path}"
                     )
         except Exception as e:
             LOG.error(f"Error when applying configuration: {str(e)}")
@@ -185,8 +157,7 @@ class ExternalSoundTransform(nn.Module):
         self.gain = gain
 
     @staticmethod
-    def get_external_sounds_transforms(cfg: Any, external_sounds_cfg_name: str) -> List[ExternalSoundTransform]:
-        external_sounds_cfg = cfg.dataset.low_quality_effect[external_sounds_cfg_name]
+    def get_external_sounds_transforms(external_sounds_cfg: Any) -> List[ExternalSoundTransform]:
         transforms = []
         for sound in external_sounds_cfg['external_sounds']:
             sound_name = sound['name']
@@ -305,38 +276,33 @@ class SoxEffectTransform(nn.Module):
         return res
     
     @staticmethod
-    def get_specific_effects_transforms(cfg: Any, eq_cfg_name: Any) -> Dict[str, List[SoxEffectTransform]]:
+    def get_specific_effects_transforms(preset_cfg: Any) -> List[SoxEffectTransform]:
         """
         From a configuration dictionary, create a list of SoxEffectTransform objects.
 
         Args:
-            cfg: Configuration dictionary
-            eq_cfgs: Dictionary of effect configurations
+            preset_cfg: Configuration dictionary
+            preset_name: Name of the preset to use
         
         Returns:
-            Dictionary of effect names and their corresponding SoxEffectTransform objects
+            List of SoxEffectTransform objects
         """
         transforms = []
-        # try:
-        LOG.debug(f"Creating SoxEffectTransform objects from configuration: {cfg}")
-        # Check if eq_cfg exists in low_quality_effect
-        if eq_cfg_name not in cfg.dataset.low_quality_effect:
-            LOG.error(f"Configuration '{eq_cfg_name}' not found in cfg.dataset.low_quality_effect")
-            return []
+        LOG.debug(f"Creating SoxEffectTransform objects from configuration: {preset_cfg}")
         
         # Check if transform_type exists
-        if 'transform_type' not in cfg.dataset.low_quality_effect[eq_cfg_name]:
-            LOG.error(f"'transform_type' not found in cfg.dataset.low_quality_effect[{eq_cfg_name}]")
+        if 'transform_type' not in preset_cfg:
+            LOG.error(f"'transform_type' not found in preset_config]")
             return []
             
         # Check transform type
-        if cfg.dataset.low_quality_effect[eq_cfg_name]['transform_type'] == 'sox_audio_effect':
+        if preset_cfg['transform_type'] == 'sox_audio_effect':
             # Check if effects exists
-            if 'effects' not in cfg.dataset.low_quality_effect[eq_cfg_name]:
-                LOG.error(f"'effects' not found in cfg.dataset.low_quality_effect[{eq_cfg_name}]")
+            if 'effects' not in preset_cfg:
+                LOG.error(f"'effects' not found in preset_config")
                 return []
                                     
-            for effect in cfg.dataset.low_quality_effect[eq_cfg_name]['effects']:
+            for effect in preset_cfg['effects']:
                 sox_effect_transform = SoxEffectTransform(effect.name)
                 
                 # Check if params exists
@@ -345,7 +311,7 @@ class SoxEffectTransform(nn.Module):
                     continue
                     
                 for param_string in effect.params:
-                    # si sox ne connait pas le nom de l'effet il renvoie une erreur
+                    # Check if the effect is recognized by Sox
                     if param_string.split(" ")[0] not in sox.effect_names():
                         LOG.error(f"Sox does not recognize the effect: {param_string.split(' ')[0]} in {effect.name}")
                         continue
@@ -371,16 +337,13 @@ class SoxEffectTransform(nn.Module):
                     LOG.debug(f"Found effect-level gain parameter for {effect.name}: {effect_gain} (will be applied separately, not added to SoX effects)")
                     sox_effect_transform.original_gain = float(effect_gain) # Store gain here
                     # sox_effect_transform.add_gain(float(effect_gain)) # Don't add gain here, it's handled later
-                elif cfg.dataset.normalize_inputs_post_eq:
+                elif preset_cfg['normalize_inputs_post_eq']:
                     sox_effect_transform.normalize_gain()
                     
                 transforms.append(sox_effect_transform)
         else:
-            LOG.error(f"Transformation type '{cfg.dataset.low_quality_effect[eq_cfg_name]['transform_type']}' is not supported. Only sox_audio_effect is supported for now.")
+            LOG.error(f"Transformation type '{preset_cfg['transform_type']}' is not supported. Only sox_audio_effect is supported for now.")
             return []
-        # except Exception as e:
-        #     LOG.error(f"Error in from_config for eq_cfg={eq_cfg_name}: {str(e)}")
-        #     return []
 
         return transforms
 
@@ -401,7 +364,7 @@ class SoxEffectTransform(nn.Module):
         return transforms
 
     @staticmethod
-    def get_random_effects_transforms(cfg: Any, preset_name: str = None) -> SoxEffectTransform:
+    def get_random_effects_transforms(preset_cfg: Any) -> SoxEffectTransform:
         """
         Create a SoxEffectTransform with randomly selected effects from a preset list.
         
@@ -418,16 +381,8 @@ class SoxEffectTransform(nn.Module):
         # Initialize transform
         sox_effect_transform = SoxEffectTransform("random_preset")
         
-        # Get random effects configuration and preset
-        if preset_name is None:
-            preset_name = cfg.dataset.random_effects.default_preset
-        
-        if not hasattr(cfg.dataset.random_effects.presets, preset_name):
-            LOG.error(f"Preset '{preset_name}' not found in configuration. Using default.")
-            preset_name = cfg.dataset.random_effects.default_preset
-        
-        # Get the preset configuration
-        preset_cfg = getattr(cfg.dataset.random_effects.presets, preset_name)
+        if not hasattr(preset_cfg, "available_effects"):
+            LOG.error(f"Preset not found in configuration. Using default.")
         
         # Get global parameters
         min_effects = preset_cfg.min_effects
