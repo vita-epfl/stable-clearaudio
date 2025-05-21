@@ -108,9 +108,9 @@ def apply_config_to_audio(info, audio, degradation_preset_name, low_quality_effe
             config = OmegaConf.create(config_dict)
             
             if effects_mode == "random":
-                transforms = SoxEffectTransform.get_random_effects(config, low_quality_effect_files)
+                transforms = SoxEffectTransform.get_random_effects_transforms(config, low_quality_effect_files)
             elif effects_mode == "specific":
-                transforms = SoxEffectTransform.get_specific_effects(config, low_quality_effect_files)
+                transforms = SoxEffectTransform.get_specific_effects_transforms(config, low_quality_effect_files)
             
             if transforms:
                 # Apply each transformation
@@ -305,7 +305,7 @@ class SoxEffectTransform(nn.Module):
         return res
     
     @staticmethod
-    def get_specific_effects(cfg: Any, eq_cfg_name: Any) -> Dict[str, List[SoxEffectTransform]]:
+    def get_specific_effects_transforms(cfg: Any, eq_cfg_name: Any) -> Dict[str, List[SoxEffectTransform]]:
         """
         From a configuration dictionary, create a list of SoxEffectTransform objects.
 
@@ -401,7 +401,7 @@ class SoxEffectTransform(nn.Module):
         return transforms
 
     @staticmethod
-    def get_random_effects(cfg: Any, preset_name: str = None) -> SoxEffectTransform:
+    def get_random_effects_transforms(cfg: Any, preset_name: str = None) -> SoxEffectTransform:
         """
         Create a SoxEffectTransform with randomly selected effects from a preset list.
         
