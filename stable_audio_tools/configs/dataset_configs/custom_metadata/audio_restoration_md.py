@@ -11,10 +11,10 @@ LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.StreamHandler())
 LOG.setLevel(logging.INFO)
 
-def get_custom_metadata(info, audio, args=None):
-    build_degraded = args.get("build_degraded", False)
+def get_custom_metadata(info, audio, custom_metadata_args=None):
+    build_degraded = custom_metadata_args.get("build_degraded", False)
     if build_degraded:
-        return get_metadata_on_the_fly(info, audio, args)
+        return get_metadata_on_the_fly(info, audio, custom_metadata_args)
     elif not build_degraded:
         return get_metadata_from_local(info, audio)
     else:
