@@ -148,7 +148,7 @@ def apply_config_to_audio(info, audio, degradation_preset_name, low_quality_effe
             # Process external sounds if any
             if "external_sounds" in config_raw:
                 LOG.debug("External sounds found in configuration. Adding...")
-                transforms = ExternalSoundTransform.get_specific_effects(config, degradation_preset_name)
+                transforms = ExternalSoundTransform.get_external_sounds_transforms(config, degradation_preset_name)
 
                 if transforms:
                     # Apply each transformation
@@ -185,7 +185,7 @@ class ExternalSoundTransform(nn.Module):
         self.gain = gain
 
     @staticmethod
-    def get_specific_effects(cfg: Any, external_sounds_cfg_name: str) -> List[ExternalSoundTransform]:
+    def get_external_sounds_transforms(cfg: Any, external_sounds_cfg_name: str) -> List[ExternalSoundTransform]:
         external_sounds_cfg = cfg.dataset.low_quality_effect[external_sounds_cfg_name]
         transforms = []
         for sound in external_sounds_cfg['external_sounds']:
