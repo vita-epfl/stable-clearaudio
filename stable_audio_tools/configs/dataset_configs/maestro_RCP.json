@@ -5,18 +5,13 @@
             "id": "maestro_short",
             "path": "/mnt/vita/scratch/datasets/maestro_short/clean/",
             "custom_metadata_module": "stable_audio_tools/configs/dataset_configs/custom_metadata/audio_restoration_md.py",
-            "build_degraded": true,
             "custom_metadata_args": {
+                "build_degraded": true,
                 "build_degraded_args": {
                     "sox_noises_dir": "/mnt/vita/scratch/datasets/audio_effects/sox_noises",
                     "low_quality_effects_dir": "/stable_audio_tools/configs/dataset_configs/low_quality_effect",
-                    "effects_mode": "specific",
-                    "specific_mode": {
-                        "preset": ["strong_mp3_compression"]
-                    },
-                    "random_mode": {
-                        "preset": ["realistic_degradations"]
-                    }
+                    "degradation_presets": ["strong_mp3_compression"],
+                    "effects_mode": "specific"
                 }
             }
         }

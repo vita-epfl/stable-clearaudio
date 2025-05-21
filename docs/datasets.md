@@ -42,22 +42,57 @@ To load audio files and related metadata from .tar files in the WebDataset forma
 }
 ```
 
-## Audio effects configuration
-When using the on-the-fly degraded audio metadata module, you can specify how audio effects should be applied using the `effects_mode` property. This enables two mutually exclusive modes for applying audio effects:
+## Advanced dataset configuration with custom metadata
 
-   ```json
-   "build_degraded_args": {
-        "sox_noises_dir": "/mnt/vita/scratch/datasets/audio_effects/sox_noises",
-        "low_quality_effects_dir": "/stable_audio_tools/configs/dataset_configs/low_quality_effect",
-        "effects_mode": "specific",
-        "specific_mode": {
-            "preset": ["strong_mp3_compression"]
-        },
-        "random_mode": {
-            "preset": ["realistic_degradations"]
+The dataset configuration can utilize a custom metadata module to enhance the metadata provided to conditioners during model training. This setup is particularly useful for specialized tasks like audio restoration where custom processing is required.
+
+### Custom metadata module structure
+
+A comprehensive dataset configuration includes:
+- `custom_metadata_module`: Path to a Python module that contains the `get_custom_metadata` function
+- `custom_metadata_args`: Arguments passed to the custom metadata module that can be used in the `get_custom_metadata` function
+
+For audio restoration, the configuration typically includes:
+
+```json
+{
+    "dataset_type": "audio_dir",
+    "datasets": [
+        {
+            "id": "dataset_name",
+            "path": "/path/to/clean/audio/",
+            "custom_metadata_module": "path/to/custom_metadata/module.py",
+            "custom_metadata_args": {
+                "audio_restoration": {
+                    "build_degraded": true,
+                    "build_degraded_args": {
+                        "sox_noises_dir": "/path/to/sox_noises",
+                        "low_quality_effects_dir": "/path/to/low_quality_effect",
+                        "degradation_presets": ["strong_mp3_compression"],
+                        "effects_mode": "specific"
+                    }
+                }
+            }
         }
-    }   
-   ```
+    ],
+    "random_crop": true
+}
+```
+
+### Audio degradation configuration
+
+When building degraded audio on-the-fly (with `build_degraded: true`), you can configure how audio effects are applied using the `build_degraded_args` property:
+
+- `sox_noises_dir`: Directory containing noise samples for SoX-based effects
+- `low_quality_effects_dir`: Directory containing effect configuration files
+- `degradation_presets`: List of degradation preset names to apply to the audio
+- `effects_mode`: Specifies how effects should be applied:
+  - `specific`: Uses specific effect presets defined in configuration files
+  - `random`: Applies random effects based on preset configurations
+
+The system will apply each preset in the `degradation_presets` list to the audio sequentially. Each preset corresponds to a YAML configuration file located in the `low_quality_effects_dir` directory, with specific presets typically stored in a `specific` subdirectory and random presets in a `random` subdirectory.
+
+This simplified structure allows you to specify multiple degradation presets while clearly indicating whether they should be applied in a specific or random manner.
 
 # Custom metadata
 To customize the metadata provided to the conditioners during model training, you can provide a separate custom metadata module to the dataset config. This metadata module should be a Python file that must contain a function called `get_custom_metadata` that takes in two parameters, `info`, and `audio`, and returns a dictionary. 

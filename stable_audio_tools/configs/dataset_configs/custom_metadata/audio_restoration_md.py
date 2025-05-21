@@ -13,14 +13,15 @@ LOG.setLevel(logging.INFO)
 
 def get_custom_metadata(info, audio, custom_metadata_args=None):
     build_degraded = custom_metadata_args.get("build_degraded", False)
+    build_degraded_args = custom_metadata_args.get("build_degraded_args", False)
     if build_degraded:
-        return get_metadata_on_the_fly(info, audio, custom_metadata_args)
+        return get_metadata_on_the_fly(info, audio, build_degraded_args)
     elif not build_degraded:
         return get_metadata_from_local(info, audio)
     else:
         raise ValueError("Invalid build_degraded value. Must be True or False")
 
-def get_metadata_on_the_fly(info, audio, args):
+def get_metadata_on_the_fly(info, audio, build_degraded_args):
     """
     Maps clean audio files to their corresponding degraded versions using random mode.
     
@@ -39,18 +40,24 @@ def get_metadata_on_the_fly(info, audio, args):
     Returns:
         dict: Dictionary containing the degraded audio data
     """
-    
-    audio = signal.apply_config_to_audio(
-        info, 
-        audio, 
-        args["low_quality_effects_dir"],
-    )
+
+    degradation_presets = build_degraded_args.get("degradation_presets", None)
+    low_quality_effects_dir = build_degraded_args.get("low_quality_effects_dir", None)
+    effects_mode = build_degraded_args.get("effects_mode", "specific")
+
+    for degradation_preset_name in degradation_presets:
+        audio = signal.apply_config_to_audio(
+            info, 
+            audio, 
+            degradation_preset_name,
+            low_quality_effects_dir,
+            effects_mode
+        )
 
     # Return the degraded audio data
     return {
         "degraded_audio": audio
     } 
-
 
 def get_metadata_from_local(info, audio):
     """

@@ -54,7 +54,7 @@ def load_yaml_config(file_path):
         config = yaml.safe_load(file)
     return config
 
-def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=None, effects_mode="specific"):
+def apply_config_to_audio(info, audio, degradation_preset_name, low_quality_effects_dir, effects_mode):
         """
         Retrieves an audio from the dataset, applies the effects from the configuration, and adds the specified external audio.
 
@@ -67,7 +67,8 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
         Returns:
             Tensor: The processed audio
         """
-        # Conversion des chemins relatifs en chemins absolus
+
+        # Get the absolute path of the low quality effects directory
         if low_quality_effects_dir.startswith("/") and not os.path.exists(low_quality_effects_dir):
             # Obtenir le chemin de base du projet
             base_path = Path(__file__).resolve().parent.parent.parent
@@ -84,7 +85,7 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
         # Construire le chemin final
         effects_config_path = os.path.join(
             low_quality_effects_dir,
-            effects_file + ".yaml",
+            degradation_preset_name + ".yaml",
         )
         LOG.debug(f"Applying effects from {effects_config_path}")
 
@@ -147,7 +148,7 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
             # Process external sounds if any
             if "external_sounds" in config_raw:
                 LOG.debug("External sounds found in configuration. Adding...")
-                transforms = ExternalSoundTransform.get_specific_effects(config, effects_file)
+                transforms = ExternalSoundTransform.get_specific_effects(config, degradation_preset_name)
 
                 if transforms:
                     # Apply each transformation
