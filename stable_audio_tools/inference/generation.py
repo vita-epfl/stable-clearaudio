@@ -120,6 +120,8 @@ def generate_diffusion_cond(
         init_noise_level: float = 1.0,
         clean_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
         return_latents = False,
+        callback = None,
+        output_dir = None,
         **sampler_kwargs
         ) -> tp.Tuple[torch.Tensor, tp.Optional[dict]]: 
     """
@@ -222,13 +224,13 @@ def generate_diffusion_cond(
     LOG.info(f"Using diffusion objective: {diff_objective}")
 
     if diff_objective == "v":    
-        sampled = sample(model.model, noise, steps, 0, **conditioning_inputs, cfg_scale=cfg_scale, dist_shift=model.dist_shift, batch_cfg=True)
+        sampled = sample(model.model, noise, steps, 0, **conditioning_inputs, cfg_scale=cfg_scale, dist_shift=model.dist_shift, batch_cfg=True, callback=callback)
     elif diff_objective == "rectified_flow":
         if "sigma_min" in sampler_kwargs:
             del sampler_kwargs["sigma_min"]
         if "rho" in sampler_kwargs:
             del sampler_kwargs["rho"]
-        sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, dist_shift=model.dist_shift, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device)
+        sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, dist_shift=model.dist_shift, cfg_scale=cfg_scale, batch_cfg=True, rescale_cfg=True, device=device, callback=callback)
 
     # Cleanup
     del noise
@@ -302,37 +304,21 @@ def generate_diffusion_cond(
         waveform_l1_loss = F.l1_loss(sampled_metrics, clean_audio_tensor)
         metrics_dict['waveform_l1_loss'] = waveform_l1_loss.item()
         LOG.info(f"Waveform L1 Loss: {waveform_l1_loss.item()}")
-        
+
+        # Add additional metadata
+        metrics_dict.update({
+            "timestamp": time.strftime("%Y-%m-%d_%H-%M-%S"),
+            "steps": steps,
+            "sample_rate": model.sample_rate,
+            "sample_size": sample_size
+        })
+
         # Save metrics and audio files
         try:
-            # Create date-based directory structure
-            current_date = time.strftime("%Y-%m-%d")
-            current_time = time.strftime("%H-%M-%S")
-            output_dir = os.path.join("stable_audio_tools\output", current_date)
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Create a subdirectory for this specific generation
-            generation_dir = os.path.join(output_dir, f"generation_{current_time}")
-            os.makedirs(generation_dir, exist_ok=True)
-            
-            # Add additional metadata
-            metrics_dict.update({
-                "timestamp": f"{current_date}_{current_time}",
-                "steps": steps,
-                "sample_rate": model.sample_rate,
-                "sample_size": sample_size
-            })
-            
-            # Save metrics to JSON file
-            metrics_filename = os.path.join(generation_dir, "metrics.json")
-            with open(metrics_filename, 'w') as f:
-                json.dump(metrics_dict, f, indent=4)
-            
-            LOG.info(f"Metrics saved to {metrics_filename}")
 
-            # Save clean audio¨
+            # Save clean audio
             if clean_audio is not None:
-                clean_audio_filename = os.path.join(generation_dir, "clean_audio.wav")
+                clean_audio_filename = os.path.join(output_dir, "clean_audio.wav")
                 clean_audio_save = clean_audio_tensor.to(torch.float32)
                 if torch.max(torch.abs(clean_audio_save)) > 1e-7:
                     clean_audio_save = clean_audio_save.div(torch.max(torch.abs(clean_audio_save)))
@@ -340,8 +326,8 @@ def generate_diffusion_cond(
                     torchaudio.save(clean_audio_filename, clean_audio_save, model.sample_rate)
                     LOG.info(f"Clean audio saved to {clean_audio_filename}")
 
-            degraded_audio_filename = os.path.join(generation_dir, "degraded_audio.wav")
-            #degraded_audio_tensor = degraded_audio[1]
+            # Save degraded audio
+            degraded_audio_filename = os.path.join(output_dir, "degraded_audio.wav")
             degraded_audio_save = degraded_audio_tensor.to(torch.float32)
             if torch.max(torch.abs(degraded_audio_save)) > 1e-7:
                 degraded_audio_save = degraded_audio_save.div(torch.max(torch.abs(degraded_audio_save)))
@@ -350,7 +336,7 @@ def generate_diffusion_cond(
             LOG.info(f"Degraded audio saved to {degraded_audio_filename}")
 
             # Save generated audio
-            generated_audio_filename = os.path.join(generation_dir, "generated_audio.wav")
+            generated_audio_filename = os.path.join(output_dir, "generated_audio.wav")
             generated_audio_save = sampled_metrics.to(torch.float32)
             if torch.max(torch.abs(generated_audio_save)) > 1e-7:
                 generated_audio_save = generated_audio_save.div(torch.max(torch.abs(generated_audio_save)))
@@ -360,15 +346,6 @@ def generate_diffusion_cond(
 
         except Exception as e:
             LOG.warning(f"Failed to save metrics or audio files: {e}")
-
-     # Add additional metadata
-        metrics_dict.update({
-            "timestamp": time.strftime("%Y-%m-%d_%H-%M-%S"),
-            "steps": steps,
-            "cfg_scale": cfg_scale,
-            "sample_rate": model.sample_rate,
-            "sample_size": sample_size
-        })
 
     # Return audio and metrics
     return sampled, metrics_dict if clean_audio is not None else None
