@@ -159,7 +159,16 @@ class ExternalSoundTransform(nn.Module):
     @staticmethod
     def get_external_sounds_transforms(external_sounds_cfg: Any) -> List[ExternalSoundTransform]:
         transforms = []
-        for sound in external_sounds_cfg['external_sounds']:
+        # Handle both possible data structures: a list of sounds or a dict containing 'external_sounds' key
+        if isinstance(external_sounds_cfg, list):
+            sounds_list = external_sounds_cfg
+        elif isinstance(external_sounds_cfg, dict) and 'external_sounds' in external_sounds_cfg:
+            sounds_list = external_sounds_cfg['external_sounds']
+        else:
+            LOG.error(f"Unexpected external_sounds_cfg format: {type(external_sounds_cfg)}")
+            return []
+            
+        for sound in sounds_list:
             sound_name = sound['name']
             sound_path = sound['sound_path']
             # Get gain parameter if it exists, otherwise use default value
@@ -303,17 +312,17 @@ class SoxEffectTransform(nn.Module):
                 return []
                                     
             for effect in preset_cfg['effects']:
-                sox_effect_transform = SoxEffectTransform(effect.name)
+                sox_effect_transform = SoxEffectTransform()
                 
                 # Check if params exists
-                if not hasattr(effect, 'params'):
-                    LOG.error(f"'params' not found in effect {effect.name}")
+                if 'params' not in effect:
+                    LOG.error(f"'params' not found in effect: {effect}")
                     continue
                     
-                for param_string in effect.params:
+                for param_string in effect["params"]:
                     # Check if the effect is recognized by Sox
                     if param_string.split(" ")[0] not in sox.effect_names():
-                        LOG.error(f"Sox does not recognize the effect: {param_string.split(' ')[0]} in {effect.name}")
+                        LOG.error(f"Sox does not recognize the effect: {param_string.split(' ')[0]}")
                         continue
 
                     LOG.debug(f"Adding effect: {param_string}")
@@ -332,9 +341,9 @@ class SoxEffectTransform(nn.Module):
                         sox_effect_transform.add_effect(params)
                 
                 # Check for effect-level gain parameter
-                if hasattr(effect, 'gain'):
-                    effect_gain = effect.gain
-                    LOG.debug(f"Found effect-level gain parameter for {effect.name}: {effect_gain} (will be applied separately, not added to SoX effects)")
+                if 'gain' in effect:
+                    effect_gain = effect['gain']
+                    LOG.debug(f"Found effect-level gain parameter: {effect_gain} (will be applied separately, not added to SoX effects)")
                     sox_effect_transform.original_gain = float(effect_gain) # Store gain here
                     # sox_effect_transform.add_gain(float(effect_gain)) # Don't add gain here, it's handled later
                 elif preset_cfg['normalize_inputs_post_eq']:
@@ -354,8 +363,8 @@ class SoxEffectTransform(nn.Module):
             if cfg.dataset.low_quality_effect[mode]:
                 transforms[mode] = []
                 for effect in cfg.dataset.low_quality_effect[mode]['effects']:
-                    sox_effect_transform = SoxEffectTransform(effect.name)
-                    for param_string in effect.params:
+                    sox_effect_transform = SoxEffectTransform(effect["name"])
+                    for param_string in effect['params']:
                         params = param_string.strip().split(" ")
                         sox_effect_transform.add_effect(params)
                     if cfg.dataset.normalize_inputs_post_eq:

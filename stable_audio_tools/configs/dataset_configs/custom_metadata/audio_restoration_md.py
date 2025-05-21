@@ -9,7 +9,7 @@ from omegaconf import OmegaConf
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.INFO)
+LOG.setLevel(logging.DEBUG)
 
 def get_custom_metadata(info, audio, custom_metadata_args=None):
     build_degraded = custom_metadata_args.get("build_degraded", False)
@@ -48,14 +48,14 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
     # Get the absolute path of the low quality effects directory
     if low_quality_effects_dir.startswith("/") and not os.path.exists(low_quality_effects_dir):
         # Obtenir le chemin de base du projet
-        base_path = Path(__file__).resolve().parent.parent.parent
+        base_path = Path(__file__).resolve().parent.parent.parent.parent  # One more parent to avoid configs duplication
         
         if low_quality_effects_dir.startswith("/stable-clearaudio/"):
             relative_path = low_quality_effects_dir[len("/stable-clearaudio/"):]
             low_quality_effects_dir = str(base_path / relative_path)
         elif low_quality_effects_dir.startswith("/stable_audio_tools/"):
             relative_path = low_quality_effects_dir[len("/stable_audio_tools/"):]
-            low_quality_effects_dir = str(base_path / "stable_audio_tools" / relative_path)
+            low_quality_effects_dir = str(base_path / relative_path)  # Don't add 'stable_audio_tools' again
 
     if effects_mode == "random":
         # select a random preset from the random presets directory
@@ -69,10 +69,10 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
     else:
         raise ValueError("Invalid effects_mode. Must be 'random' or 'specific'")
 
-
     for preset_name in degradation_presets:
         # Check if preset_name exists in low_quality_effects_dir
-        if preset_name not in os.listdir(preset_dir):
+        preset_files = [os.path.splitext(f)[0] for f in os.listdir(preset_dir)]
+        if preset_name not in preset_files:
             LOG.error(f"Configuration '{preset_name}' not found in {preset_dir}")
             return []
             
@@ -81,7 +81,6 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
             preset_dir,
             preset_name + ".yaml",
         )
-        LOG.debug(f"Applying effects from {preset_path}")
 
         audio = signal.apply_config_to_audio(
             info, 
