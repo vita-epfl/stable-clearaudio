@@ -54,7 +54,7 @@ def load_yaml_config(file_path):
         config = yaml.safe_load(file)
     return config
 
-def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=None):
+def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=None, randomize_effects=False, randomize_intensities=False):
         """
         Retrieves an audio from the dataset, applies the effects from the configuration, and adds the specified external audio.
 
@@ -106,8 +106,10 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
             config_dict = {"dataset": {"low_quality_effect": {low_quality_effect_files: config_raw}}}
             config = OmegaConf.create(config_dict)
             
-            # Apply SoX effects using SoxEffectTransform
-            transforms = SoxEffectTransform.from_config(config, low_quality_effect_files)
+            if randomize_effects:
+                transforms = SoxEffectTransform.random_effects(config, low_quality_effect_files)
+            else:
+                transforms = SoxEffectTransform.from_config(config, low_quality_effect_files)
             
             if transforms:
                 # Apply each transformation
@@ -145,11 +147,7 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
             # Process external sounds if any
             if "external_sounds" in config_raw:
                 LOG.debug("External sounds found in configuration. Adding...")
-
-                # Create external sound transformations
-                transforms = ExternalSoundTransform.from_config(
-                    config, effects_file
-                )
+                transforms = ExternalSoundTransform.random_effects(config, effects_file)
 
                 if transforms:
                     # Apply each transformation

@@ -29,15 +29,45 @@ def get_custom_metadata(info, audio, args):
     Returns:
         dict: Dictionary containing the degraded audio data
     """
-
-    low_quality_effect_files = args["low_quality_effect_files"]
-
-    # Check if we should test a specific effect configuration file
-    if low_quality_effect_files and low_quality_effect_files != [] and low_quality_effect_files != [""]:
-        for effect_file in low_quality_effect_files:
-            LOG.debug(f"Testing with configuration file: {effect_file}")
-
-            audio = signal.apply_config_to_audio(info, audio, args["low_quality_effects_dir"], effect_file)
+    
+    # Default values for backward compatibility
+    randomize_effects = False
+    randomize_intensities = False
+    effect_files = []
+    
+    # Get the effects mode (random or specific)
+    effects_mode = args.get("effects_mode", "none")
+    
+    if effects_mode == "random":
+        # Random mode - use random effects
+        randomize_effects = True
+        randomize_intensities = args.get("random_mode", {}).get("randomize_intensities", True)
+        # Use a placeholder effect file that will be ignored since randomize_effects is True
+        effect_files = ["random"] 
+    elif effects_mode == "specific":
+        # Specific mode - use specified effect files
+        randomize_effects = False
+        specific_config = args.get("specific_mode", {})
+        effect_files = specific_config.get("effect_files", [])
+        randomize_intensities = specific_config.get("randomize_intensities", False)
+    else:
+        # For backward compatibility
+        effect_files = args.get("low_quality_effect_files", [])
+        randomize_effects = args.get("randomize_effects", False)
+        randomize_intensities = args.get("randomize_intensities", False)
+    
+    # Process the effect files if any
+    if effect_files and effect_files != [] and effect_files != [""]:
+        for effect_file in effect_files:
+            LOG.debug(f"Applying effect configuration: {effect_file}")
+            audio = signal.apply_config_to_audio(
+                info, 
+                audio, 
+                args["low_quality_effects_dir"], 
+                effect_file, 
+                randomize_effects, 
+                randomize_intensities
+            )
 
     # Return the degraded audio data
     return {

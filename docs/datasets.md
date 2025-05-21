@@ -42,6 +42,36 @@ To load audio files and related metadata from .tar files in the WebDataset forma
 }
 ```
 
+## Audio effects configuration
+When using the on-the-fly degraded audio metadata module, you can specify how audio effects should be applied using the `effects_mode` property. This enables two mutually exclusive modes for applying audio effects:
+
+1. **Specific mode**: Uses predefined effect files
+   ```json
+   "custom_metadata_args": {
+       "sox_noises_dir": "/path/to/sox_noises",
+       "low_quality_effects_dir": "/path/to/low_quality_effect",
+       "effects_mode": "specific",
+       "specific_mode": {
+           "effect_files": ["strong_mp3_compression"],
+           "randomize_intensities": true
+       }
+   }
+   ```
+
+2. **Random mode**: Applies random effects
+   ```json
+   "custom_metadata_args": {
+       "sox_noises_dir": "/path/to/sox_noises",
+       "low_quality_effects_dir": "/path/to/low_quality_effect",
+       "effects_mode": "random",
+       "random_mode": {
+           "randomize_intensities": true
+       }
+   }
+   ```
+
+Note that the options `randomize_effects` and `low_quality_effect_files` from previous versions are now separated into these two distinct modes to avoid configuration conflicts.
+
 # Custom metadata
 To customize the metadata provided to the conditioners during model training, you can provide a separate custom metadata module to the dataset config. This metadata module should be a Python file that must contain a function called `get_custom_metadata` that takes in two parameters, `info`, and `audio`, and returns a dictionary. 
 

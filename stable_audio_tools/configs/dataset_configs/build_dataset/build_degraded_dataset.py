@@ -754,11 +754,10 @@ if __name__ == "__main__":
     @dataclass
     class BuildDatasetConfig:
         dataset_path: str = "/mnt/vita/scratch/datasets/maestro-v3.0.0/maestro_full"
-        degraded_output_dir: str = "/mnt/vita/scratch/datasets/maestro_short/degraded" # "/home/alefevre/datasets/maestro-v3.0.0/degraded"
-        clean_output_dir: str = "/mnt/vita/scratch/datasets/maestro_short/clean" # "/home/alefevre/datasets/maestro-v3.0.0/clean"
+        degraded_output_dir: str = "/mnt/vita/scratch/vita-staff/users/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/build_dataset/output/degraded" # "/home/alefevre/datasets/maestro-v3.0.0/degraded"
+        clean_output_dir: str = "/mnt/vita/scratch/vita-staff/users/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/build_dataset/output/clean" # "/home/alefevre/datasets/maestro-v3.0.0/clean"
         sox_noises_dir: str = "/mnt/vita/scratch/datasets/audio_effects/sox_noises"
         low_quality_effects_dir: str = "/mnt/vita/scratch/vita-staff/users/alefevre/programs/clearaudio/clearaudio/conf/dataset/low_quality_effect"
-
 
         build_clean_dataset: bool = True
 
