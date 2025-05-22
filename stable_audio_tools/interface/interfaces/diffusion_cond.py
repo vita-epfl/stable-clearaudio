@@ -583,7 +583,7 @@ def generate_cond_restoration(
         current_step = callback_info["i"]
         sigma = callback_info["sigma"]
 
-        if preview_every is not None and (current_step + 1) % preview_every == 0:
+        if preview_every is not None and (current_step) % preview_every == 0:
             if model.pretransform is not None:
                 denoised = model.pretransform.decode(denoised)
             denoised = rearrange(denoised, "b d n -> d (b n)")
@@ -596,7 +596,7 @@ def generate_cond_restoration(
             )
 
         # Compute metrics at specified intervals if metrics_every is set
-        if metrics_every > 0 and (current_step + 1) % metrics_every == 0:
+        if metrics_every > 0 and (current_step) % metrics_every == 0:
             LOG.info(f"Computing metrics at step {current_step}")
             if model.pretransform is not None:
                 denoised = model.pretransform.decode(denoised)
@@ -623,7 +623,7 @@ def generate_cond_restoration(
     # Create date-based directory structure
     current_date = time.strftime("%Y-%m-%d")
     current_time = time.strftime("%H-%M-%S")
-    output_dir = os.path.join("stable_audio_tools/output", current_date)
+    output_dir = os.path.join("output", current_date)
     os.makedirs(output_dir, exist_ok=True)
     
     # Create a subdirectory for this specific generation
