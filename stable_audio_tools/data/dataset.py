@@ -24,7 +24,7 @@ import logging
 LOG = logging.getLogger(__name__)
 # handler
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.DEBUG)
+LOG.setLevel(logging.INFO)
 
 AUDIO_KEYS = ("flac", "wav", "mp3", "m4a", "ogg", "opus")
 
@@ -268,9 +268,9 @@ class SampleDataset(torch.utils.data.Dataset):
                 if custom_md_path in audio_filename:
                     custom_metadata_fn = self.custom_metadata_fns[custom_md_path]
                     # Get config-specific args
-                    config_args = self.custom_metadata_args_map.get(custom_md_path, None)
+                    custom_metadata_args = self.custom_metadata_args_map.get(custom_md_path, None)
                     # Always pass the config-specific custom_metadata_args
-                    custom_metadata = custom_metadata_fn(info, audio, config_args)
+                    custom_metadata = custom_metadata_fn(info, audio, custom_metadata_args)
                     info.update(custom_metadata)
 
                 if "__reject__" in info and info["__reject__"]:

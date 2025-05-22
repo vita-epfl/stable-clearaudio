@@ -54,7 +54,7 @@ def load_yaml_config(file_path):
         config = yaml.safe_load(file)
     return config
 
-def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=None):
+def apply_config_to_audio(info, audio, preset_path, effects_mode):
         """
         Retrieves an audio from the dataset, applies the effects from the configuration, and adds the specified external audio.
 
@@ -67,51 +67,28 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
         Returns:
             Tensor: The processed audio
         """
-        # Conversion des chemins relatifs en chemins absolus
-        if low_quality_effects_dir.startswith("/") and not os.path.exists(low_quality_effects_dir):
-            # Obtenir le chemin de base du projet
-            base_path = Path(__file__).resolve().parent.parent.parent
-            
-            if low_quality_effects_dir.startswith("/stable-clearaudio/"):
-                relative_path = low_quality_effects_dir[len("/stable-clearaudio/"):]
-                low_quality_effects_dir = str(base_path / relative_path)
-            elif low_quality_effects_dir.startswith("/stable_audio_tools/"):
-                relative_path = low_quality_effects_dir[len("/stable_audio_tools/"):]
-                low_quality_effects_dir = str(base_path / "stable_audio_tools" / relative_path)
-            
-            LOG.debug(f"Chemin résolu: {low_quality_effects_dir}")
-            
-        # Construire le chemin final
-        effects_config_path = os.path.join(
-            low_quality_effects_dir,
-            effects_file + ".yaml",
-        )
-        LOG.debug(f"Applying effects from {effects_config_path}")
 
         # Check if the configuration file exists
-        if not effects_config_path or not Path(effects_config_path).exists():
-            LOG.error(f"Configuration file not found: {effects_config_path}")
+        if not preset_path or not Path(preset_path).exists():
+            LOG.error(f"Configuration file not found: {preset_path}")
             return audio
 
         # Load the configuration
         try:
-            config_raw = load_yaml_config(effects_config_path)
-            LOG.debug(f"Configuration loaded: {effects_config_path}")
+            preset_cfg = load_yaml_config(preset_path)
+            LOG.debug(f"Configuration loaded: {preset_path}")
             
-            # Create a configuration dictionary compatible with SoxEffectTransform
-            low_quality_effect_files = Path(effects_config_path).stem
-            LOG.debug(f"Effect configuration: {low_quality_effect_files}")
-
-            # Create the config structure that matches SoxEffectTransform.from_config expectation
-            config_dict = {"dataset": {"low_quality_effect": {low_quality_effect_files: config_raw}}}
-            config = OmegaConf.create(config_dict)
-            
-            # Apply SoX effects using SoxEffectTransform
-            transforms = SoxEffectTransform.from_config(config, low_quality_effect_files)
+            if effects_mode == "random":
+                # In random mode, we only apply one transformation (as each random preset contains one list of effects)
+                transform = SoxEffectTransform.get_random_effects_transform(preset_cfg)
+                transforms = [transform]
+            elif effects_mode == "specific":
+                # In specific mode, we apply all transformations specified in "effects" in the preset_cfg
+                transforms = SoxEffectTransform.get_specific_effects_transforms(preset_cfg)
             
             if transforms:
-                # Apply each transformation
                 for transform in transforms:
+                    # Apply the transformation
                     LOG.debug(f"Applying SoX transformation: {transform.name}")
                     LOG.debug(f"Effects to apply: {transform.effects}")
 
@@ -121,8 +98,8 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
                     )
                     
                     # Appliquer le gain s'il est spécifié dans l'effet
-                    if "effects" in config_raw:
-                        for effect in config_raw["effects"]:
+                    if "effects" in preset_cfg: # TODO Check if redundant with lines 361
+                        for effect in preset_cfg["effects"]:
                             if "gain" in effect:
                                 gain_value = float(effect["gain"])
                                 LOG.debug(f"Applying gain after SOX effects: {gain_value}")
@@ -140,16 +117,13 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
                     
                     LOG.debug(f"SoX effects applied successfully. New shape: {processed_wave.shape}")
             else:
-                LOG.warning(f"No SoX effect transformations found in configuration {effects_config_path}")
+                LOG.warning(f"No SoX effect transformations found in configuration {preset_path}")
                 
             # Process external sounds if any
-            if "external_sounds" in config_raw:
+            if "external_sounds" in preset_cfg:
+                external_sounds_cfg = preset_cfg["external_sounds"]
                 LOG.debug("External sounds found in configuration. Adding...")
-
-                # Create external sound transformations
-                transforms = ExternalSoundTransform.from_config(
-                    config, effects_file
-                )
+                transforms = ExternalSoundTransform.get_external_sounds_transforms(external_sounds_cfg)
 
                 if transforms:
                     # Apply each transformation
@@ -168,7 +142,7 @@ def apply_config_to_audio(info, audio, low_quality_effects_dir, effects_file=Non
                         LOG.debug(f"External sound added successfully: {transform.sound_name}")
                 else:
                     LOG.error(
-                        f"No external sound transformation found in configuration {effects_config_path}"
+                        f"No external sound transformation found in configuration {preset_path}"
                     )
         except Exception as e:
             LOG.error(f"Error when applying configuration: {str(e)}")
@@ -186,10 +160,18 @@ class ExternalSoundTransform(nn.Module):
         self.gain = gain
 
     @staticmethod
-    def from_config(cfg: Any, external_sounds_cfg_name: str) -> List[ExternalSoundTransform]:
-        external_sounds_cfg = cfg.dataset.low_quality_effect[external_sounds_cfg_name]
+    def get_external_sounds_transforms(external_sounds_cfg: Any) -> List[ExternalSoundTransform]:
         transforms = []
-        for sound in external_sounds_cfg['external_sounds']:
+        # Handle both possible data structures: a list of sounds or a dict containing 'external_sounds' key
+        if isinstance(external_sounds_cfg, list):
+            sounds_list = external_sounds_cfg
+        elif isinstance(external_sounds_cfg, dict) and 'external_sounds' in external_sounds_cfg:
+            sounds_list = external_sounds_cfg['external_sounds']
+        else:
+            LOG.error(f"Unexpected external_sounds_cfg format: {type(external_sounds_cfg)}")
+            return []
+            
+        for sound in sounds_list:
             sound_name = sound['name']
             sound_path = sound['sound_path']
             # Get gain parameter if it exists, otherwise use default value
@@ -306,49 +288,44 @@ class SoxEffectTransform(nn.Module):
         return res
     
     @staticmethod
-    def from_config(cfg: Any, eq_cfg_name: Any) -> Dict[str, List[SoxEffectTransform]]:
+    def get_specific_effects_transforms(preset_cfg: Any) -> List[SoxEffectTransform]:
         """
         From a configuration dictionary, create a list of SoxEffectTransform objects.
 
         Args:
-            cfg: Configuration dictionary
-            eq_cfgs: Dictionary of effect configurations
+            preset_cfg: Configuration dictionary
+            preset_name: Name of the preset to use
         
         Returns:
-            Dictionary of effect names and their corresponding SoxEffectTransform objects
+            List of SoxEffectTransform objects
         """
         transforms = []
-        # try:
-        LOG.debug(f"Creating SoxEffectTransform objects from configuration: {cfg}")
-        # Check if eq_cfg exists in low_quality_effect
-        if eq_cfg_name not in cfg.dataset.low_quality_effect:
-            LOG.error(f"Configuration '{eq_cfg_name}' not found in cfg.dataset.low_quality_effect")
-            return []
+        LOG.debug(f"Creating SoxEffectTransform objects from configuration: {preset_cfg}")
         
         # Check if transform_type exists
-        if 'transform_type' not in cfg.dataset.low_quality_effect[eq_cfg_name]:
-            LOG.error(f"'transform_type' not found in cfg.dataset.low_quality_effect[{eq_cfg_name}]")
+        if 'transform_type' not in preset_cfg:
+            LOG.error(f"'transform_type' not found in preset_config]")
             return []
             
         # Check transform type
-        if cfg.dataset.low_quality_effect[eq_cfg_name]['transform_type'] == 'sox_audio_effect':
+        if preset_cfg['transform_type'] == 'sox_audio_effect':
             # Check if effects exists
-            if 'effects' not in cfg.dataset.low_quality_effect[eq_cfg_name]:
-                LOG.error(f"'effects' not found in cfg.dataset.low_quality_effect[{eq_cfg_name}]")
+            if 'effects' not in preset_cfg:
+                LOG.error(f"'effects' not found in preset_config")
                 return []
                                     
-            for effect in cfg.dataset.low_quality_effect[eq_cfg_name]['effects']:
-                sox_effect_transform = SoxEffectTransform(effect.name)
+            for effect in preset_cfg['effects']: # Most of the time, effect contains only one element
+                sox_effect_transform = SoxEffectTransform()
                 
                 # Check if params exists
-                if not hasattr(effect, 'params'):
-                    LOG.error(f"'params' not found in effect {effect.name}")
+                if 'params' not in effect:
+                    LOG.error(f"'params' not found in effect: {effect}")
                     continue
                     
-                for param_string in effect.params:
-                    # si sox ne connait pas le nom de l'effet il renvoie une erreur
+                for param_string in effect["params"]: 
+                    # Check if the effect is recognized by Sox
                     if param_string.split(" ")[0] not in sox.effect_names():
-                        LOG.error(f"Sox does not recognize the effect: {param_string.split(' ')[0]} in {effect.name}")
+                        LOG.error(f"Sox does not recognize the effect: {param_string.split(' ')[0]}")
                         continue
 
                     LOG.debug(f"Adding effect: {param_string}")
@@ -367,33 +344,30 @@ class SoxEffectTransform(nn.Module):
                         sox_effect_transform.add_effect(params)
                 
                 # Check for effect-level gain parameter
-                if hasattr(effect, 'gain'):
-                    effect_gain = effect.gain
-                    LOG.debug(f"Found effect-level gain parameter for {effect.name}: {effect_gain} (will be applied separately, not added to SoX effects)")
+                if 'gain' in effect:
+                    effect_gain = effect['gain']
+                    LOG.debug(f"Found effect-level gain parameter: {effect_gain} (will be applied separately, not added to SoX effects)")
                     sox_effect_transform.original_gain = float(effect_gain) # Store gain here
                     # sox_effect_transform.add_gain(float(effect_gain)) # Don't add gain here, it's handled later
-                elif cfg.dataset.normalize_inputs_post_eq:
+                elif preset_cfg['normalize_inputs_post_eq']:
                     sox_effect_transform.normalize_gain()
                     
                 transforms.append(sox_effect_transform)
         else:
-            LOG.error(f"Transformation type '{cfg.dataset.low_quality_effect[eq_cfg_name]['transform_type']}' is not supported. Only sox_audio_effect is supported for now.")
+            LOG.error(f"Transformation type '{preset_cfg['transform_type']}' is not supported. Only sox_audio_effect is supported for now.")
             return []
-        # except Exception as e:
-        #     LOG.error(f"Error in from_config for eq_cfg={eq_cfg_name}: {str(e)}")
-        #     return []
 
         return transforms
 
     @staticmethod
-    def from_mode_config(cfg: Any) -> Dict[str, List[SoxEffectTransform]]:
+    def from_mode_config_old(cfg: Any) -> Dict[str, List[SoxEffectTransform]]:
         transforms = {}
         for mode in ['train','test','validation']:
             if cfg.dataset.low_quality_effect[mode]:
                 transforms[mode] = []
                 for effect in cfg.dataset.low_quality_effect[mode]['effects']:
-                    sox_effect_transform = SoxEffectTransform(effect.name)
-                    for param_string in effect.params:
+                    sox_effect_transform = SoxEffectTransform(effect["name"])
+                    for param_string in effect['params']:
                         params = param_string.strip().split(" ")
                         sox_effect_transform.add_effect(params)
                     if cfg.dataset.normalize_inputs_post_eq:
@@ -401,169 +375,361 @@ class SoxEffectTransform(nn.Module):
                     transforms[mode].append(sox_effect_transform)
         return transforms
 
+    @staticmethod
+    def get_random_effects_transform(preset_cfg: Any) -> SoxEffectTransform:
+        """
+        Create a SoxEffectTransform with randomly selected effects from a preset list.
+        
+        This method selects effects from a predefined list in the configuration and applies them
+        with random parameters to create controlled audio degradations.
+        
+        Args:
+            cfg: Configuration object containing settings for effects and presets
+            preset_name: Name of the preset to use (if None, uses default preset)
+                
+        Returns:
+            SoxEffectTransform object
+        """
+        # Initialize transform
+        sox_effect_transform = SoxEffectTransform("random_preset")
+        
+        if "available_effects" not in preset_cfg:
+            LOG.error(f"available_effects not found in configuration. Preset config: {preset_cfg}")
+            return None
+        
+        # Get global parameters
+        min_effects = preset_cfg["min_effects"]
+        max_effects = preset_cfg["max_effects"]
+        available_effects = preset_cfg["available_effects"]
+        
+        # Select a random number of effects to apply
+        num_effects_to_apply = np.random.randint(min_effects, max_effects + 1)
+        
+        # Choose which effects to apply from the available list based on their weights
+        effects_weights = [preset_cfg["effects"][effect]["weight"] for effect in available_effects]
+        effects_to_apply = np.random.choice(
+            available_effects, 
+            size=min(num_effects_to_apply, len(available_effects)), 
+            replace=False,  # No duplicates
+            p=np.array(effects_weights) / sum(effects_weights)  # Normalize to probability distribution
+        )
+        
+        # Apply each selected effect with random parameters
+        for effect_name in effects_to_apply:
+            effect_cfg = preset_cfg["effects"][effect_name]
+            
+            # Based on effect type, call the appropriate method
+            if effect_name == "equalizer":
+                # Number of EQ bands to apply
+                num_bands = np.random.randint(effect_cfg["min_bands"], effect_cfg["max_bands"] + 1)
+                for _ in range(num_bands):
+                    center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
+                    gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
+                    q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
+                    sox_effect_transform.add_equalizer(center_freq, gain, q_factor)
+                    
+            elif effect_name == "treble":
+                center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
+                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
+                q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
+                sox_effect_transform.add_treble(center_freq, gain, q_factor)
+                
+            elif effect_name == "bass":
+                center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
+                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
+                q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
+                sox_effect_transform.add_bass(center_freq, gain, q_factor)
+                
+            elif effect_name == "overdrive":
+                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
+                colour = np.random.uniform(effect_cfg["colour_min"], effect_cfg["colour_max"])
+                sox_effect_transform.add_overdrive(gain, colour)
+                
+            elif effect_name == "reverb":
+                reverberance = np.random.randint(effect_cfg["reverberance_min"], effect_cfg["reverberance_max"])
+                damping = np.random.randint(effect_cfg["damping_min"], effect_cfg["damping_max"])
+                room_scale = np.random.randint(effect_cfg["room_scale_min"], effect_cfg["room_scale_max"])
+                stereo_depth = np.random.randint(effect_cfg["stereo_depth_min"], effect_cfg["stereo_depth_max"])
+                delay = np.random.randint(effect_cfg["delay_min"], effect_cfg["delay_max"]) if effect_cfg.get("use_delay", False) else 0
+                wet_gain = np.random.uniform(effect_cfg["wet_gain_min"], effect_cfg["wet_gain_max"])
+                
+                params_string = f"reverb {reverberance} {damping} {room_scale} {stereo_depth} {delay} {wet_gain}"
+                sox_effect_transform.add_effect(params_string.strip().split(" "))
+        
+        # Normalize gain if configured
+        if preset_cfg.get("normalize_inputs_post_eq", False):
+            sox_effect_transform.normalize_gain()
+            
+        return sox_effect_transform
 
     @staticmethod
-    def random_effects(cfg: Any) -> SoxEffectTransform:
+    def random_effects_old(cfg: Any) -> SoxEffectTransform:
+        """
+        Create a SoxEffectTransform with randomly selected audio effects.
+        
+        This method generates a collection of audio effects with random parameters
+        to degrade audio quality in a controlled manner. It's useful for creating
+        synthetic low-quality datasets for training audio restoration models.
+        
+        Args:
+            cfg: Configuration object containing settings for different audio effects
+            
+        Returns:
+            SoxEffectTransform: An object containing the randomly selected audio effects
+        """
+        # Initialize a new SoxEffectTransform object with name "random"
         sox_effect_transform = SoxEffectTransform("random")
+        
+        # Get the configuration section for random effects
         cfg_effect = cfg.dataset.low_quality_effect['random']
-        max_effect = cfg_effect.random_effects.max_effect
-        min_effect = cfg_effect.random_effects.min_effect
+        
+        # Get the minimum and maximum number of effects to apply
+        max_effect = cfg_effect.random_effects.max_effect  # Maximum effects to apply
+        min_effect = cfg_effect.random_effects.min_effect  # Minimum effects to apply
+        
+        # Initialize a list to track equalizer frequencies (to avoid overlapping frequencies)
         eq_freq = []
-        treble = False
-        bass = False
-        overdrive = False
-        reverb = False
-        riaa = False
-        echo = False
-        band = False
-        tremolo = False
-        sinc = False
-        hilbert = False
-        flanger = False
+        
+        # Initialize flags to ensure each effect type is applied at most once
+        treble = False     # High frequency adjustment
+        bass = False       # Low frequency adjustment
+        overdrive = False  # Distortion effect
+        reverb = False     # Echo/reverberation effect
+        riaa = False       # Record Industry Association of America equalization curve
+        echo = False       # Distinct repeated sound
+        band = False       # Band-pass filter
+        tremolo = False    # Amplitude modulation effect
+        sinc = False       # Sinc filter (brick-wall filter)
+        hilbert = False    # Hilbert transform (phase shifting)
+        flanger = False    # Delayed copy mixed with original
 
+        # Keep adding effects until we reach the minimum number required
+        # while not exceeding the maximum number allowed
         while len(sox_effect_transform.effects) < min_effect and len(sox_effect_transform.effects) < max_effect:
             
-            #Equalizer
+            # EQUALIZER EFFECT: Boosts or cuts specific frequency bands
+            # Applies with probability specified in config, can apply multiple equalizers
             while np.random.random() < cfg_effect.equalizer.proba and len(sox_effect_transform.effects) < max_effect:
+                # Get center frequency from config
                 center_freq = cfg_effect.equalizer.freq_mean
                 std_freq = cfg_effect.equalizer.freq_std
+                
+                # Skip frequencies that are too close to ones we've already used
                 for freq in eq_freq:
-                    if np.abs(freq-center_freq) < 20:
+                    if np.abs(freq-center_freq) < 20:  # Skip if within 20Hz of existing frequency
                         continue
+                        
+                # Remember this frequency so we don't use one too close to it later
                 eq_freq.append(center_freq)
-                if np.random.random() > 0.5:
-                    sox_effect_transform.add_equalizer(max(np.random.normal(center_freq, std_freq), 150), 
-                        np.random.uniform(cfg_effect.equalizer.db_min,cfg_effect.equalizer.db_max), 
-                        np.random.uniform(0.7, 5)
+                
+                # 50% chance to boost the frequency, 50% chance to cut it
+                if np.random.random() > 0.5:  # Boost frequency (positive gain)
+                    sox_effect_transform.add_equalizer(
+                        max(np.random.normal(center_freq, std_freq), 150),  # Random frequency, at least 150Hz
+                        np.random.uniform(cfg_effect.equalizer.db_min, cfg_effect.equalizer.db_max),  # Random gain (dB)
+                        np.random.uniform(0.7, 5)  # Random Q factor (bandwidth control)
                     )
-                else:
-                    sox_effect_transform.add_equalizer(max(np.random.normal(center_freq, std_freq), 150), 
-                        np.random.uniform(-cfg_effect.equalizer.db_max,-cfg_effect.equalizer.db_min), 
-                        np.random.uniform(0.7, 5)
+                else:  # Cut frequency (negative gain)
+                    sox_effect_transform.add_equalizer(
+                        max(np.random.normal(center_freq, std_freq), 150),  # Random frequency, at least 150Hz
+                        np.random.uniform(-cfg_effect.equalizer.db_max, -cfg_effect.equalizer.db_min),  # Random attenuation 
+                        np.random.uniform(0.7, 5)  # Random Q factor (bandwidth control)
                     )
-            #Treble
+            # TREBLE EFFECT: Boost or cut high frequencies
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.treble.proba and len(sox_effect_transform.effects) < max_effect and not treble:
-                treble = True
-                if np.random.random() > 0.5:
-                    sox_effect_transform.add_treble(np.random.randint(cfg_effect.treble.freq_min, cfg_effect.treble.freq_max), 
-                        np.random.uniform(cfg_effect.treble.db_min,cfg_effect.treble.db_max), 
-                        format(np.random.uniform(0.1, 1), '.2f')
+                treble = True  # Mark as applied so we don't add it again
+                
+                # 50% chance to boost treble, 50% chance to cut it
+                if np.random.random() > 0.5:  # Boost high frequencies
+                    sox_effect_transform.add_treble(
+                        np.random.randint(cfg_effect.treble.freq_min, cfg_effect.treble.freq_max),  # Random frequency 
+                        np.random.uniform(cfg_effect.treble.db_min, cfg_effect.treble.db_max),  # Random gain (dB)
+                        format(np.random.uniform(0.1, 1), '.2f')  # Random width factor (between 0.1 and 1)
                     )
-                else:
-                    sox_effect_transform.add_treble(np.random.randint(cfg_effect.treble.freq_min, cfg_effect.treble.freq_max), 
-                        np.random.uniform(-cfg_effect.treble.db_max,cfg_effect.treble.db_min), 
-                        format(np.random.uniform(0.1, 1), '.2f')
+                else:  # Cut high frequencies
+                    sox_effect_transform.add_treble(
+                        np.random.randint(cfg_effect.treble.freq_min, cfg_effect.treble.freq_max),  # Random frequency
+                        np.random.uniform(-cfg_effect.treble.db_max, cfg_effect.treble.db_min),  # Random attenuation
+                        format(np.random.uniform(0.1, 1), '.2f')  # Random width factor (between 0.1 and 1)
                     )
-            #Bass
+            # BASS EFFECT: Boost or cut low frequencies
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.bass.proba and len(sox_effect_transform.effects) < max_effect and not bass:
-                bass = True
-                if np.random.random() > 0.5:
-                    sox_effect_transform.add_bass(np.random.randint(cfg_effect.bass.freq_min, cfg_effect.bass.freq_max),
-                        np.random.uniform(cfg_effect.bass.db_min,cfg_effect.bass.db_max), 
-                        format(np.random.uniform(0.1, 1), '.2f')
+                bass = True  # Mark as applied so we don't add it again
+                
+                # 50% chance to boost bass, 50% chance to cut it
+                if np.random.random() > 0.5:  # Boost low frequencies
+                    sox_effect_transform.add_bass(
+                        np.random.randint(cfg_effect.bass.freq_min, cfg_effect.bass.freq_max),  # Random frequency
+                        np.random.uniform(cfg_effect.bass.db_min, cfg_effect.bass.db_max),  # Random gain (dB)
+                        format(np.random.uniform(0.1, 1), '.2f')  # Random width factor (between 0.1 and 1)
                     )
-                else:
-                    sox_effect_transform.add_bass(np.random.randint(cfg_effect.bass.freq_min, cfg_effect.bass.freq_max),
-                        np.random.uniform(-cfg_effect.bass.db_max,-cfg_effect.bass.db_min), 
-                        format(np.random.uniform(0.1, 1), '.2f')
+                else:  # Cut low frequencies
+                    sox_effect_transform.add_bass(
+                        np.random.randint(cfg_effect.bass.freq_min, cfg_effect.bass.freq_max),  # Random frequency
+                        np.random.uniform(-cfg_effect.bass.db_max, -cfg_effect.bass.db_min),  # Random attenuation
+                        format(np.random.uniform(0.1, 1), '.2f')  # Random width factor (between 0.1 and 1)
                     )
-            #Overdrive
+            # OVERDRIVE EFFECT: Adds distortion to the audio
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.overdrive.proba and len(sox_effect_transform.effects) < max_effect and not overdrive:
-                overdrive = True
-                sox_effect_transform.add_overdrive(np.random.randint(cfg_effect.overdrive.min_int, cfg_effect.overdrive.max_int), 
-                    np.random.randint(0, 15)
+                overdrive = True  # Mark as applied so we don't add it again
+                
+                # Add overdrive effect with random gain and color parameters
+                sox_effect_transform.add_overdrive(
+                    np.random.randint(cfg_effect.overdrive.min_int, cfg_effect.overdrive.max_int),  # Random gain (0-100)
+                    np.random.randint(0, 15)  # Random color/tone of distortion (0-15)
                 )
 
-            #Reverb
+            # REVERB EFFECT: Adds echo/room ambience to the audio
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.reverb.proba and len(sox_effect_transform.effects) < max_effect and not reverb:
-                reverb = True
+                reverb = True  # Mark as applied so we don't add it again
+                
+                # Determine whether to use -w flag (weighted algorithm)
+                # Note: There seems to be a bug here as both branches set w_true to False
                 if np.random.random() < cfg_effect.reverb.proba_w:
-                    w_true = False
+                    w_true = False  # Should probably be True, but keeping original behavior
                 else: 
                     w_true = False
 
-                reverberance = np.random.randint(1, 100)
-                damping = np.random.randint(1, 100)
-                room_scale = np.random.randint(1, 100)
-                stereo_depth = np.random.randint(1, 100)
+                # Generate random parameters for the reverb effect
+                reverberance = np.random.randint(1, 100)  # Amount of reverb (percentage)
+                damping = np.random.randint(1, 100)       # Higher values = more high frequency absorption
+                room_scale = np.random.randint(1, 100)    # Room size (percentage)
+                stereo_depth = np.random.randint(1, 100)  # Stereo spread (percentage)
+                
+                # Determine if we should add pre-delay
                 if cfg_effect.reverb.proba_delay:
-                    delay = np.random.randint(1, 500) #in millisecond
+                    delay = np.random.randint(1, 500)  # Random delay in milliseconds
                 else:
-                    delay = 0
-                wet_gain = np.random.uniform(-10, 10)
-                if w_true:
+                    delay = 0  # No pre-delay
+                    
+                wet_gain = np.random.uniform(-10, 10)  # Wet/reverb signal gain in dB
+                
+                # Build the command string with all parameters
+                if w_true:  # Use -w flag (weighted algorithm)
                     params_string = f"reverb -w {reverberance} {damping} {room_scale} {stereo_depth} {delay} {wet_gain}"
-                else:
+                else:  # Standard algorithm
                     params_string = f"reverb {reverberance} {damping} {room_scale} {stereo_depth} {delay} {wet_gain}"
+                    
+                # Add the reverb effect and convert to mono afterward
                 sox_effect_transform.add_effect(params_string.strip().split(" "))
                 sox_effect_transform.add_effect('channels 1'.strip().split(" "))
             
-            # Flanger
+            # FLANGER EFFECT: Delayed copy of signal mixed with original, creates swooshing effect
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.flanger.proba and len(sox_effect_transform.effects) < max_effect and not flanger:
-                flanger = True
-                params_string = 'flanger'
+                flanger = True  # Mark as applied so we don't add it again
+                
+                # Add flanger effect with default parameters
+                params_string = 'flanger'  # Using default SoX flanger parameters
                 sox_effect_transform.add_effect(params_string.strip().split(" "))
 
-            # riaa
+            # RIAA EFFECT: Record Industry Association of America equalization curve
+            # Simulates vinyl record equalization - applies with probability from config, only once per transform
             if np.random.random() < cfg_effect.riaa.proba and len(sox_effect_transform.effects) < max_effect and not riaa:
-                riaa = True
-                params_string = 'riaa'
+                riaa = True  # Mark as applied so we don't add it again
+                
+                # Add RIAA effect with default parameters
+                params_string = 'riaa'  # RIAA equalization curve simulation
                 sox_effect_transform.add_effect(params_string.strip().split(" "))
 
-            # hilbert
+            # HILBERT EFFECT: Performs a Hilbert transform - shifts phase by 90 degrees
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.hilbert.proba and len(sox_effect_transform.effects) < max_effect and not hilbert:
-                hilbert = True
-                params_string = 'hilbert'
+                hilbert = True  # Mark as applied so we don't add it again
+                
+                # Add Hilbert transform effect
+                params_string = 'hilbert'  # Creates phase-shifted version of the signal
                 sox_effect_transform.add_effect(params_string.strip().split(" "))
 
-            #band
+            # BAND EFFECT: Band-pass filter to isolate a frequency range
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.band.proba and len(sox_effect_transform.effects) < max_effect and not band:
-                band = True
-                width = np.random.uniform(100,3000)
-                center = np.random.uniform(cfg_effect.band.min_freq, cfg_effect.band.max_freq)
+                band = True  # Mark as applied so we don't add it again
+                
+                # Generate random parameters for the band-pass filter
+                width = np.random.uniform(100, 3000)  # Width of the frequency band in Hz
+                center = np.random.uniform(cfg_effect.band.min_freq, cfg_effect.band.max_freq)  # Center frequency in Hz
+                
+                # Determine whether to use noise-based filter (-n flag)
                 if np.random.random() < cfg_effect.band.noise_proba:
-                    params_string = f"band -n {center} {width}"
-                else :
-                    params_string = f"band {center} {width}"
+                    params_string = f"band -n {center} {width}"  # Noise-based band-pass filter
+                else:
+                    params_string = f"band {center} {width}"  # Standard band-pass filter
+                    
+                # Add the band effect
                 sox_effect_transform.add_effect(params_string.strip().split(" "))
 
-            #sinc
+            # SINC EFFECT: Sinc filter (brick-wall filter - sharp cutoff)
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.sinc.proba and len(sox_effect_transform.effects) < max_effect and not sinc:
-                sinc = True
-                att = np.random.uniform(40, cfg_effect.sinc.att_max)
-                sign = np.random.choice([-1, 1])
-                freq = np.random.uniform(cfg_effect.sinc.min_freq, cfg_effect.sinc.max_freq)
-                params_string = f"sinc -a {att} {sign * freq} "
+                sinc = True  # Mark as applied so we don't add it again
+                
+                # Generate random parameters for the sinc filter
+                att = np.random.uniform(40, cfg_effect.sinc.att_max)  # Attenuation in dB for frequencies beyond cutoff
+                sign = np.random.choice([-1, 1])  # Random sign to determine high-pass (-1) or low-pass (1) filtering
+                freq = np.random.uniform(cfg_effect.sinc.min_freq, cfg_effect.sinc.max_freq)  # Cutoff frequency in Hz
+                
+                # Build the sinc filter command
+                params_string = f"sinc -a {att} {sign * freq} "  # -a specifies attenuation
+                # If sign is positive: low-pass filter (keeps frequencies below freq)
+                # If sign is negative: high-pass filter (keeps frequencies above freq)
+                
+                # Add the sinc effect
                 sox_effect_transform.add_effect(params_string.strip().split(" "))
 
-            # #tremolo
+            # TREMOLO EFFECT (currently disabled): Modulates amplitude to create trembling sound
+            # This section is commented out but would apply tremolo effect if enabled
             # if np.random.random() < cfg_effect.tremolo.proba and len(sox.effects) < max_effect and not tremolo:
-            #     tremolo = True
-            #     speed = np.random.uniform(cfg_effect.tremolo.speed_min, cfg_effect.tremolo.speed_max)
-            #     depth = np.random.uniform(cfg_effect.tremolo.depth_min, cfg_effect.tremolo.depth_max)
+            #     tremolo = True  # Mark as applied so we don't add it again
+            #     speed = np.random.uniform(cfg_effect.tremolo.speed_min, cfg_effect.tremolo.speed_max)  # Modulation speed in Hz
+            #     depth = np.random.uniform(cfg_effect.tremolo.depth_min, cfg_effect.tremolo.depth_max)  # Modulation depth (0-1)
             #     params_string = f"tremolo {speed} {depth}"
             #     sox.add_effect(params_string.strip().split(" "))
 
-            #echo
+            # ECHO EFFECT: Adds echoes to the audio signal
+            # Applies with probability specified in config, only once per transform
             if np.random.random() < cfg_effect.echo.proba and len(sox_effect_transform.effects) < max_effect and not echo:
-                gain_in = np.random.uniform(cfg_effect.echo.gain_in_min, cfg_effect.echo.gain_in_max)
-                gain_out = np.random.uniform(cfg_effect.echo.gain_out_min, cfg_effect.echo.gain_out_max)
-                delay = []
-                decay = []
-                params_string = f"echos {gain_in} {gain_out} "
+                # Generate random parameters for input and output gain
+                gain_in = np.random.uniform(cfg_effect.echo.gain_in_min, cfg_effect.echo.gain_in_max)   # Input volume
+                gain_out = np.random.uniform(cfg_effect.echo.gain_out_min, cfg_effect.echo.gain_out_max) # Output volume
+                
+                # Initialize lists to store delay and decay values for multiple echoes
+                delay = []  # Time delays for echoes in milliseconds
+                decay = []  # Decay factors for each echo
+                
+                # Start building the echo command
+                params_string = f"echos {gain_in} {gain_out} "  # 'echos' allows multiple echoes
+                
+                # Add echoes randomly based on probability configuration
                 while (not echo) or cfg_effect.echo.proba_next_echo > np.random.random():
-                    echo = True
-                    delay_value = np.random.uniform(cfg_effect.echo.delay_min, cfg_effect.echo.delay_max)
+                    echo = True  # Mark as applied so we don't use this effect again
+                    
+                    # Generate random delay and decay values
+                    delay_value = np.random.uniform(cfg_effect.echo.delay_min, cfg_effect.echo.delay_max)  # Echo delay
                     delay.append(delay_value)
-                    decay_value = np.random.uniform(cfg_effect.echo.decay_min, cfg_effect.echo.decay_max)
+                    
+                    decay_value = np.random.uniform(cfg_effect.echo.decay_min, cfg_effect.echo.decay_max)  # Echo decay
                     decay.append(decay_value)
+                    
+                # Add only the first echo to the parameter string
+                # Note: This appears to be a bug - only using the first echo despite collecting multiple
                 for i, _ in enumerate(delay):
-                    if i == 0 :  
+                    if i == 0:  # Only using the first echo pair
                         params_string += f"{delay[i]} {decay[i]} "               
+                        
+                # Add the echo effect
                 sox_effect_transform.add_effect(params_string.strip().split(" "))
               
+        # Normalize gain after all effects if specified in config
+        # This prevents clipping and ensures consistent volume levels
         if cfg.dataset.normalize_inputs_post_eq:
             sox_effect_transform.normalize_gain()
+            
+        # Return the complete transform with all random effects applied
         return sox_effect_transform
 
     def to_mono(self, prepend: bool = True) -> SoxEffectTransform:

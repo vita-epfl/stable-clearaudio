@@ -1,0 +1,59 @@
+transform_type: sox_audio_effect
+
+min_effects: 2
+max_effects: 5
+available_effects: ["equalizer", "treble", "bass", "overdrive", "reverb", "echo", "sinc"]
+
+effects:
+  equalizer:
+    weight: 0.9
+    min_bands: 1
+    max_bands: 3
+    freq_min: 150
+    freq_max: 8000
+    gain_min: -20
+    gain_max: 20
+    q_min: 0.7
+    q_max: 5.0
+    
+  treble:
+    weight: 0.7
+    freq_min: 3000
+    freq_max: 10000
+    gain_min: -15
+    gain_max: 15
+    q_min: 0.1
+    q_max: 1.0
+    
+  bass:
+    weight: 0.7
+    freq_min: 20
+    freq_max: 500
+    gain_min: -15
+    gain_max: 15
+    q_min: 0.1
+    q_max: 1.0
+    
+  overdrive:
+    weight: 0.4
+    gain_min: 5
+    gain_max: 50
+    colour_min: 0
+    colour_max: 15
+    
+  reverb:
+    weight: 0.5
+    reverberance_min: 1
+    reverberance_max: 100
+    damping_min: 1
+    damping_max: 100
+    room_scale_min: 1
+    room_scale_max: 100
+    stereo_depth_min: 1
+    stereo_depth_max: 100
+    delay_min: 0
+    delay_max: 500
+    wet_gain_min: -10
+    wet_gain_max: 10
+    use_delay: true
+  
