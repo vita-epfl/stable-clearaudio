@@ -8,6 +8,8 @@ import torch
 import torchaudio
 import threading
 import os, time
+import matplotlib.pyplot as plt
+from io import BytesIO
 
 from einops import rearrange
 from safetensors.torch import load_file
@@ -759,6 +761,83 @@ def delete_files_async(filenames, delay):
     threading.Thread(target=delete_files_after_delay, args=(filenames, delay)).start()
 
 
+def create_metric_plots(metrics_data):
+    """Create plots for all metrics over steps."""
+    if not metrics_data or "step_metrics" not in metrics_data or not metrics_data["step_metrics"]:
+        return None
+        
+    try:
+        # Get all metric names from the first step
+        first_step = next(iter(metrics_data["step_metrics"].values()))
+        metric_names = list(first_step["metrics"].keys())
+        
+        if not metric_names:
+            return None
+            
+        # Create a figure with subplots for each metric
+        n_metrics = len(metric_names)
+        n_cols = 2
+        n_rows = (n_metrics + 1) // 2
+        
+        fig = plt.figure(figsize=(15, 5 * n_rows))
+        
+        # Extract steps and values for each metric
+        steps = []
+        values = {name: [] for name in metric_names}
+        
+        for step_data in sorted(metrics_data["step_metrics"].values(), key=lambda x: x["step"]):
+            steps.append(step_data["step"])
+            for name in metric_names:
+                values[name].append(step_data["metrics"][name])
+        
+        # Add final step with demo metrics if available
+        final_step = metrics_data["steps"]
+        steps.append(final_step)
+        demo_metrics = {
+            'lsd': metrics_data['demo_lsd'],
+            'ltas': metrics_data['demo_ltas'],
+            'sisdr': metrics_data['demo_sisdr'],
+            'snr': metrics_data['demo_snr'],
+            'stft': metrics_data['demo_stft'],
+            'mel': metrics_data['demo_mel'],
+            'latent_mse_loss': metrics_data['latent_mse_loss'],
+            'latent_l1_loss': metrics_data['latent_l1_loss'],
+            'waveform_mse_loss': metrics_data['waveform_mse_loss'],
+            'waveform_l1_loss': metrics_data['waveform_l1_loss']
+        }
+        for name in metric_names:
+            #if name in demo_metrics:
+            values[name].append(demo_metrics[name])
+    
+        # Create subplots
+        for i, name in enumerate(metric_names, 1):
+            plt.subplot(n_rows, n_cols, i)
+            plt.plot(steps, values[name], 'b-', label=name)
+            plt.xlabel('Step')
+            plt.ylabel('Value')
+            plt.title(f'{name} over steps')
+            plt.grid(True)
+
+            # Add a marker for the final demo metric if available
+            plt.plot(final_step, demo_metrics[name], 'ro', label='Final step')
+            plt.legend()
+        
+        plt.tight_layout()
+        
+        # Convert plot to image and return as numpy array
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+        plt.close(fig)
+        buf.seek(0)
+        
+        # Convert to numpy array for Gradio
+        from PIL import Image
+        img = Image.open(buf)
+        return np.array(img)
+    except Exception as e:
+        LOG.error(f"Error creating metric plots: {str(e)}")
+        return None
+
 def create_sampling_ui(model_config):
     has_inpainting = model_config["model_type"] == "diffusion_cond_inpaint"
 
@@ -1046,6 +1125,7 @@ def create_sampling_ui(model_config):
             
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True, visible=is_audio_restoration):
+                metrics_plots = gr.Image(label="Metrics Plots", visible=is_audio_restoration, type="numpy")
                 metrics_output = gr.JSON(label="Metrics", visible=is_audio_restoration)
             
             # Use different target based on model type
@@ -1072,10 +1152,19 @@ def create_sampling_ui(model_config):
                     outputs=[inpaint_audio_input],
                 )
 
+    def generate_with_plots(*args):
+        if is_audio_restoration:
+            audio, spectrograms, metrics = generate_cond_restoration(*args)
+            plots = create_metric_plots(metrics) if metrics else None
+            return audio, spectrograms, metrics, plots
+        else:
+            audio, spectrograms = generate_cond(*args)
+            return audio, spectrograms, None, None
+
     generate_button.click(
-        fn=generate_cond_restoration if is_audio_restoration else generate_cond,
+        fn=generate_with_plots,
         inputs=inputs,
-        outputs=[audio_output, audio_spectrogram_output, metrics_output] if is_audio_restoration else [audio_output, audio_spectrogram_output],
+        outputs=[audio_output, audio_spectrogram_output, metrics_output, metrics_plots] if is_audio_restoration else [audio_output, audio_spectrogram_output, None, None],
         api_name="generate",
     )
 
