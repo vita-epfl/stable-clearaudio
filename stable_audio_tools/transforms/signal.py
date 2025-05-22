@@ -79,13 +79,16 @@ def apply_config_to_audio(info, audio, preset_path, effects_mode):
             LOG.debug(f"Configuration loaded: {preset_path}")
             
             if effects_mode == "random":
-                transforms = SoxEffectTransform.get_random_effects_transforms(preset_cfg)
+                # In random mode, we only apply one transformation (as each random preset contains one list of effects)
+                transform = SoxEffectTransform.get_random_effects_transform(preset_cfg)
+                transforms = [transform]
             elif effects_mode == "specific":
+                # In specific mode, we apply all transformations specified in "effects" in the preset_cfg
                 transforms = SoxEffectTransform.get_specific_effects_transforms(preset_cfg)
             
             if transforms:
-                # Apply each transformation
                 for transform in transforms:
+                    # Apply the transformation
                     LOG.debug(f"Applying SoX transformation: {transform.name}")
                     LOG.debug(f"Effects to apply: {transform.effects}")
 
@@ -311,7 +314,7 @@ class SoxEffectTransform(nn.Module):
                 LOG.error(f"'effects' not found in preset_config")
                 return []
                                     
-            for effect in preset_cfg['effects']:
+            for effect in preset_cfg['effects']: # Most of the time, effect contains only one element
                 sox_effect_transform = SoxEffectTransform()
                 
                 # Check if params exists
@@ -319,7 +322,7 @@ class SoxEffectTransform(nn.Module):
                     LOG.error(f"'params' not found in effect: {effect}")
                     continue
                     
-                for param_string in effect["params"]:
+                for param_string in effect["params"]: 
                     # Check if the effect is recognized by Sox
                     if param_string.split(" ")[0] not in sox.effect_names():
                         LOG.error(f"Sox does not recognize the effect: {param_string.split(' ')[0]}")
@@ -373,7 +376,7 @@ class SoxEffectTransform(nn.Module):
         return transforms
 
     @staticmethod
-    def get_random_effects_transforms(preset_cfg: Any) -> SoxEffectTransform:
+    def get_random_effects_transform(preset_cfg: Any) -> SoxEffectTransform:
         """
         Create a SoxEffectTransform with randomly selected effects from a preset list.
         
@@ -385,24 +388,25 @@ class SoxEffectTransform(nn.Module):
             preset_name: Name of the preset to use (if None, uses default preset)
                 
         Returns:
-            SoxEffectTransform: An object containing the randomly selected audio effects
+            SoxEffectTransform object
         """
         # Initialize transform
         sox_effect_transform = SoxEffectTransform("random_preset")
         
-        if not hasattr(preset_cfg, "available_effects"):
-            LOG.error(f"Preset not found in configuration. Using default.")
+        if "available_effects" not in preset_cfg:
+            LOG.error(f"available_effects not found in configuration. Preset config: {preset_cfg}")
+            return None
         
         # Get global parameters
-        min_effects = preset_cfg.min_effects
-        max_effects = preset_cfg.max_effects
-        available_effects = preset_cfg.available_effects
+        min_effects = preset_cfg["min_effects"]
+        max_effects = preset_cfg["max_effects"]
+        available_effects = preset_cfg["available_effects"]
         
         # Select a random number of effects to apply
         num_effects_to_apply = np.random.randint(min_effects, max_effects + 1)
         
         # Choose which effects to apply from the available list based on their weights
-        effects_weights = [getattr(preset_cfg, effect).weight for effect in available_effects]
+        effects_weights = [preset_cfg["effects"][effect]["weight"] for effect in available_effects]
         effects_to_apply = np.random.choice(
             available_effects, 
             size=min(num_effects_to_apply, len(available_effects)), 
@@ -412,50 +416,48 @@ class SoxEffectTransform(nn.Module):
         
         # Apply each selected effect with random parameters
         for effect_name in effects_to_apply:
-            effect_cfg = getattr(preset_cfg, effect_name)
+            effect_cfg = preset_cfg["effects"][effect_name]
             
             # Based on effect type, call the appropriate method
             if effect_name == "equalizer":
                 # Number of EQ bands to apply
-                num_bands = np.random.randint(effect_cfg.min_bands, effect_cfg.max_bands + 1)
+                num_bands = np.random.randint(effect_cfg["min_bands"], effect_cfg["max_bands"] + 1)
                 for _ in range(num_bands):
-                    center_freq = np.random.uniform(effect_cfg.freq_min, effect_cfg.freq_max)
-                    gain = np.random.uniform(effect_cfg.gain_min, effect_cfg.gain_max)
-                    q_factor = np.random.uniform(effect_cfg.q_min, effect_cfg.q_max)
+                    center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
+                    gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
+                    q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
                     sox_effect_transform.add_equalizer(center_freq, gain, q_factor)
                     
             elif effect_name == "treble":
-                center_freq = np.random.uniform(effect_cfg.freq_min, effect_cfg.freq_max)
-                gain = np.random.uniform(effect_cfg.gain_min, effect_cfg.gain_max)
-                q_factor = np.random.uniform(effect_cfg.q_min, effect_cfg.q_max)
+                center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
+                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
+                q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
                 sox_effect_transform.add_treble(center_freq, gain, q_factor)
                 
             elif effect_name == "bass":
-                center_freq = np.random.uniform(effect_cfg.freq_min, effect_cfg.freq_max)
-                gain = np.random.uniform(effect_cfg.gain_min, effect_cfg.gain_max)
-                q_factor = np.random.uniform(effect_cfg.q_min, effect_cfg.q_max)
+                center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
+                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
+                q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
                 sox_effect_transform.add_bass(center_freq, gain, q_factor)
                 
             elif effect_name == "overdrive":
-                gain = np.random.uniform(effect_cfg.gain_min, effect_cfg.gain_max)
-                colour = np.random.uniform(effect_cfg.colour_min, effect_cfg.colour_max)
+                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
+                colour = np.random.uniform(effect_cfg["colour_min"], effect_cfg["colour_max"])
                 sox_effect_transform.add_overdrive(gain, colour)
                 
             elif effect_name == "reverb":
-                reverberance = np.random.randint(effect_cfg.reverberance_min, effect_cfg.reverberance_max)
-                damping = np.random.randint(effect_cfg.damping_min, effect_cfg.damping_max)
-                room_scale = np.random.randint(effect_cfg.room_scale_min, effect_cfg.room_scale_max)
-                stereo_depth = np.random.randint(effect_cfg.stereo_depth_min, effect_cfg.stereo_depth_max)
-                delay = np.random.randint(effect_cfg.delay_min, effect_cfg.delay_max) if effect_cfg.use_delay else 0
-                wet_gain = np.random.uniform(effect_cfg.wet_gain_min, effect_cfg.wet_gain_max)
+                reverberance = np.random.randint(effect_cfg["reverberance_min"], effect_cfg["reverberance_max"])
+                damping = np.random.randint(effect_cfg["damping_min"], effect_cfg["damping_max"])
+                room_scale = np.random.randint(effect_cfg["room_scale_min"], effect_cfg["room_scale_max"])
+                stereo_depth = np.random.randint(effect_cfg["stereo_depth_min"], effect_cfg["stereo_depth_max"])
+                delay = np.random.randint(effect_cfg["delay_min"], effect_cfg["delay_max"]) if effect_cfg.get("use_delay", False) else 0
+                wet_gain = np.random.uniform(effect_cfg["wet_gain_min"], effect_cfg["wet_gain_max"])
                 
                 params_string = f"reverb {reverberance} {damping} {room_scale} {stereo_depth} {delay} {wet_gain}"
                 sox_effect_transform.add_effect(params_string.strip().split(" "))
-                
-            # Ajoutez d'autres effets selon vos besoins...
         
         # Normalize gain if configured
-        if cfg.dataset.normalize_inputs_post_eq:
+        if preset_cfg.get("normalize_inputs_post_eq", False):
             sox_effect_transform.normalize_gain()
             
         return sox_effect_transform

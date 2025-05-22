@@ -60,7 +60,12 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
     if effects_mode == "random":
         # select a random preset from the random presets directory
         preset_dir = os.path.join(low_quality_effects_dir, "random_presets")
-        random_preset_name = random.choice(os.listdir(preset_dir))
+        # Choose a random preset from the directory, not from degradation_presets
+        presets_available = os.listdir(preset_dir)
+        if not presets_available:
+            LOG.error(f"No presets found in {preset_dir}")
+            return []
+        random_preset_name = random.choice(degradation_presets)
         degradation_presets = [random_preset_name]
 
     elif effects_mode == "specific":
