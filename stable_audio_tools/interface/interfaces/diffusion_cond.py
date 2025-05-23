@@ -351,19 +351,23 @@ def generate_cond(
         cmd += " -loglevel error"  # make output less verbose in the cmd window
         subprocess.run(cmd, shell=True, check=True)
 
-    # Let's look at a nice spectrogram too
+    # Generate spectrogram
     try:
-        # Assuming audio_spectrogram_image can handle int16 tensor
         audio_spectrogram = audio_spectrogram_image(audio, sample_rate=sample_rate)
+        # Generate clean audio spectrogram if available
+        clean_spectrogram = None
+        if init_audio is not None:
+            clean_spectrogram = audio_spectrogram_image(init_audio[1], sample_rate=sample_rate)
     except Exception as e:
-        print(f"Warning: Could not generate spectrogram: {e}")
-        audio_spectrogram = None  # Set to None if generation fails
+        LOG.warning(f"Could not generate spectrogram: {e}")
+        audio_spectrogram = None
+        clean_spectrogram = None
 
     # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
     if file_naming in ["verbose", "prompt"]:
         delete_files_async([output_wav, output_filename], 30)
 
-    return (output_filename, [audio_spectrogram, *preview_images])
+    return (output_filename, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images])
 
 
 def compute_metrics(audio, clean_audio=None, model=None, device="cuda"):
@@ -714,6 +718,20 @@ def generate_cond_restoration(
         )
     else:
         audio = audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
+    
+    clean_audio = clean_audio[1]
+    max_abs_val = torch.max(torch.abs(clean_audio))
+    if max_abs_val > 1e-7:
+        clean_audio = (
+            clean_audio.to(torch.float32)
+            .div(max_abs_val)
+            .clamp(-1, 1)
+            .mul(32767)
+            .to(torch.int16)
+            .cpu()
+        )
+    else:
+        clean_audio = clean_audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
 
 
     # If file_format is other than wav, convert to other file format
@@ -739,16 +757,21 @@ def generate_cond_restoration(
     # Generate spectrogram
     try:
         audio_spectrogram = audio_spectrogram_image(audio, sample_rate=sample_rate)
+        # Generate clean audio spectrogram if available
+        clean_spectrogram = None
+        if clean_audio is not None:
+            clean_spectrogram = audio_spectrogram_image(clean_audio, sample_rate=sample_rate)
     except Exception as e:
         LOG.warning(f"Could not generate spectrogram: {e}")
         audio_spectrogram = None
+        clean_spectrogram = None
 
     # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
     if file_naming in ["verbose", "prompt"]:
         delete_files_async([output_wav, output_filename], 30)
 
     LOG.info("Audio restoration completed")
-    return (output_filename, [audio_spectrogram, *preview_images], final_metrics)
+    return (output_filename, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images], final_metrics)
 
 #  Asynchronously delete the given list of filenames after delay seconds. Sets up thread that sleeps for delay then deletes.
 def delete_files_async(filenames, delay):
@@ -1120,13 +1143,15 @@ def create_sampling_ui(model_config):
         with gr.Column():
             audio_output = gr.Audio(label="Output audio", interactive=False)
             audio_spectrogram_output = gr.Gallery(
-                label="Output spectrogram", show_label=False
+                label="Output spectrograms", show_label=True,
+                elem_id="spectrogram_gallery",
+                columns=2,
+                height=400
             )
             
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True, visible=is_audio_restoration):
                 metrics_plots = gr.Image(label="Metrics Plots", visible=is_audio_restoration, type="numpy")
-                metrics_output = gr.JSON(label="Metrics", visible=is_audio_restoration)
             
             # Use different target based on model type
             if is_audio_restoration:
@@ -1156,15 +1181,15 @@ def create_sampling_ui(model_config):
         if is_audio_restoration:
             audio, spectrograms, metrics = generate_cond_restoration(*args)
             plots = create_metric_plots(metrics) if metrics else None
-            return audio, spectrograms, metrics, plots
+            return audio, spectrograms, plots
         else:
             audio, spectrograms = generate_cond(*args)
-            return audio, spectrograms, None, None
+            return audio, spectrograms, None
 
     generate_button.click(
         fn=generate_with_plots,
         inputs=inputs,
-        outputs=[audio_output, audio_spectrogram_output, metrics_output, metrics_plots] if is_audio_restoration else [audio_output, audio_spectrogram_output, None, None],
+        outputs=[audio_output, audio_spectrogram_output, metrics_plots] if is_audio_restoration else [audio_output, audio_spectrogram_output, None],
         api_name="generate",
     )
 
