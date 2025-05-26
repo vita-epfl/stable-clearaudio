@@ -270,40 +270,67 @@ def generate_diffusion_cond(
         clean_audio_latent = model.pretransform.encode(clean_audio_tensor)
         clean_audio_tensor = model.pretransform.decode(clean_audio_latent)
         clean_audio_tensor = rearrange(clean_audio_tensor, 'b d n -> d (b n)')
-        sampled_metrics = rearrange(sampled, 'b d n -> d (b n)')
-
-        # Calculate metrics between generated and clean audio
-        for name, metric in metrics.items():
-            metrics_dict[f'demo_{name}'] = metric(sampled_metrics, clean_audio_tensor).item()
-            LOG.info(f"Metric {name} (generated vs clean): {metrics_dict[f'demo_{name}']}")
-
-        # Calculate metrics between degraded and clean audio if degraded audio is available
-        LOG.info("Calculating metrics between degraded and clean audio")
         degraded_audio_tensor = degraded_audio.unsqueeze(0).to(device)
         degraded_audio_latent = model.pretransform.encode(degraded_audio_tensor)
         degraded_audio_tensor = model.pretransform.decode(degraded_audio_latent)
         degraded_audio_tensor = rearrange(degraded_audio_tensor, 'b d n -> d (b n)')
-        for name, metric in metrics.items():
-            metrics_dict[f'degraded_{name}'] = metric(degraded_audio_tensor, clean_audio_tensor).item()
-            LOG.info(f"Metric {name} (degraded vs clean): {metrics_dict[f'degraded_{name}']}")
-        
-        # Latent space losses
-        mse_loss = F.mse_loss(sampled_latent, clean_audio_latent)
-        metrics_dict['latent_mse_loss'] = mse_loss.item()
-        LOG.info(f"Latent MSE Loss: {mse_loss.item()}")
+        sampled_metrics = rearrange(sampled, 'b d n -> d (b n)')
 
-        l1_loss = F.l1_loss(sampled_latent, clean_audio_latent)
-        metrics_dict['latent_l1_loss'] = l1_loss.item()
-        LOG.info(f"Latent L1 Loss: {l1_loss.item()}")
+        # Calculate metrics between generated and clean audio
+        for name, metric in metrics.items():
+            # Calculate demo metric (generated vs clean)
+            demo_metric = metric(sampled_metrics, clean_audio_tensor).item()
+            metrics_dict[f'demo_{name}'] = demo_metric
+            
+            # Calculate degraded metric (degraded vs clean)
+            degraded_metric = metric(degraded_audio_tensor, clean_audio_tensor).item()
+            
+            # Calculate clean metric (clean vs clean)
+            clean_metric = metric(clean_audio_tensor, model.pretransform.decode(model.pretransform.encode(clean_audio_tensor.unsqueeze(0))).squeeze()).item()
+            
+            # Calculate restoration success metric
+            restoration_success = 1 - abs((demo_metric - degraded_metric)) / abs((clean_metric - degraded_metric))
+            metrics_dict[f'restoration_success_{name}'] = restoration_success
+            
+            LOG.info(f"Restoration success for {name}: {restoration_success}")
+
+        # Latent space losses
+        # MSE Loss
+        demo_mse = F.mse_loss(sampled_latent, clean_audio_latent)
+        degraded_mse = F.mse_loss(degraded_audio_latent, clean_audio_latent)
+        clean_mse = F.mse_loss(clean_audio_latent, clean_audio_latent)
+        metrics_dict['latent_mse_loss'] = demo_mse.item()
+        metrics_dict['restoration_success_latent_mse_loss'] = 1 - abs((demo_mse.item() - degraded_mse.item())) / abs((clean_mse.item() - degraded_mse.item()))
+        LOG.info(f"Latent MSE Loss: {demo_mse.item()}")
+        LOG.info(f"Restoration Success Latent MSE: {metrics_dict['restoration_success_latent_mse_loss']}")
+
+        # L1 Loss
+        demo_l1 = F.l1_loss(sampled_latent, clean_audio_latent)
+        degraded_l1 = F.l1_loss(degraded_audio_latent, clean_audio_latent)
+        clean_l1 = F.l1_loss(clean_audio_latent, clean_audio_latent)
+        metrics_dict['latent_l1_loss'] = demo_l1.item()
+        metrics_dict['restoration_success_latent_l1_loss'] = 1 - abs((demo_l1.item() - degraded_l1.item())) / abs((clean_l1.item() - degraded_l1.item()))
+        LOG.info(f"Latent L1 Loss: {demo_l1.item()}")
+        LOG.info(f"Restoration Success Latent L1: {metrics_dict['restoration_success_latent_l1_loss']}")
 
         # Waveform domain losses
-        waveform_mse_loss = F.mse_loss(sampled_metrics, clean_audio_tensor)
-        metrics_dict['waveform_mse_loss'] = waveform_mse_loss.item()
-        LOG.info(f"Waveform MSE Loss: {waveform_mse_loss.item()}")
+        # MSE Loss
+        demo_waveform_mse = F.mse_loss(sampled_metrics, clean_audio_tensor)
+        degraded_waveform_mse = F.mse_loss(degraded_audio_tensor, clean_audio_tensor)
+        clean_waveform_mse = F.mse_loss(clean_audio_tensor, clean_audio_tensor)
+        metrics_dict['waveform_mse_loss'] = demo_waveform_mse.item()
+        metrics_dict['restoration_success_waveform_mse_loss'] = 1 - abs((demo_waveform_mse.item() - degraded_waveform_mse.item())) / abs((clean_waveform_mse.item() - degraded_waveform_mse.item()))
+        LOG.info(f"Waveform MSE Loss: {demo_waveform_mse.item()}")
+        LOG.info(f"Restoration Success Waveform MSE: {metrics_dict['restoration_success_waveform_mse_loss']}")
 
-        waveform_l1_loss = F.l1_loss(sampled_metrics, clean_audio_tensor)
-        metrics_dict['waveform_l1_loss'] = waveform_l1_loss.item()
-        LOG.info(f"Waveform L1 Loss: {waveform_l1_loss.item()}")
+        # L1 Loss
+        demo_waveform_l1 = F.l1_loss(sampled_metrics, clean_audio_tensor)
+        degraded_waveform_l1 = F.l1_loss(degraded_audio_tensor, clean_audio_tensor)
+        clean_waveform_l1 = F.l1_loss(clean_audio_tensor, clean_audio_tensor)
+        metrics_dict['waveform_l1_loss'] = demo_waveform_l1.item()
+        metrics_dict['restoration_success_waveform_l1_loss'] = 1 - abs((demo_waveform_l1.item() - degraded_waveform_l1.item())) / abs((clean_waveform_l1.item() - degraded_waveform_l1.item()))
+        LOG.info(f"Waveform L1 Loss: {demo_waveform_l1.item()}")
+        LOG.info(f"Restoration Success Waveform L1: {metrics_dict['restoration_success_waveform_l1_loss']}")
 
         # Add additional metadata
         metrics_dict.update({

@@ -370,7 +370,7 @@ def generate_cond(
     return (output_filename, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images])
 
 
-def compute_metrics(audio, clean_audio=None, model=None, device="cuda"):
+def compute_metrics(audio, clean_audio=None, degraded_audio=None, model=None, device="cuda"):
     """Compute audio quality metrics between the generated audio and clean reference if provided."""
     metrics = {}
     
@@ -395,16 +395,21 @@ def compute_metrics(audio, clean_audio=None, model=None, device="cuda"):
         # If using a pretransform model, process both audios through the same pipeline
         if model.pretransform is not None:
             # Encode both audios to latent space
+            clean_audio = clean_audio.to(device)
+            audio = audio.to(device)
+            degraded_audio = degraded_audio.to(device)
             clean_audio_latent = model.pretransform.encode(clean_audio.unsqueeze(0))
             audio_latent = model.pretransform.encode(audio.unsqueeze(0))
+            degraded_audio_latent = model.pretransform.encode(degraded_audio.unsqueeze(0))
             # Decode back to waveform space for consistent comparison
             clean_audio = model.pretransform.decode(clean_audio_latent)
+            degraded_audio = model.pretransform.decode(degraded_audio_latent)
             
             # Remove batch dimension and ensure correct shape
             audio = audio.squeeze(0)
             clean_audio = clean_audio.squeeze(0)
-            
-            LOG.info(f"After transform - Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}")
+            degraded_audio = degraded_audio.squeeze(0)
+            LOG.info(f"After transform - Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}, Degraded: {degraded_audio.shape}")
         
         # Ensure both audios are the same length
         if audio.shape[-1] != clean_audio.shape[-1]:
@@ -425,9 +430,22 @@ def compute_metrics(audio, clean_audio=None, model=None, device="cuda"):
         # Calculate metrics between generated and clean audio
         for name, metric in metrics_instances.items():
             try:
-                metric_value = metric(audio, clean_audio).item()
-                metrics[name] = metric_value
-                LOG.info(f"Computed {name}: {metric_value:.3f}")
+                # Calculate demo metric (generated vs clean)
+                demo_metric = metric(audio, clean_audio).item()
+                metrics[name] = demo_metric
+                
+                # Calculate degraded metric (degraded vs clean)
+                degraded_metric = metric(degraded_audio, clean_audio).item()
+                
+                # Calculate clean metric (clean vs clean)
+                clean_metric = metric(clean_audio, model.pretransform.decode(model.pretransform.encode(clean_audio.unsqueeze(0))).squeeze(0)).item()
+                
+                # Calculate restoration success metric
+                restoration_success = 1 - abs((demo_metric - degraded_metric)) / abs((clean_metric - degraded_metric))
+                metrics[f'restoration_success_{name}'] = restoration_success
+                
+                LOG.info(f"Computed {name}: {demo_metric:.3f}")
+                LOG.info(f"Restoration success for {name}: {restoration_success:.3f}")
             except Exception as e:
                 LOG.error(f"Error computing {name}: {str(e)}")
         
@@ -435,26 +453,46 @@ def compute_metrics(audio, clean_audio=None, model=None, device="cuda"):
         if model.pretransform is not None:
             try:
                 LOG.info("Computing latent space metrics...")
-                mse_loss = F.mse_loss(audio_latent, clean_audio_latent)
-                metrics['latent_mse_loss'] = mse_loss.item()
-                LOG.info(f"Latent MSE Loss: {mse_loss.item():.3f}")
+                # MSE Loss
+                demo_mse = F.mse_loss(audio_latent, clean_audio_latent)
+                degraded_mse = F.mse_loss(degraded_audio_latent, clean_audio_latent)
+                clean_mse = F.mse_loss(clean_audio_latent, clean_audio_latent)
+                metrics['latent_mse_loss'] = demo_mse.item()
+                metrics['restoration_success_latent_mse_loss'] = 1 - abs((demo_mse.item() - degraded_mse.item())) / abs((clean_mse.item() - degraded_mse.item()))
+                LOG.info(f"Latent MSE Loss: {demo_mse.item():.3f}")
+                LOG.info(f"Restoration Success Latent MSE: {metrics['restoration_success_latent_mse_loss']:.3f}")
                 
-                l1_loss = F.l1_loss(audio_latent, clean_audio_latent)
-                metrics['latent_l1_loss'] = l1_loss.item()
-                LOG.info(f"Latent L1 Loss: {l1_loss.item():.3f}")
+                # L1 Loss
+                demo_l1 = F.l1_loss(audio_latent, clean_audio_latent)
+                degraded_l1 = F.l1_loss(degraded_audio_latent, clean_audio_latent)
+                clean_l1 = F.l1_loss(clean_audio_latent, clean_audio_latent)
+                metrics['latent_l1_loss'] = demo_l1.item()
+                metrics['restoration_success_latent_l1_loss'] = 1 - abs((demo_l1.item() - degraded_l1.item())) / abs((clean_l1.item() - degraded_l1.item()))
+                LOG.info(f"Latent L1 Loss: {demo_l1.item():.3f}")
+                LOG.info(f"Restoration Success Latent L1: {metrics['restoration_success_latent_l1_loss']:.3f}")
             except Exception as e:
                 LOG.error(f"Error computing latent space metrics: {str(e)}")
         
         # Waveform domain losses
         try:
             LOG.info("Computing waveform domain losses...")
-            waveform_mse_loss = F.mse_loss(audio, clean_audio)
-            metrics['waveform_mse_loss'] = waveform_mse_loss.item()
-            LOG.info(f"Waveform MSE Loss: {waveform_mse_loss.item():.3f}")
+            # MSE Loss
+            demo_waveform_mse = F.mse_loss(audio, clean_audio)
+            degraded_waveform_mse = F.mse_loss(degraded_audio, clean_audio)
+            clean_waveform_mse = F.mse_loss(clean_audio, clean_audio)
+            metrics['waveform_mse_loss'] = demo_waveform_mse.item()
+            metrics['restoration_success_waveform_mse_loss'] = 1 - abs((demo_waveform_mse.item() - degraded_waveform_mse.item())) / abs((clean_waveform_mse.item() - degraded_waveform_mse.item()))
+            LOG.info(f"Waveform MSE Loss: {demo_waveform_mse.item():.3f}")
+            LOG.info(f"Restoration Success Waveform MSE: {metrics['restoration_success_waveform_mse_loss']:.3f}")
             
-            waveform_l1_loss = F.l1_loss(audio, clean_audio)
-            metrics['waveform_l1_loss'] = waveform_l1_loss.item()
-            LOG.info(f"Waveform L1 Loss: {waveform_l1_loss.item():.3f}")
+            # L1 Loss
+            demo_waveform_l1 = F.l1_loss(audio, clean_audio)
+            degraded_waveform_l1 = F.l1_loss(degraded_audio, clean_audio)
+            clean_waveform_l1 = F.l1_loss(clean_audio, clean_audio)
+            metrics['waveform_l1_loss'] = demo_waveform_l1.item()
+            metrics['restoration_success_waveform_l1_loss'] = 1 - abs((demo_waveform_l1.item() - degraded_waveform_l1.item())) / abs((clean_waveform_l1.item() - degraded_waveform_l1.item()))
+            LOG.info(f"Waveform L1 Loss: {demo_waveform_l1.item():.3f}")
+            LOG.info(f"Restoration Success Waveform L1: {metrics['restoration_success_waveform_l1_loss']:.3f}")
         except Exception as e:
             LOG.error(f"Error computing waveform domain losses: {str(e)}")
     
@@ -613,10 +651,11 @@ def generate_cond_restoration(
             step_metrics = compute_metrics(
                 denoised, 
                 clean_audio[1] if clean_audio is not None else None,
+                degraded_audio[1] if degraded_audio is not None else None,
                 model=model,
                 device=device
             )
-            
+
             # Create a new dictionary for this step's metrics
             step_data = {
                 "metrics": step_metrics,
@@ -792,30 +831,40 @@ def create_metric_plots(metrics_data):
     try:
         # Get all metric names from the first step
         first_step = next(iter(metrics_data["step_metrics"].values()))
-        metric_names = list(first_step["metrics"].keys())
+        all_metric_names = list(first_step["metrics"].keys())
         
-        if not metric_names:
+        if not all_metric_names:
             return None
             
-        # Create a figure with subplots for each metric
+        # Separate original metrics from restoration success metrics
+        metric_names = [name for name in all_metric_names if not name.startswith('restoration_success_')]
+            
+        # Create a figure with subplots for each metric plus one for combined restoration
         n_metrics = len(metric_names)
         n_cols = 2
-        n_rows = (n_metrics + 1) // 2
+        n_rows = (n_metrics + 2) // 2  # +2 to account for the combined restoration plot
         
         fig = plt.figure(figsize=(15, 5 * n_rows))
         
         # Extract steps and values for each metric
         steps = []
         values = {name: [] for name in metric_names}
+        restoration_values = {name: [] for name in metric_names}
         
         for step_data in sorted(metrics_data["step_metrics"].values(), key=lambda x: x["step"]):
             steps.append(step_data["step"])
             for name in metric_names:
+                # Get original metric
                 values[name].append(step_data["metrics"][name])
-        
+                # Get restoration success metric
+                restoration_name = f'restoration_success_{name}'
+                if restoration_name in step_data["metrics"]:
+                    restoration_values[name].append(step_data["metrics"][restoration_name])
         # Add final step with demo metrics if available
         final_step = metrics_data["steps"]
         steps.append(final_step)
+        
+        # Original metrics
         demo_metrics = {
             'lsd': metrics_data['demo_lsd'],
             'ltas': metrics_data['demo_ltas'],
@@ -828,14 +877,31 @@ def create_metric_plots(metrics_data):
             'waveform_mse_loss': metrics_data['waveform_mse_loss'],
             'waveform_l1_loss': metrics_data['waveform_l1_loss']
         }
+        
+        # Restoration success metrics
+        restoration_metrics = {
+            'lsd': metrics_data['restoration_success_lsd'],
+            'ltas': metrics_data['restoration_success_ltas'],
+            'sisdr': metrics_data['restoration_success_sisdr'],
+            'snr': metrics_data['restoration_success_snr'],
+            'stft': metrics_data['restoration_success_stft'],
+            'mel': metrics_data['restoration_success_mel'],
+            'latent_mse_loss': metrics_data['restoration_success_latent_mse_loss'],
+            'latent_l1_loss': metrics_data['restoration_success_latent_l1_loss'],
+            'waveform_mse_loss': metrics_data['restoration_success_waveform_mse_loss'],
+            'waveform_l1_loss': metrics_data['restoration_success_waveform_l1_loss']
+        }
+        
+        # Add final values for both original and restoration metrics
         for name in metric_names:
-            #if name in demo_metrics:
             values[name].append(demo_metrics[name])
+            restoration_name = f'restoration_success_{name}'
+            restoration_values[name].append(restoration_metrics[name])
     
-        # Create subplots
+        # Create subplots for individual metrics
         for i, name in enumerate(metric_names, 1):
             plt.subplot(n_rows, n_cols, i)
-            plt.plot(steps, values[name], 'b-', label=name)
+            plt.plot(steps, values[name], 'b-', label=f'{name} (raw)')
             plt.xlabel('Step')
             plt.ylabel('Value')
             plt.title(f'{name} over steps')
@@ -844,6 +910,17 @@ def create_metric_plots(metrics_data):
             # Add a marker for the final demo metric if available
             plt.plot(final_step, demo_metrics[name], 'ro', label='Final step')
             plt.legend()
+        
+        # Create combined restoration success plot
+        plt.subplot(n_rows, n_cols, n_metrics + 1)
+        for name in metric_names:
+            plt.plot(steps, restoration_values[name], label=f'{name}')
+        
+        plt.xlabel('Step')
+        plt.ylabel('Restoration Success')
+        plt.title('Combined Restoration Success Metrics')
+        plt.grid(True)
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
         
         plt.tight_layout()
         
