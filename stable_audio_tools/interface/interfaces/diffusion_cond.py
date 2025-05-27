@@ -8,6 +8,8 @@ import torch
 import torchaudio
 import threading
 import os, time
+import matplotlib.pyplot as plt
+from io import BytesIO
 
 from einops import rearrange
 from safetensors.torch import load_file
@@ -349,24 +351,120 @@ def generate_cond(
         cmd += " -loglevel error"  # make output less verbose in the cmd window
         subprocess.run(cmd, shell=True, check=True)
 
-    # Let's look at a nice spectrogram too
+    # Generate spectrogram
     try:
-        # Assuming audio_spectrogram_image can handle int16 tensor
         audio_spectrogram = audio_spectrogram_image(audio, sample_rate=sample_rate)
+        # Generate clean audio spectrogram if available
+        clean_spectrogram = None
+        if init_audio is not None:
+            clean_spectrogram = audio_spectrogram_image(init_audio[1], sample_rate=sample_rate)
     except Exception as e:
-        print(f"Warning: Could not generate spectrogram: {e}")
-        audio_spectrogram = None  # Set to None if generation fails
+        LOG.warning(f"Could not generate spectrogram: {e}")
+        audio_spectrogram = None
+        clean_spectrogram = None
 
     # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
     if file_naming in ["verbose", "prompt"]:
         delete_files_async([output_wav, output_filename], 30)
 
-    return (output_filename, [audio_spectrogram, *preview_images])
+    return (output_filename, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images])
+
+
+def compute_metrics(audio, clean_audio=None, model=None, device="cuda"):
+    """Compute audio quality metrics between the generated audio and clean reference if provided."""
+    metrics = {}
+    
+    if clean_audio is not None and model is not None:
+        from stable_audio_tools.training.losses.metrics import (
+            LogSpectralDistance,
+            LTASDistance,
+            SISDRMetric,
+            SNRMetric,
+            STFTDistance,
+            MelDistance
+        )
+        
+        # Move tensors to the correct device and ensure they're float32
+        audio = audio.to(device)
+        clean_audio = clean_audio.to(device)
+        
+        LOG.info(f"Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}")
+        LOG.info(f"Audio dtypes - Generated: {audio.dtype}, Clean: {clean_audio.dtype}")
+        LOG.info(f"Audio ranges - Generated: [{audio.min().item():.3f}, {audio.max().item():.3f}], Clean: [{clean_audio.min().item():.3f}, {clean_audio.max().item():.3f}]")
+        
+        # If using a pretransform model, process both audios through the same pipeline
+        if model.pretransform is not None:
+            # Encode both audios to latent space
+            clean_audio_latent = model.pretransform.encode(clean_audio.unsqueeze(0))
+            audio_latent = model.pretransform.encode(audio.unsqueeze(0))
+            # Decode back to waveform space for consistent comparison
+            clean_audio = model.pretransform.decode(clean_audio_latent)
+            
+            # Remove batch dimension and ensure correct shape
+            audio = audio.squeeze(0)
+            clean_audio = clean_audio.squeeze(0)
+            
+            LOG.info(f"After transform - Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}")
+        
+        # Ensure both audios are the same length
+        if audio.shape[-1] != clean_audio.shape[-1]:
+            min_length = min(audio.shape[-1], clean_audio.shape[-1])
+            audio = audio[..., :min_length]
+            clean_audio = clean_audio[..., :min_length]
+            LOG.info(f"After length adjustment - Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}")
+        
+        metrics_instances = {
+            'lsd': LogSpectralDistance().to(device),
+            'ltas': LTASDistance().to(device),
+            'sisdr': SISDRMetric().to(device),
+            'snr': SNRMetric().to(device),
+            'stft': STFTDistance().to(device),
+            'mel': MelDistance(sample_rate=model.sample_rate).to(device)
+        }
+        
+        # Calculate metrics between generated and clean audio
+        for name, metric in metrics_instances.items():
+            try:
+                metric_value = metric(audio, clean_audio).item()
+                metrics[name] = metric_value
+                LOG.info(f"Computed {name}: {metric_value:.3f}")
+            except Exception as e:
+                LOG.error(f"Error computing {name}: {str(e)}")
+        
+        # Latent space losses if using a pretransform model
+        if model.pretransform is not None:
+            try:
+                LOG.info("Computing latent space metrics...")
+                mse_loss = F.mse_loss(audio_latent, clean_audio_latent)
+                metrics['latent_mse_loss'] = mse_loss.item()
+                LOG.info(f"Latent MSE Loss: {mse_loss.item():.3f}")
+                
+                l1_loss = F.l1_loss(audio_latent, clean_audio_latent)
+                metrics['latent_l1_loss'] = l1_loss.item()
+                LOG.info(f"Latent L1 Loss: {l1_loss.item():.3f}")
+            except Exception as e:
+                LOG.error(f"Error computing latent space metrics: {str(e)}")
+        
+        # Waveform domain losses
+        try:
+            LOG.info("Computing waveform domain losses...")
+            waveform_mse_loss = F.mse_loss(audio, clean_audio)
+            metrics['waveform_mse_loss'] = waveform_mse_loss.item()
+            LOG.info(f"Waveform MSE Loss: {waveform_mse_loss.item():.3f}")
+            
+            waveform_l1_loss = F.l1_loss(audio, clean_audio)
+            metrics['waveform_l1_loss'] = waveform_l1_loss.item()
+            LOG.info(f"Waveform L1 Loss: {waveform_l1_loss.item():.3f}")
+        except Exception as e:
+            LOG.error(f"Error computing waveform domain losses: {str(e)}")
+    
+    return metrics
 
 
 def generate_cond_restoration(
     steps=250,
     preview_every=None,
+    metrics_every=0,  # New parameter for metrics computation frequency
     seed=-1,
     sampler_type="dpmpp-3m-sde",
     sigma_min=0.03,
@@ -384,7 +482,6 @@ def generate_cond_restoration(
     # Initialize metrics dictionary
     metrics_dict = {}
 
-    
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     gc.collect()
@@ -492,7 +589,7 @@ def generate_cond_restoration(
         current_step = callback_info["i"]
         sigma = callback_info["sigma"]
 
-        if (current_step - 1) % preview_every == 0:
+        if preview_every is not None and (current_step) % preview_every == 0:
             if model.pretransform is not None:
                 denoised = model.pretransform.decode(denoised)
             denoised = rearrange(denoised, "b d n -> d (b n)")
@@ -503,6 +600,42 @@ def generate_cond_restoration(
             preview_images.append(
                 (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
             )
+
+        # Compute metrics at specified intervals if metrics_every is set
+        if metrics_every > 0 and (current_step) % metrics_every == 0:
+            LOG.info(f"Computing metrics at step {current_step}")
+            if model.pretransform is not None:
+                denoised = model.pretransform.decode(denoised)
+            denoised = rearrange(denoised, "b d n -> d (b n)")
+            denoised = denoised.clamp(-1, 1)
+            
+            # Compute metrics for this step
+            step_metrics = compute_metrics(
+                denoised, 
+                clean_audio[1] if clean_audio is not None else None,
+                model=model,
+                device=device
+            )
+            
+            # Create a new dictionary for this step's metrics
+            step_data = {
+                "metrics": step_metrics,
+                "step": current_step,
+                "sigma": float(sigma)
+            }
+            
+            # Store in the metrics dictionary with the step number as key
+            metrics_dict[f"step_{current_step}"] = step_data
+    # Create date-based directory structure
+    current_date = time.strftime("%Y-%m-%d")
+    current_time = time.strftime("%H-%M-%S")
+    output_dir = os.path.join("output", current_date)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create a subdirectory for this specific generation
+    generation_dir = os.path.join(output_dir, f"generation_{current_time}")
+    os.makedirs(generation_dir, exist_ok=True)
+
 
     generate_args = {
         "model": model,
@@ -515,15 +648,18 @@ def generate_cond_restoration(
         "sampler_type": sampler_type,
         "sigma_min": sigma_min,
         "sigma_max": sigma_max,
-        "callback": progress_callback if preview_every is not None else None,
+        "callback": progress_callback if (preview_every is not None or metrics_every > 0) else None,
         "scale_phi": cfg_rescale,
         "rho": rho,
         "clean_audio": clean_audio,
+        "output_dir": generation_dir
     }
 
     # Do the audio generation
     LOG.info("Generating audio")
-    audio, metrics_dict = generate_diffusion_cond(**generate_args)
+    
+    audio, final_metrics = generate_diffusion_cond(**generate_args)
+
 
     # simple e.g. "output.wav"
     basename = "output"
@@ -535,13 +671,39 @@ def generate_cond_restoration(
     output_filename = "%s.%s" % (basename, filename_extension)
     output_wav = "%s.wav" % basename
 
+
+
+    # Combine per-step metrics with final metrics
+    if final_metrics is not None:
+        # Add per-step metrics to the final metrics
+        final_metrics["step_metrics"] = metrics_dict
+        # Add generation parameters
+        final_metrics["generation_params"] = {
+            "steps": steps,
+            "metrics_every": metrics_every,
+            "preview_every": preview_every,
+            "sampler_type": sampler_type,
+            "sigma_min": sigma_min,
+            "sigma_max": sigma_max,
+            "rho": rho
+        }
+        # Save metrics to JSON file
+        metrics_file = os.path.join(generation_dir, "metrics.json")
+        try:
+            with open(metrics_file, 'w') as f:
+                json.dump(final_metrics, f, indent=4)
+            LOG.info(f"Metrics saved to {metrics_file}")
+        except Exception as e:
+            LOG.error(f"Error saving metrics to file: {e}")
+        
+
     # Encode the audio to WAV format
     audio = rearrange(audio, "b d n -> d (b n)")
 
     # Check if the audio tensor is empty before normalization
     if audio.numel() == 0:
         LOG.warning("Generated audio is empty")
-        return (None, preview_images, metrics_dict)
+        return (None, preview_images, final_metrics)
 
     # If audio is not empty, proceed with normalization
     max_abs_val = torch.max(torch.abs(audio))
@@ -556,8 +718,21 @@ def generate_cond_restoration(
         )
     else:
         audio = audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
-
     
+    clean_audio = clean_audio[1]
+    max_abs_val = torch.max(torch.abs(clean_audio))
+    if max_abs_val > 1e-7:
+        clean_audio = (
+            clean_audio.to(torch.float32)
+            .div(max_abs_val)
+            .clamp(-1, 1)
+            .mul(32767)
+            .to(torch.int16)
+            .cpu()
+        )
+    else:
+        clean_audio = clean_audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
+
 
     # If file_format is other than wav, convert to other file format
     cmd = ""
@@ -582,16 +757,21 @@ def generate_cond_restoration(
     # Generate spectrogram
     try:
         audio_spectrogram = audio_spectrogram_image(audio, sample_rate=sample_rate)
+        # Generate clean audio spectrogram if available
+        clean_spectrogram = None
+        if clean_audio is not None:
+            clean_spectrogram = audio_spectrogram_image(clean_audio, sample_rate=sample_rate)
     except Exception as e:
         LOG.warning(f"Could not generate spectrogram: {e}")
         audio_spectrogram = None
+        clean_spectrogram = None
 
     # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
     if file_naming in ["verbose", "prompt"]:
         delete_files_async([output_wav, output_filename], 30)
 
     LOG.info("Audio restoration completed")
-    return (output_filename, [audio_spectrogram, *preview_images], metrics_dict)
+    return (output_filename, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images], final_metrics)
 
 #  Asynchronously delete the given list of filenames after delay seconds. Sets up thread that sleeps for delay then deletes.
 def delete_files_async(filenames, delay):
@@ -603,6 +783,83 @@ def delete_files_async(filenames, delay):
 
     threading.Thread(target=delete_files_after_delay, args=(filenames, delay)).start()
 
+
+def create_metric_plots(metrics_data):
+    """Create plots for all metrics over steps."""
+    if not metrics_data or "step_metrics" not in metrics_data or not metrics_data["step_metrics"]:
+        return None
+        
+    try:
+        # Get all metric names from the first step
+        first_step = next(iter(metrics_data["step_metrics"].values()))
+        metric_names = list(first_step["metrics"].keys())
+        
+        if not metric_names:
+            return None
+            
+        # Create a figure with subplots for each metric
+        n_metrics = len(metric_names)
+        n_cols = 2
+        n_rows = (n_metrics + 1) // 2
+        
+        fig = plt.figure(figsize=(15, 5 * n_rows))
+        
+        # Extract steps and values for each metric
+        steps = []
+        values = {name: [] for name in metric_names}
+        
+        for step_data in sorted(metrics_data["step_metrics"].values(), key=lambda x: x["step"]):
+            steps.append(step_data["step"])
+            for name in metric_names:
+                values[name].append(step_data["metrics"][name])
+        
+        # Add final step with demo metrics if available
+        final_step = metrics_data["steps"]
+        steps.append(final_step)
+        demo_metrics = {
+            'lsd': metrics_data['demo_lsd'],
+            'ltas': metrics_data['demo_ltas'],
+            'sisdr': metrics_data['demo_sisdr'],
+            'snr': metrics_data['demo_snr'],
+            'stft': metrics_data['demo_stft'],
+            'mel': metrics_data['demo_mel'],
+            'latent_mse_loss': metrics_data['latent_mse_loss'],
+            'latent_l1_loss': metrics_data['latent_l1_loss'],
+            'waveform_mse_loss': metrics_data['waveform_mse_loss'],
+            'waveform_l1_loss': metrics_data['waveform_l1_loss']
+        }
+        for name in metric_names:
+            #if name in demo_metrics:
+            values[name].append(demo_metrics[name])
+    
+        # Create subplots
+        for i, name in enumerate(metric_names, 1):
+            plt.subplot(n_rows, n_cols, i)
+            plt.plot(steps, values[name], 'b-', label=name)
+            plt.xlabel('Step')
+            plt.ylabel('Value')
+            plt.title(f'{name} over steps')
+            plt.grid(True)
+
+            # Add a marker for the final demo metric if available
+            plt.plot(final_step, demo_metrics[name], 'ro', label='Final step')
+            plt.legend()
+        
+        plt.tight_layout()
+        
+        # Convert plot to image and return as numpy array
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+        plt.close(fig)
+        buf.seek(0)
+        
+        # Convert to numpy array for Gradio
+        from PIL import Image
+        img = Image.open(buf)
+        return np.array(img)
+    except Exception as e:
+        LOG.error(f"Error creating metric plots: {str(e)}")
+        return None
 
 def create_sampling_ui(model_config):
     has_inpainting = model_config["model_type"] == "diffusion_cond_inpaint"
@@ -795,6 +1052,14 @@ def create_sampling_ui(model_config):
                         value=0,
                         label="Spec Preview Every N Steps",
                     )
+                    metrics_every_slider = gr.Slider(
+                        minimum=0,
+                        maximum=100,
+                        step=1,
+                        value=0,
+                        label="Compute Metrics Every N Steps",
+                        visible=is_audio_restoration,
+                    )
             if is_audio_restoration:
                 with gr.Accordion("Audio Inputs", open=True):
                     degraded_audio = gr.Audio(label="Degraded audio")
@@ -835,6 +1100,7 @@ def create_sampling_ui(model_config):
                 inputs = [
                         steps_slider,
                         preview_every_slider,
+                        metrics_every_slider,
                         seed_textbox,
                         sampler_type_dropdown,
                         sigma_min_slider,
@@ -877,12 +1143,15 @@ def create_sampling_ui(model_config):
         with gr.Column():
             audio_output = gr.Audio(label="Output audio", interactive=False)
             audio_spectrogram_output = gr.Gallery(
-                label="Output spectrogram", show_label=False
+                label="Output spectrograms", show_label=True,
+                elem_id="spectrogram_gallery",
+                columns=2,
+                height=400
             )
             
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True, visible=is_audio_restoration):
-                metrics_output = gr.JSON(label="Metrics", visible=is_audio_restoration)
+                metrics_plots = gr.Image(label="Metrics Plots", visible=is_audio_restoration, type="numpy")
             
             # Use different target based on model type
             if is_audio_restoration:
@@ -908,10 +1177,19 @@ def create_sampling_ui(model_config):
                     outputs=[inpaint_audio_input],
                 )
 
+    def generate_with_plots(*args):
+        if is_audio_restoration:
+            audio, spectrograms, metrics = generate_cond_restoration(*args)
+            plots = create_metric_plots(metrics) if metrics else None
+            return audio, spectrograms, plots
+        else:
+            audio, spectrograms = generate_cond(*args)
+            return audio, spectrograms, None
+
     generate_button.click(
-        fn=generate_cond_restoration if is_audio_restoration else generate_cond,
+        fn=generate_with_plots,
         inputs=inputs,
-        outputs=[audio_output, audio_spectrogram_output, metrics_output] if is_audio_restoration else [audio_output, audio_spectrogram_output],
+        outputs=[audio_output, audio_spectrogram_output, metrics_plots] if is_audio_restoration else [audio_output, audio_spectrogram_output, None],
         api_name="generate",
     )
 
