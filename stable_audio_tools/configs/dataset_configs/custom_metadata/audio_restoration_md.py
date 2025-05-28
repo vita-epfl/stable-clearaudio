@@ -5,7 +5,6 @@ import os
 import random
 from pathlib import Path
 from stable_audio_tools.transforms import signal
-from omegaconf import OmegaConf
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.StreamHandler())

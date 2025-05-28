@@ -10,13 +10,13 @@ import torchaudio
 import torchaudio.sox_effects as sox
 import torchaudio.transforms as T
 from torch import Tensor, nn
+import torch
 import yaml
-from omegaconf import OmegaConf
 
 LOG = logging.getLogger(__name__)
 
 # Logging configuration
-logging.basicConfig(level=logging.INFO, 
+logging.basicConfig(level=logging.DEBUG, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
 
@@ -349,7 +349,7 @@ class SoxEffectTransform(nn.Module):
                     LOG.debug(f"Found effect-level gain parameter: {effect_gain} (will be applied separately, not added to SoX effects)")
                     sox_effect_transform.original_gain = float(effect_gain) # Store gain here
                     # sox_effect_transform.add_gain(float(effect_gain)) # Don't add gain here, it's handled later
-                elif preset_cfg['normalize_inputs_post_eq']:
+                elif 'normalize_inputs_post_eq' in preset_cfg and preset_cfg['normalize_inputs_post_eq']:
                     sox_effect_transform.normalize_gain()
                     
                 transforms.append(sox_effect_transform)
@@ -805,11 +805,7 @@ class SoxEffectTransform(nn.Module):
         self.effects.append(effect)
         return self
 
-    def apply_tensor(self, tensor: Tensor, sample_rate: int) -> Tuple[Tensor, int]:
-        LOG.debug(f"Applying effects with SoxEffectTransform: {self.name}")
-        LOG.debug(f"Effects to apply: {self.effects}")
-        
-        # Ne pas normaliser l'entrée pour préserver les effets de gain
+    def apply_tensor(self, tensor: Tensor, sample_rate: int) -> Tuple[Tensor, int]:        
         # Apply SOX effects directement
         audio, sr = sox.apply_effects_tensor(tensor, sample_rate, self.effects, channels_first=True)
         LOG.debug(f"Audio shape after SOX effects: {audio.shape}")
