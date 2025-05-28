@@ -7,10 +7,6 @@
     "build_clean_dataset": true,
     "duration": 10,
     "num_files": 1,
-    "degradation_presets": ["extreme_mp3_compression"],
-    "effects_mode": "specific",
-    "noise_gain": 1.0,
-    "external_sounds": [],
-    "start_freq": 1000,
-    "end_freq": null
+    "degradation_presets": ["intense_equalizer"],
+    "effects_mode": "random"
 }

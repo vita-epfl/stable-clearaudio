@@ -6,6 +6,8 @@ import json
 import random
 import torchaudio
 import torch
+import matplotlib.pyplot as plt
+import numpy as np
 from pathlib import Path
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
@@ -16,6 +18,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     force=True,
 )
+
+# Disable matplotlib debug logs
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 LOG = logging.getLogger(__name__)
 
@@ -43,9 +48,6 @@ class BuildDatasetConfig:
     degradation_presets: List[str] = field(default_factory=list)
     effects_mode: str = "specific"
     noise_gain: float = 1.0
-    external_sounds: List[str] = field(default_factory=list)
-    start_freq: int = 1000
-    end_freq: Optional[int] = None
     
 
 def load_config(config_path: str) -> BuildDatasetConfig:
@@ -169,11 +171,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         build_degraded_args = {
             "degradation_presets": config.degradation_presets,
             "low_quality_effects_dir": config.low_quality_effects_dir,
-            "effects_mode": config.effects_mode,
-            "noise_gain": config.noise_gain,
-            "external_sounds": config.external_sounds,
-            "start_freq": config.start_freq,
-            "end_freq": config.end_freq
+            "effects_mode": config.effects_mode
         }
 
         LOG.debug(f"Building degraded audio with {build_degraded_args}")
@@ -196,11 +194,227 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         torchaudio.save(degraded_path, degraded_audio, sr)
         LOG.info(f"Saved degraded audio to {degraded_path}")
         
+        # Generate frequency visualization for degraded audio
+        degraded_viz_path = degraded_path.parent / f"{base_filename}_degraded_freq_analysis.png"
+        generate_frequency_visualization(degraded_audio, sr, degraded_viz_path)
+        LOG.info(f"Saved degraded frequency visualization to {degraded_viz_path}")
+        
         # Save clean audio if requested
         if config.build_clean_dataset:
             clean_path = Path(config.clean_output_dir) / f"{base_filename}_clean.wav"
             torchaudio.save(clean_path, audio, sr)
             LOG.info(f"Saved clean audio to {clean_path}")
+            
+            # Generate frequency visualization for clean audio
+            clean_viz_path = clean_path.parent / f"{base_filename}_freq_analysis.png"
+            generate_frequency_visualization(audio, sr, clean_viz_path)
+            LOG.info(f"Saved clean frequency visualization to {clean_viz_path}")
+            
+            # Generate comparative frequency visualization between clean and degraded audio
+            comparison_path = degraded_path.parent / f"{base_filename}_freq_comparison.png"
+            generate_comparative_visualization(audio, degraded_audio, sr, comparison_path)
+            LOG.info(f"Saved comparative frequency visualization to {comparison_path}")
+
+
+def generate_frequency_visualization(audio: torch.Tensor, sr: int, output_path: Path):
+    """Generate and save a frequency visualization of the audio
+    
+    Args:
+        audio: Audio tensor (1, n_samples)
+        sr: Sample rate
+        output_path: Path to save the visualization
+    """
+    try:
+        # Convert to numpy array and flatten if needed
+        audio_np = audio.numpy().flatten()
+        
+        plt.figure(figsize=(10, 8))
+        
+        # Create subplot layout
+        plt.subplot(2, 1, 1)
+        
+        # Create spectrum
+        D = np.abs(np.fft.rfft(audio_np))
+        # Convert to dB scale
+        D_db = 20 * np.log10(D + 1e-10)
+        
+        # Frequency axis
+        freqs = np.linspace(0, sr/2, len(D))
+        
+        # Plot spectrum
+        plt.plot(freqs, D_db)
+        plt.title('Frequency Spectrum Analysis')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (dB)')
+        plt.grid(True)
+        
+        # Add more frequency ticks for the linear scale with better spacing
+        linear_ticks = [0, 1000, 2000, 3000, 4000, 6000, 8000, 10000, 14000, 18000, 22000]
+        # Filter out frequencies above Nyquist
+        linear_ticks = [f for f in linear_ticks if f < sr/2]
+        plt.xticks(linear_ticks, [str(f) for f in linear_ticks], fontsize=8)
+        plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x, pos: f'{int(x/1000)}k' if x >= 1000 else str(int(x))))
+        
+        # Add log-scale version for better visualization of lower frequencies
+        plt.subplot(2, 1, 2)
+        plt.semilogx(freqs, D_db)
+        plt.title('Frequency Spectrum (Log Scale)')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (dB)')
+        plt.grid(True)
+        plt.xlim([20, sr/2])  # Audible range starts around 20Hz
+        
+        # Add vertical lines at standard octave frequencies for reference
+        octave_freqs = [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+        for freq in octave_freqs:
+            if freq < sr/2:  # Only show frequencies below Nyquist
+                plt.axvline(x=freq, color='r', linestyle='--', alpha=0.3)
+                plt.annotate(f"{freq}Hz", (freq, np.min(D_db)), rotation=45, fontsize=8)
+        
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150)
+        plt.close()
+        
+    except Exception as e:
+        LOG.error(f"Error generating frequency visualization: {e}")
+
+
+def generate_comparative_visualization(clean_audio: torch.Tensor, degraded_audio: torch.Tensor, sr: int, output_path: Path):
+    """Generate and save a comparative frequency visualization of clean and degraded audio
+    
+    Args:
+        clean_audio: Clean audio tensor (1, n_samples)
+        degraded_audio: Degraded audio tensor (1, n_samples)
+        sr: Sample rate
+        output_path: Path to save the visualization
+    """
+    try:
+        # Convert to numpy arrays and flatten if needed
+        clean_np = clean_audio.numpy().flatten()
+        degraded_np = degraded_audio.numpy().flatten()
+        
+        # Create figure with 2 rows, 2 columns layout
+        plt.figure(figsize=(15, 10))
+        
+        # Calculate FFT for both signals
+        clean_D = np.abs(np.fft.rfft(clean_np))
+        degraded_D = np.abs(np.fft.rfft(degraded_np))
+        
+        # Convert to dB scale
+        clean_db = 20 * np.log10(clean_D + 1e-10)
+        degraded_db = 20 * np.log10(degraded_D + 1e-10)
+        
+        # Frequency axis
+        freqs = np.linspace(0, sr/2, len(clean_db))
+        
+        # Plot linear scale
+        plt.subplot(2, 2, 1)
+        plt.plot(freqs, clean_db, label='Clean', alpha=0.7, color='green')
+        plt.title('Clean Audio - Linear Scale')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (dB)')
+        plt.grid(True)
+        
+        # Add more frequency ticks for the linear scale with better spacing
+        linear_ticks = [0, 1000, 2000, 3000, 4000, 6000, 8000, 10000, 14000, 18000, 22000]
+        # Filter out frequencies above Nyquist
+        linear_ticks = [f for f in linear_ticks if f < sr/2]
+        plt.xticks(linear_ticks, [str(f) for f in linear_ticks], fontsize=8)
+        plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x, pos: f'{int(x/1000)}k' if x >= 1000 else str(int(x))))
+        
+        plt.subplot(2, 2, 2)
+        plt.plot(freqs, degraded_db, label='Degraded', alpha=0.7, color='red')
+        plt.title('Degraded Audio - Linear Scale')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (dB)')
+        plt.grid(True)
+        
+        # Add more frequency ticks for the linear scale with better spacing
+        linear_ticks = [0, 1000, 2000, 3000, 4000, 6000, 8000, 10000, 14000, 18000, 22000]
+        # Filter out frequencies above Nyquist
+        linear_ticks = [f for f in linear_ticks if f < sr/2]
+        plt.xticks(linear_ticks, [str(f) for f in linear_ticks], fontsize=8)
+        plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x, pos: f'{int(x/1000)}k' if x >= 1000 else str(int(x))))
+        
+        # Plot log scale
+        plt.subplot(2, 2, 3)
+        plt.semilogx(freqs, clean_db, label='Clean', alpha=0.7, color='green')
+        plt.title('Clean Audio - Log Scale')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (dB)')
+        plt.grid(True)
+        plt.xlim([20, sr/2])  # Audible range
+        
+        # Add vertical lines at standard octave frequencies for reference
+        octave_freqs = [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+        for freq in octave_freqs:
+            if freq < sr/2:  # Only show frequencies below Nyquist
+                plt.axvline(x=freq, color='black', linestyle='--', alpha=0.2)
+        
+        plt.subplot(2, 2, 4)
+        plt.semilogx(freqs, degraded_db, label='Degraded', alpha=0.7, color='red')
+        plt.title('Degraded Audio - Log Scale')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (dB)')
+        plt.grid(True)
+        plt.xlim([20, sr/2])  # Audible range
+        
+        # Add octave frequency reference lines
+        for freq in octave_freqs:
+            if freq < sr/2:  # Only show frequencies below Nyquist
+                plt.axvline(x=freq, color='black', linestyle='--', alpha=0.2)
+                plt.annotate(f"{freq}Hz", (freq, np.min(degraded_db)), rotation=45, fontsize=8)
+        
+        plt.tight_layout()
+        
+        # Add an extra subplot that shows the difference between clean and degraded
+        plt.figure(figsize=(15, 5))
+        
+        # Calculate difference
+        diff_db = degraded_db - clean_db
+        
+        # Linear scale difference
+        plt.subplot(1, 2, 1)
+        plt.plot(freqs, diff_db, color='purple')
+        plt.title('Frequency Difference (Degraded - Clean)')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude Difference (dB)')
+        plt.grid(True)
+        
+        # Add more frequency ticks for the linear scale with better spacing
+        linear_ticks = [0, 1000, 2000, 3000, 4000, 6000, 8000, 10000, 14000, 18000, 22000]
+        # Filter out frequencies above Nyquist
+        linear_ticks = [f for f in linear_ticks if f < sr/2]
+        plt.xticks(linear_ticks, [str(f) for f in linear_ticks], fontsize=8)
+        plt.gca().xaxis.set_major_formatter(plt.FuncFormatter(lambda x, pos: f'{int(x/1000)}k' if x >= 1000 else str(int(x))))
+        
+        # Log scale difference
+        plt.subplot(1, 2, 2)
+        plt.semilogx(freqs, diff_db, color='purple')
+        plt.title('Frequency Difference - Log Scale')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude Difference (dB)')
+        plt.grid(True)
+        plt.xlim([20, sr/2])
+        
+        # Add a horizontal line at y=0 to show where no difference occurs
+        plt.axhline(y=0, color='black', linestyle='-', alpha=0.5)
+        
+        # Add octave reference lines
+        for freq in octave_freqs:
+            if freq < sr/2:
+                plt.axvline(x=freq, color='black', linestyle='--', alpha=0.2)
+                plt.annotate(f"{freq}Hz", (freq, np.min(diff_db)), rotation=45, fontsize=8)
+        
+        plt.tight_layout()
+        
+        # Save all figures to a single file
+        plt.savefig(output_path, dpi=150)
+        plt.close('all')
+        
+    except Exception as e:
+        LOG.error(f"Error generating comparative frequency visualization: {e}")
+
 
 
 def main():

@@ -171,3 +171,5 @@ output/*
 *.out
 *.safetensors
 stable_audio_tools/output/2025-05-22/generation_15-34-10/metrics.json
+stable_audio_tools/configs/dataset_configs/build_dataset/output/clean
+stable_audio_tools/configs/dataset_configs/build_dataset/output/degraded

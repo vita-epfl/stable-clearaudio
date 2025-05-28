@@ -1,0 +1,24 @@
+# @package dataset.low_quality_effect.eq1
+mode: set   # list of effects given in parameters, could be mode: random
+
+# Create several modified versions of the HQ audio
+# Space separated
+# equalizer, freq, Q factor, gain db
+# bass gain, freq, q factor
+# overdrive, gain db, colour db
+transform_type: sox_audio_effect
+
+effects:
+#### TEST
+# 1 Progressive of High cuts with varying q-factor
+  - name: 'eq_1'
+    params: 
+      # Piano : Typical frequencies
+      # Bass : ~27 Hz (A0) à ~250 Hz
+      # Mediums : 250 Hz à 2000 Hz
+      # Highs : 2000 Hz à 5000+ Hz
+
+      - "equalizer 120 1.0 -30"     # Coupe douce dans les graves boueux
+      - "equalizer 700 1.2 -25"     # Léger notch dans le bas-médium pour aérer
+      - "equalizer 2000 1.2 30"     # Boost subtil des harmoniques aiguës
+    gain: 0.4  # Control the intensity of the pink noise

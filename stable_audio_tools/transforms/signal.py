@@ -16,7 +16,7 @@ import yaml
 LOG = logging.getLogger(__name__)
 
 # Logging configuration
-logging.basicConfig(level=logging.DEBUG, 
+logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
 
@@ -376,6 +376,7 @@ class SoxEffectTransform(nn.Module):
         return transforms
 
     @staticmethod
+    
     def get_random_effects_transform(preset_cfg: Any) -> SoxEffectTransform:
         """
         Create a SoxEffectTransform with randomly selected effects from a preset list.
@@ -384,12 +385,12 @@ class SoxEffectTransform(nn.Module):
         with random parameters to create controlled audio degradations.
         
         Args:
-            cfg: Configuration object containing settings for effects and presets
-            preset_name: Name of the preset to use (if None, uses default preset)
+            preset_cfg: Configuration object containing settings for effects and presets
                 
         Returns:
             SoxEffectTransform object
         """
+        LOG.debug(f"Creating random effects transform from configuration: {preset_cfg}")
         # Initialize transform
         sox_effect_transform = SoxEffectTransform("random_preset")
         
@@ -403,63 +404,217 @@ class SoxEffectTransform(nn.Module):
         available_effects = preset_cfg["available_effects"]
         
         # Select a random number of effects to apply
-        num_effects_to_apply = np.random.randint(min_effects, max_effects + 1)
+        if min_effects == max_effects:
+            num_effects_to_apply = min_effects
+        else:
+            num_effects_to_apply = np.random.randint(min_effects, max_effects + 1)
+        LOG.debug(f"Choosing {num_effects_to_apply} effects in {available_effects}")
+        
+        # Convert effects list to a dict for easier lookup
+        effects_dict = {}
+        if isinstance(preset_cfg["effects"], list):
+            for effect in preset_cfg["effects"]:
+                if "name" in effect:
+                    effects_dict[effect["name"]] = effect
+        else:
+            # If effects is already a dict, use it directly
+            effects_dict = preset_cfg["effects"]
+        
+        # Calculate weights for available effects
+        effects_weights = []
+        for effect_name in available_effects:
+            if effect_name in effects_dict:
+                # Check if effect has a specific weight defined
+                effect_cfg = effects_dict[effect_name]
+                weight = effect_cfg.get("weight", 1.0)
+                effects_weights.append(weight)
+            else:
+                LOG.warning(f"Effect {effect_name} not found in effects configuration")
+                effects_weights.append(0.0)  # Zero weight for missing effects
+
+        # Normalize weights
+        total_weight = sum(effects_weights)
+        if total_weight > 0:
+            effects_weights = [w / total_weight for w in effects_weights]
+        else:
+            # If all weights are zero, use equal weights
+            effects_weights = [1.0 / len(available_effects)] * len(available_effects)
         
         # Choose which effects to apply from the available list based on their weights
-        effects_weights = [preset_cfg["effects"][effect]["weight"] for effect in available_effects]
         effects_to_apply = np.random.choice(
             available_effects, 
             size=min(num_effects_to_apply, len(available_effects)), 
             replace=False,  # No duplicates
-            p=np.array(effects_weights) / sum(effects_weights)  # Normalize to probability distribution
+            p=np.array(effects_weights)  # Already normalized
         )
         
         # Apply each selected effect with random parameters
         for effect_name in effects_to_apply:
-            effect_cfg = preset_cfg["effects"][effect_name]
+            if effect_name not in effects_dict:
+                LOG.warning(f"Skipping effect {effect_name} as it's not in effects configuration")
+                continue
+                
+            effect_cfg = effects_dict[effect_name]
             
-            # Based on effect type, call the appropriate method
-            if effect_name == "equalizer":
-                # Number of EQ bands to apply
-                num_bands = np.random.randint(effect_cfg["min_bands"], effect_cfg["max_bands"] + 1)
-                for _ in range(num_bands):
-                    center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
-                    gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
-                    q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
-                    sox_effect_transform.add_equalizer(center_freq, gain, q_factor)
-                    
-            elif effect_name == "treble":
-                center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
-                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
-                q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
-                sox_effect_transform.add_treble(center_freq, gain, q_factor)
-                
-            elif effect_name == "bass":
-                center_freq = np.random.uniform(effect_cfg["freq_min"], effect_cfg["freq_max"])
-                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
-                q_factor = np.random.uniform(effect_cfg["q_min"], effect_cfg["q_max"])
-                sox_effect_transform.add_bass(center_freq, gain, q_factor)
-                
-            elif effect_name == "overdrive":
-                gain = np.random.uniform(effect_cfg["gain_min"], effect_cfg["gain_max"])
-                colour = np.random.uniform(effect_cfg["colour_min"], effect_cfg["colour_max"])
-                sox_effect_transform.add_overdrive(gain, colour)
-                
-            elif effect_name == "reverb":
-                reverberance = np.random.randint(effect_cfg["reverberance_min"], effect_cfg["reverberance_max"])
-                damping = np.random.randint(effect_cfg["damping_min"], effect_cfg["damping_max"])
-                room_scale = np.random.randint(effect_cfg["room_scale_min"], effect_cfg["room_scale_max"])
-                stereo_depth = np.random.randint(effect_cfg["stereo_depth_min"], effect_cfg["stereo_depth_max"])
-                delay = np.random.randint(effect_cfg["delay_min"], effect_cfg["delay_max"]) if effect_cfg.get("use_delay", False) else 0
-                wet_gain = np.random.uniform(effect_cfg["wet_gain_min"], effect_cfg["wet_gain_max"])
-                
-                params_string = f"reverb {reverberance} {damping} {room_scale} {stereo_depth} {delay} {wet_gain}"
-                sox_effect_transform.add_effect(params_string.strip().split(" "))
+            # Check for the effect_type
+            if "effect_type" in effect_cfg:
+                if effect_cfg["effect_type"] == "equalizer":
+                    param_sets = effect_cfg.get("param_sets", [])
+                    if isinstance(param_sets, list):
+                        LOG.debug(f"Processing {len(param_sets)} equalizer parameter sets for {effect_name}")
+                        
+                        # Calculate weights for param sets if specified
+                        set_weights = []
+                        for param_set in param_sets:
+                            # Get first set from the dict (there should only be one key-value pair)
+                            set_name, set_params = next(iter(param_set.items()))
+                            set_weight = set_params.get("weight", 1.0)
+                            set_weights.append(set_weight)
+                        
+                        # Normalize weights
+                        total_weight = sum(set_weights)
+                        if total_weight > 0:
+                            set_weights = [w / total_weight for w in set_weights]
+                        
+                        # Apply all parameter sets as defined in intense_equalizer.yaml
+                        for i, param_set in enumerate(param_sets):
+                            for set_name, set_params in param_set.items():
+                                LOG.debug(f"Processing set: {set_name}, params: {set_params}")
+                                
+                                # Get random values within defined ranges
+                                center_freq = np.random.uniform(
+                                    set_params.get("freq_min", 100),
+                                    set_params.get("freq_max", 10000)
+                                )
+                                gain = np.random.uniform(
+                                    set_params.get("gain_min", -20),
+                                    set_params.get("gain_max", 20)
+                                )
+                                q_factor = np.random.uniform(
+                                    set_params.get("q_min", 0.7),
+                                    set_params.get("q_max", 2.0)
+                                )
+                                
+                                # Add the equalizer band
+                                sox_effect_transform.add_equalizer(center_freq, gain, q_factor)
+                                LOG.debug(f"Added equalizer band {set_name} with: freq={center_freq:.1f}Hz, gain={gain:.1f}dB, Q={q_factor:.2f}")
+                    else:
+                        LOG.warning(f"param_sets should be a list for {effect_name}, found {type(param_sets)}")
+                elif effect_cfg["effect_type"] == "treble":
+                    param_sets = effect_cfg.get("param_sets", [])
+                    if isinstance(param_sets, list):
+                        LOG.debug(f"Processing {len(param_sets)} treble parameter sets for {effect_name}")
+                        for i, param_set in enumerate(param_sets):
+                            for set_name, set_params in param_set.items():
+                                LOG.debug(f"Processing treble set: {set_name}, params: {set_params}")
+                                center_freq = np.random.uniform(
+                                    set_params.get("freq_min", 3000),
+                                    set_params.get("freq_max", 10000)
+                                )
+                                gain = np.random.uniform(
+                                    set_params.get("gain_min", -20),
+                                    set_params.get("gain_max", 20)
+                                )
+                                q_factor = np.random.uniform(
+                                    set_params.get("q_min", 0.7),
+                                    set_params.get("q_max", 2.0)
+                                )
+                                sox_effect_transform.add_treble(center_freq, gain, q_factor)
+                                LOG.debug(f"Added treble band {set_name} with: freq={center_freq:.1f}Hz, gain={gain:.1f}dB, Q={q_factor:.2f}")
+                    else:
+                        LOG.warning(f"param_sets should be a list for treble effect {effect_name}")
+                elif effect_cfg["effect_type"] == "bass":
+                    param_sets = effect_cfg.get("param_sets", [])
+                    if isinstance(param_sets, list):
+                        LOG.debug(f"Processing {len(param_sets)} bass parameter sets for {effect_name}")
+                        for i, param_set in enumerate(param_sets):
+                            for set_name, set_params in param_set.items():
+                                LOG.debug(f"Processing bass set: {set_name}, params: {set_params}")
+                                center_freq = np.random.uniform(
+                                    set_params.get("freq_min", 50),
+                                    set_params.get("freq_max", 300)
+                                )
+                                gain = np.random.uniform(
+                                    set_params.get("gain_min", -20),
+                                    set_params.get("gain_max", 20)
+                                )
+                                q_factor = np.random.uniform(
+                                    set_params.get("q_min", 0.7),
+                                    set_params.get("q_max", 2.0)
+                                )
+                                sox_effect_transform.add_bass(center_freq, gain, q_factor)
+                                LOG.debug(f"Added bass band {set_name} with: freq={center_freq:.1f}Hz, gain={gain:.1f}dB, Q={q_factor:.2f}")
+                    else:
+                        LOG.warning(f"param_sets should be a list for bass effect {effect_name}")
+                elif effect_cfg["effect_type"] == "overdrive":
+                    param_sets = effect_cfg.get("param_sets", [])
+                    if isinstance(param_sets, list):
+                        LOG.debug(f"Processing {len(param_sets)} overdrive parameter sets for {effect_name}")
+                        for i, param_set in enumerate(param_sets):
+                            for set_name, set_params in param_set.items():
+                                LOG.debug(f"Processing overdrive set: {set_name}, params: {set_params}")
+                                gain = np.random.uniform(
+                                    set_params.get("gain_min", 10),
+                                    set_params.get("gain_max", 30)
+                                )
+                                colour = np.random.uniform(
+                                    set_params.get("colour_min", 10),
+                                    set_params.get("colour_max", 100)
+                                )
+                                sox_effect_transform.add_overdrive(gain, colour)
+                                LOG.debug(f"Added overdrive {set_name} with: gain={gain:.1f}, colour={colour:.1f}")
+                    else:
+                        LOG.warning(f"param_sets should be a list for overdrive effect {effect_name}")
+                elif effect_cfg["effect_type"] == "reverb":
+                    param_sets = effect_cfg.get("param_sets", [])
+                    if isinstance(param_sets, list):
+                        LOG.debug(f"Processing {len(param_sets)} reverb parameter sets for {effect_name}")
+                        for i, param_set in enumerate(param_sets):
+                            for set_name, set_params in param_set.items():
+                                LOG.debug(f"Processing reverb set: {set_name}, params: {set_params}")
+                                reverberance = np.random.randint(
+                                    set_params.get("reverberance_min", 0),
+                                    set_params.get("reverberance_max", 100)
+                                )
+                                damping = np.random.randint(
+                                    set_params.get("damping_min", 0),
+                                    set_params.get("damping_max", 100)
+                                )
+                                room_scale = np.random.randint(
+                                    set_params.get("room_scale_min", 0),
+                                    set_params.get("room_scale_max", 100)
+                                )
+                                stereo_depth = np.random.randint(
+                                    set_params.get("stereo_depth_min", 0),
+                                    set_params.get("stereo_depth_max", 100)
+                                )
+                                delay = np.random.randint(
+                                    set_params.get("delay_min", 0),
+                                    set_params.get("delay_max", 50)
+                                ) if set_params.get("use_delay", False) else 0
+                                wet_gain = np.random.uniform(
+                                    set_params.get("wet_gain_min", -10),
+                                    set_params.get("wet_gain_max", 10)
+                                )
+                                
+                                params_string = f"reverb {reverberance} {damping} {room_scale} {stereo_depth} {delay} {wet_gain}"
+                                sox_effect_transform.add_effect(params_string.strip().split(" "))
+                                LOG.debug(f"Added reverb {set_name} with: reverberance={reverberance}, damping={damping}, room_scale={room_scale}, stereo_depth={stereo_depth}")
+                    else:
+                        LOG.warning(f"param_sets should be a list for reverb effect {effect_name}")
+                else:
+                    LOG.warning(f"Unknown effect_type: {effect_cfg['effect_type']} for {effect_name}")
+            else:
+                LOG.warning(f"No effect_type specified for {effect_name}")
+        
+        # Add debug information about the final transform
+        LOG.debug(f"Created SoxEffectTransform with {len(sox_effect_transform.effects)} effects")
         
         # Normalize gain if configured
         if preset_cfg.get("normalize_inputs_post_eq", False):
             sox_effect_transform.normalize_gain()
-            
+            LOG.debug("Applied gain normalization as specified in config")
+        
         return sox_effect_transform
 
     @staticmethod

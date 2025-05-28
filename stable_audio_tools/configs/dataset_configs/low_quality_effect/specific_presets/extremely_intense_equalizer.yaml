@@ -13,7 +13,10 @@ effects:
 # 1 Progressive of High cuts with varying q-factor
   - name: 'eq_1'
     params: 
-      - "equalizer 8000 2.0 40"  # Extreme high frequency boost with narrower Q
-      - "equalizer 4000 3.0 -30" # Severe mid-range cut
-      - "equalizer 250 1.5 35"   # Extreme low-mid boost
-      - "equalizer 60 1.0 -25"   # Deep bass cut"
+      - "equalizer 8000 1.0 60"  # Extremely aggressive high frequency boost
+      - "equalizer 4000 1.5 -45" # Major mid-range notch
+      - "equalizer 500 0.8 50"   # Massive low-mid boost
+      - "equalizer 100 0.6 -40"  # Severe bass cut
+      - "overdrive 40 60"        # Heavy distortion
+      - "echo 0.8 0.5 100 0.5"   # Disruptive echo
+    gain: 0.04  # Control the intensity of the pink noise
