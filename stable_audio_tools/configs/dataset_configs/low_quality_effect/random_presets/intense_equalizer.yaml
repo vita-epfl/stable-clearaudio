@@ -14,22 +14,22 @@ effects:
         freq_max: 120
         gain_min: -35
         gain_max: -30
-        q_min: 0.7
-        q_max: 5.0
+        q_min: 1.0
+        q_max: 1.5
         weight: 1
     - set2:
         freq_min: 680
         freq_max: 700
         gain_min: -30
         gain_max: -25
-        q_min: 0.7
-        q_max: 5.0
+        q_min: 1.0
+        q_max: 1.5
         weight: 1
     - set3:
-        freq_min: 1980
-        freq_max: 2000
-        gain_min: 25
-        gain_max: 30
-        q_min: 0.7
-        q_max: 5.0
+        freq_min: 2000
+        freq_max: 2020
+        gain_min: 35
+        gain_max: 40
+        q_min: 1.0
+        q_max: 1.5
         weight: 1
