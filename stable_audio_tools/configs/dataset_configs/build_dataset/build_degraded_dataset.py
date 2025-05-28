@@ -6,6 +6,8 @@ import json
 import random
 import torchaudio
 import torch
+import matplotlib.pyplot as plt
+import numpy as np
 from pathlib import Path
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
@@ -16,6 +18,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     force=True,
 )
+
+# Disable matplotlib debug logs
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 LOG = logging.getLogger(__name__)
 
@@ -195,12 +200,76 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         degraded_path = Path(config.degraded_output_dir) / output_filename
         torchaudio.save(degraded_path, degraded_audio, sr)
         LOG.info(f"Saved degraded audio to {degraded_path}")
+
+        # Generate frequency visualization for degraded audio
+        generate_frequency_visualization(degraded_audio, sr, degraded_path.parent / f"{base_filename}_degraded_freq_analysis.png")
+        LOG.info(f"Saved frequency visualization to {degraded_path.parent / f'{base_filename}_degraded_freq_analysis.png'}")
         
         # Save clean audio if requested
         if config.build_clean_dataset:
             clean_path = Path(config.clean_output_dir) / f"{base_filename}_clean.wav"
             torchaudio.save(clean_path, audio, sr)
             LOG.info(f"Saved clean audio to {clean_path}")
+            
+            # Generate frequency visualization for clean audio
+            generate_frequency_visualization(audio, sr, clean_path.parent / f"{base_filename}_freq_analysis.png")
+            LOG.info(f"Saved frequency visualization to {clean_path.parent / f'{base_filename}_freq_analysis.png'}")
+
+
+def generate_frequency_visualization(audio: torch.Tensor, sr: int, output_path: Path):
+    """Generate and save a frequency visualization of the audio
+    
+    Args:
+        audio: Audio tensor (1, n_samples)
+        sr: Sample rate
+        output_path: Path to save the visualization
+    """
+    try:
+        # Convert to numpy array and flatten if needed
+        audio_np = audio.numpy().flatten()
+        
+        plt.figure(figsize=(10, 8))
+        
+        # Create subplot layout
+        plt.subplot(2, 1, 1)
+        
+        # Create spectrogram
+        D = np.abs(np.fft.rfft(audio_np))
+        # Convert to dB scale
+        D_db = 20 * np.log10(D + 1e-10)
+        
+        # Frequency axis
+        freqs = np.linspace(0, sr/2, len(D))
+        
+        # Plot spectrogram
+        plt.plot(freqs, D_db)
+        plt.title('Frequency Spectrum Analysis')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (dB)')
+        plt.grid(True)
+        
+        # Add log-scale version for better visualization of lower frequencies
+        plt.subplot(2, 1, 2)
+        plt.semilogx(freqs, D_db)
+        plt.title('Frequency Spectrum (Log Scale)')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Magnitude (dB)')
+        plt.grid(True)
+        plt.xlim([20, sr/2])  # Audible range starts around 20Hz
+        
+        # Add vertical lines at standard octave frequencies for reference
+        octave_freqs = [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+        for freq in octave_freqs:
+            if freq < sr/2:  # Only show frequencies below Nyquist
+                plt.axvline(x=freq, color='r', linestyle='--', alpha=0.3)
+                plt.annotate(f"{freq}Hz", (freq, np.min(D_db)), rotation=45, fontsize=8)
+        
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150)
+        plt.close()
+        
+    except Exception as e:
+        LOG.error(f"Error generating frequency visualization: {e}")
 
 
 def main():
