@@ -1,0 +1,19 @@
+# @package dataset.low_quality_effect.eq1
+mode: set   # list of effects given in parameters, could be mode: random
+
+# Create several modified versions of the HQ audio
+# Space separated
+# equalizer, freq, Q factor, gain db
+# bass gain, freq, q factor
+# overdrive, gain db, colour db
+transform_type: sox_audio_effect
+
+effects:
+#### TEST
+# 1 Progressive of High cuts with varying q-factor
+  - name: 'eq_1'
+    params: 
+      - "equalizer 8000 2.0 40"  # Extreme high frequency boost with narrower Q
+      - "equalizer 4000 3.0 -30" # Severe mid-range cut
+      - "equalizer 250 1.5 35"   # Extreme low-mid boost
+      - "equalizer 60 1.0 -25"   # Deep bass cut"

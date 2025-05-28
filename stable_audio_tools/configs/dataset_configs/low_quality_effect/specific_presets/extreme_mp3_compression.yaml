@@ -1,0 +1,28 @@
+# @package dataset.low_quality_effect.extreme_mp3_compression
+mode: set # Liste des effets spécifiés dans "effects". Peut être random si besoin.
+
+# Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
+transform_type: sox_audio_effect
+
+effects:
+- name: 'extreme_mp3_compression'
+  params:
+  - "lowpass 7500" # Équilibre pour la coupure des hautes fréquences
+  - "compand 0.00275,0.03 15:-90,-65,-30 -15 -90 0.0125" # Compression modérée et équilibrée
+  - "equalizer 800 1q 8.5" # Accentuation modérée des médiums
+  - "equalizer 2750 1.5q -10.5" # Coupure équilibrée des médiums
+  - "equalizer 6500 0.85q -17.5" # Atténuation équilibrée des hautes fréquences
+  - "pitch -60" # Artefacts de pitch modérés
+  - "echo 0.825 0.75 30 0.4" # Écho notable, réglages équilibrés
+  - "bandreject 60 1.75q" # Filtrage modéré des basses fréquences
+  - "bandreject 1500 1q" # Réintroduction d'un rejet modéré des médiums (depuis version extrême)
+  - "contrast 50" # Réintroduction d'une amélioration modérée du contraste (depuis version extrême)
+  - "overdrive 20 25" # Réintroduction d'une légère distorsion (depuis version extrême)
+  - "dither -s -p 12" # Bruit de quantification modéré (intermédiaire entre -p 8 et -s seul)
+  gain: 0.045 # Niveau de gain équilibré
+
+external_sounds:  
+  - name: high_frequency_sine
+    sound_path: 
+      - "/home/alefevre/datasets/audio_effects/sox_noises/sine_2000Hz_to_2000Hz_10s.wav"
+    gain: 0.002  # Very low gain value to make the sine wave subtle

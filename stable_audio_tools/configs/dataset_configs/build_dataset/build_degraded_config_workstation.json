@@ -1,0 +1,16 @@
+{
+    "dataset_path": "/home/alefevre/datasets/maestro/maestro-v3.0.0/2015",
+    "degraded_output_dir": "/home/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/build_dataset/output/degraded",
+    "clean_output_dir": "/home/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/build_dataset/output/clean",
+    "sox_noises_dir": "/home/alefevre/datasets/audio_effects/sox_noises",
+    "low_quality_effects_dir": "/home/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/low_quality_effect",
+    "build_clean_dataset": true,
+    "duration": 10,
+    "num_files": 1,
+    "degradation_presets": ["extreme_mp3_compression"],
+    "effects_mode": "specific",
+    "noise_gain": 1.0,
+    "external_sounds": [],
+    "start_freq": 1000,
+    "end_freq": null
+}
