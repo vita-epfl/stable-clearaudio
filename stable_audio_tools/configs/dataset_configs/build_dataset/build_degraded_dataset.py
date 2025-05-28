@@ -48,9 +48,6 @@ class BuildDatasetConfig:
     degradation_presets: List[str] = field(default_factory=list)
     effects_mode: str = "specific"
     noise_gain: float = 1.0
-    external_sounds: List[str] = field(default_factory=list)
-    start_freq: int = 1000
-    end_freq: Optional[int] = None
     
 
 def load_config(config_path: str) -> BuildDatasetConfig:
@@ -174,11 +171,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         build_degraded_args = {
             "degradation_presets": config.degradation_presets,
             "low_quality_effects_dir": config.low_quality_effects_dir,
-            "effects_mode": config.effects_mode,
-            "noise_gain": config.noise_gain,
-            "external_sounds": config.external_sounds,
-            "start_freq": config.start_freq,
-            "end_freq": config.end_freq
+            "effects_mode": config.effects_mode
         }
 
         LOG.debug(f"Building degraded audio with {build_degraded_args}")
