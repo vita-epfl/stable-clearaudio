@@ -1,0 +1,35 @@
+transform_type: sox_audio_effect
+
+# min and max effects à sélectionner dans available_effects
+min_effects: 1 
+max_effects: 3
+available_effects: ["intense_eq"]
+
+effects:
+- name: intense_eq
+  effect_type: equalizer
+  param_sets:
+    - set1:
+        freq_min: 100
+        freq_max: 120
+        gain_min: -35
+        gain_max: -30
+        q_min: 1.0
+        q_max: 1.5
+        weight: 1
+    - set2:
+        freq_min: 680
+        freq_max: 700
+        gain_min: -30
+        gain_max: -25
+        q_min: 1.0
+        q_max: 1.5
+        weight: 1
+    - set3:
+        freq_min: 2000
+        freq_max: 2020
+        gain_min: 35
+        gain_max: 40
+        q_min: 1.0
+        q_max: 1.5
+        weight: 1

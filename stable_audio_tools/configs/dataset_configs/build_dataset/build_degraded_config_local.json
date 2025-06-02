@@ -1,0 +1,12 @@
+{
+    "dataset_path": "/dataset",
+    "degraded_output_dir": "/degraded",
+    "clean_output_dir": "/clean",
+    "sox_noises_dir": "/sox_noises",
+    "low_quality_effects_dir": "/stable_audio_tools/configs/dataset_configs/low_quality_effect",
+    "build_clean_dataset": true,
+    "duration": 10.0,
+    "num_files": -1,
+    "degradation_presets": ["eq1"],
+    "effects_mode": "specific"
+}
