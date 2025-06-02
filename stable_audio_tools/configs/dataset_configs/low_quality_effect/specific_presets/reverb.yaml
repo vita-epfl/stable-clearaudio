@@ -1,17 +1,16 @@
-# @package dataset.low_quality_effect.extreme_mp3_compression
-mode: set # Liste des effets spécifiés dans "effects". Peut être random si besoin.
+# @package dataset.low_quality_effect.strong_reverb
+mode: set
 
 # Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
 transform_type: sox_audio_effect
 
 effects:
-- name: 'reverb'
+- name: 'strong_reverb'
   params:
-  - "reverb 0.5 0.5 0.5" 
-  gain: 0.045 # Niveau de gain équilibré
+  # Strong reverb: high reverberance (e.g., 70), long HF decay (e.g., 2s), large room scale (e.g., 100), long pre-delay (e.g., 50ms)
+  # Adjusting parameters for a strong effect, ensuring it's noticeable.
+  # Example: reverb [reverberance (0-100)] [hf-damping (0-100)] [room-scale (0-100)] [stereo-depth (0-100)] [pre-delay (ms)] [wet-gain (dB)]
+  - "reverb 70 50 100 100 50 0"
+  gain: 0.7 # Adjust gain to avoid excessive loudness due to reverb
 
-external_sounds:  
-  - name: high_frequency_sine
-    sound_path: 
-      - "/home/alefevre/datasets/audio_effects/sox_noises/sine_2000Hz_to_2000Hz_10s.wav"
-    gain: 0.002  # Very low gain value to make the sine wave subtle
+external_sounds: []
