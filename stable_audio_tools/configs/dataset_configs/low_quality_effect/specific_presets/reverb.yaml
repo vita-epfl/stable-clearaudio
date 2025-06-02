@@ -8,9 +8,11 @@ effects:
 - name: 'strong_reverb'
   params:
   # Strong reverb: high reverberance (e.g., 70), long HF decay (e.g., 2s), large room scale (e.g., 100), long pre-delay (e.g., 50ms)
-  # Adjusting parameters for a strong effect, ensuring it's noticeable.
+  # Pushing reverberation to its absolute limits: zero HF damping, extreme wet gain, and longer pre-delay.
   # Example: reverb [reverberance (0-100)] [hf-damping (0-100)] [room-scale (0-100)] [stereo-depth (0-100)] [pre-delay (ms)] [wet-gain (dB)]
-  - "reverb 70 50 100 100 50 0"
-  gain: 0.7 # Adjust gain to avoid excessive loudness due to reverb
+  - "reverb 100 0 100 100 150 9"
+  gain: 0.1 # Final gain adjustment for extremely loud and bright reverb with +9dB wet_gain and 0 HF damping
 
 external_sounds: []
+
+

@@ -10,8 +10,8 @@
                 "build_degraded_args": {
                     "sox_noises_dir": "/mnt/vita/scratch/datasets/audio_effects/sox_noises",
                     "low_quality_effects_dir": "/stable_audio_tools/configs/dataset_configs/low_quality_effect",
-                    "degradation_presets": ["phone"],
-                    "effects_mode": "random"
+                    "degradation_presets": ["lowpass"],
+                    "effects_mode": "specific"
                 }
             }
         }

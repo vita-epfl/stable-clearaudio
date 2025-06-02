@@ -4,64 +4,64 @@ mode: random # Selects effects randomly from available_effects
 transform_type: sox_audio_effect
 
 # min and max effects à sélectionner dans available_effects
-min_effects: 1 
-max_effects: 3
+min_effects: 3
+max_effects: 5
 
 # Define a pool of medium-intensity effects for random selection
 effects:
   - name: medium_compand
     effect_type: compand # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - points_min: "6:-60,-50,-20"
-        points_max: "6:-50,-40,-10"
-        gain_db_min: -6
-        gain_db_max: -3
-        attack_s_min: 0.01
+      - points_min: "6:-80,-70,-20"
+        points_max: "6:-30,-20,10"
+        gain_db_min: -15
+        gain_db_max: 5
+        attack_s_min: 0.001
         attack_s_max: 0.05
-        decay_s_min: 0.1
-        decay_s_max: 0.3
-        soft_knee_db_min: 2.0 # Range for soft-knee, e.g., 2.0-6.0
-        soft_knee_db_max: 6.0
-        initial_delay_s_min: 0.05
-        initial_delay_s_max: 0.1
+        decay_s_min: 0.02
+        decay_s_max: 0.4
+        soft_knee_db_min: 0.5
+        soft_knee_db_max: 10.0
+        initial_delay_s_min: 0.02
+        initial_delay_s_max: 0.08
         weight: 1
 
   - name: medium_equalizer
     effect_type: equalizer # Center frequency, Q factor, gain
     param_sets:
-      - freq_hz_min: 200
-        freq_hz_max: 8000
-        q_factor_min: 0.5
-        q_factor_max: 2.0
-        gain_db_min: -6
-        gain_db_max: 6
+      - freq_hz_min: 50
+        freq_hz_max: 15000
+        q_factor_min: 0.1
+        q_factor_max: 5.0
+        gain_db_min: -18
+        gain_db_max: 18
         weight: 1
 
   - name: medium_reverb
     effect_type: reverb # Reverberance, HF damping, room scale, stereo depth, pre-delay, wet gain
     param_sets:
-      - reverberance_min: 30
-        reverberance_max: 60
-        hf_damping_min: 30
-        hf_damping_max: 70
-        room_scale_min: 40
-        room_scale_max: 80
-        stereo_depth_min: 50
+      - reverberance_min: 60
+        reverberance_max: 100
+        hf_damping_min: 10
+        hf_damping_max: 100
+        room_scale_min: 60
+        room_scale_max: 100
+        stereo_depth_min: 30
         stereo_depth_max: 100
-        pre_delay_ms_min: 10
-        pre_delay_ms_max: 30
+        pre_delay_ms_min: 0
+        pre_delay_ms_max: 100
         wet_gain_db_min: -3
-        wet_gain_db_max: 0
+        wet_gain_db_max: 6
         weight: 1
 
   - name: medium_lowpass
     effect_type: lowpass # Cutoff frequency
     param_sets:
-      - freq_hz_min: 4000
-        freq_hz_max: 10000
+      - freq_hz_min: 1000
+        freq_hz_max: 6000
         weight: 1
 
 # Overall gain to be applied after random effects
-gain: 0.85
+gain: 0.5
 
 external_sounds: []

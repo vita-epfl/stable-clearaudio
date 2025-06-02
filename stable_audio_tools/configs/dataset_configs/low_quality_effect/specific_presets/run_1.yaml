@@ -6,16 +6,11 @@ transform_type: sox_audio_effect
 effects:
   - name: 'run_1'
     params:
-      - "gain -n -6"  # Pre-attenuation to prevent clipping (increased from -3 to -6)
-      - "bandpass 300 3500"  # Limite la bande passante aux fréquences captées par un micro de smartphone
-      - "equalizer 4000 1.5q 2"  # Légère accentuation des aigus
-      - "equalizer 300 2q -3"  # Atténuation des basses fréquences
-      - "reverb 10 40 20 80"  # Réverbération réduite pour éviter le clipping (10 au lieu de 20, 40 au lieu de 50, 20 au lieu de 30, 80 au lieu de 100)
-      - "compand 0.3,1 6:-70,-60,-20 -5 -90 0.2"  # Compression dynamique (auto-gain du smartphone)
-      - "overdrive 2 20"  # Simuler le clipping (réduit de 3% à 2% des samples affectés)
+      - "gain -n -12"  # Pre-attenuation to prevent clipping (increased from -9 to -12)
+      - "bandpass 150 2500"  # Limite la bande passante aux fréquences captées par un micro de smartphone (even narrower range)
+      - "equalizer 6000 0.7q 6"  # Accentuation encore plus forte des aigus, fréquence plus haute, Q plus étroit
+      - "equalizer 150 1q -8"  # Atténuation encore plus forte des basses fréquences, fréquence plus basse, Q plus étroit
+      - "reverb 40 70 50 100 20 0"  # Réverbération plus marquée, ajout pre-delay et wet-gain
+      - "compand 0.1,0.5 4:-90,-80,0 -15 -90 0.05"  # Compression dynamique encore plus agressive
+      - "overdrive 10 40"  # Simuler le clipping encore plus fortement
       - "channels 1"  # Sortie en mono
-
-external_sounds:  
-  - name: pink_noise
-    sound_path: 
-      - "/home/alefevre/datasets/external_sounds/pink_noise/light_pink_noise_60s.wav"
