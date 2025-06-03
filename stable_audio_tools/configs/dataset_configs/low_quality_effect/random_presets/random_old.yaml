@@ -34,9 +34,10 @@ effects:
   - name: overdrive
     effect_type: overdrive # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.15
-        min_int: 1
-        max_int: 8
+      - color_min: 80
+        color_max: 100
+        gain_min: 20
+        gain_max: 25
         weight: 1
 
   - name: reverb
