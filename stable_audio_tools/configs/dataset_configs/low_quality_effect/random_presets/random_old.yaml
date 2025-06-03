@@ -42,9 +42,21 @@ effects:
   - name: reverb
     effect_type: reverb # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba_w: 0.
-        proba_delay: 0.3
-        weight: 1
+      - reverb_preset1:
+          reverberance_min: 40
+          reverberance_max: 50
+          damping_min: 10
+          damping_max: 50
+          room_scale_min: 70
+          room_scale_max: 100
+          stereo_depth_min: 80
+          stereo_depth_max: 100
+          use_delay: true
+          delay_min: 20
+          delay_max: 50
+          wet_gain_min: 0
+          wet_gain_max: 10
+          weight: 1
 
   - name: flanger
     effect_type: flanger # Attack and decay times, transfer function points, gain, initial delay, release time
