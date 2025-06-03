@@ -1,0 +1,16 @@
+# @package dataset.low_quality_effect.smartphone_recording
+mode: set
+
+transform_type: sox_audio_effect
+
+effects:
+  - name: 'run_1'
+    params:
+      - "gain -n -12"  # Pre-attenuation to prevent clipping (increased from -9 to -12)
+      - "bandpass 150 2500"  # Limite la bande passante aux fréquences captées par un micro de smartphone (even narrower range)
+      - "equalizer 6000 0.7q 6"  # Accentuation encore plus forte des aigus, fréquence plus haute, Q plus étroit
+      - "equalizer 150 1q -8"  # Atténuation encore plus forte des basses fréquences, fréquence plus basse, Q plus étroit
+      - "reverb 40 70 50 100 20 0"  # Réverbération plus marquée, ajout pre-delay et wet-gain
+      - "compand 0.1,0.5 4:-90,-80,0 -15 -90 0.05"  # Compression dynamique encore plus agressive
+      - "overdrive 10 40"  # Simuler le clipping encore plus fortement
+      - "channels 1"  # Sortie en mono

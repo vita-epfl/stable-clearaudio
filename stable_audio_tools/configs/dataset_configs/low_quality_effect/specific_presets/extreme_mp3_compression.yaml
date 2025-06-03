@@ -21,8 +21,3 @@ effects:
   - "dither -s -p 12" # Bruit de quantification modéré (intermédiaire entre -p 8 et -s seul)
   gain: 0.045 # Niveau de gain équilibré
 
-external_sounds:  
-  - name: high_frequency_sine
-    sound_path: 
-      - "/home/alefevre/datasets/audio_effects/sox_noises/sine_2000Hz_to_2000Hz_10s.wav"
-    gain: 0.002  # Very low gain value to make the sine wave subtle

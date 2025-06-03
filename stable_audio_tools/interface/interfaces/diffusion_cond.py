@@ -92,6 +92,16 @@ def generate_cond(
     if preview_every == 0:
         preview_every = None
 
+    # Create date-based directory structure
+    current_date = time.strftime("%Y-%m-%d")
+    current_time = time.strftime("%H-%M-%S")
+    output_dir = os.path.join("output", current_date)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Create a subdirectory for this specific generation
+    generation_dir = os.path.join(output_dir, f"generation_{current_time}")
+    os.makedirs(generation_dir, exist_ok=True)
+
     # Return fake stereo audio
     conditioning_dict = {
         "prompt": prompt,
@@ -212,7 +222,6 @@ def generate_cond(
                 (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
             )
 
-    
     demo_samples = input_sample_size
     if model.pretransform is not None:
         demo_samples = demo_samples // model.pretransform.downsampling_ratio
@@ -245,7 +254,6 @@ def generate_cond(
         "rho": rho,
     }
 
-
     if model_type == "diffusion_cond":
         # Do the audio generation
         audio = generate_diffusion_cond(**generate_args)
@@ -267,7 +275,6 @@ def generate_cond(
     
     LOG.info("Generation completed")
 
-
     # Filenaming convention
     prompt_condensed = condense_prompt(prompt)
     if file_naming == "verbose":
@@ -286,8 +293,8 @@ def generate_cond(
         filename_extension = file_format.split(" ")[0].lower()
     else:
         filename_extension = "wav"
-    output_filename = "%s.%s" % (basename, filename_extension)
-    output_wav = "%s.wav" % basename
+    output_filename = os.path.join(generation_dir, f"{basename}.{filename_extension}")
+    output_wav = os.path.join(generation_dir, f"{basename}.wav")
 
     # Cut the extra silence off the end, if the user requested a smaller seconds_total
     if cut_to_seconds_total:
@@ -325,31 +332,37 @@ def generate_cond(
     # save as wav file
     try:
         torchaudio.save(output_wav, audio, sample_rate)
+        LOG.info(f"Saved WAV file to {output_wav}")
     except Exception as e:
         print(f"Error saving WAV file {output_wav}: {e}")
         # If saving fails, return None for the path
         return (None, preview_images)
 
     # If file_format is other than wav, convert to other file format
-    cmd = ""
-    if file_format == "m4a aac_he_v2 32k":
-        # note: need to compile ffmpeg with --enable-libfdk_aac
-        cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 32k -y "{output_filename}"'
-    elif file_format == "m4a aac_he_v2 64k":
-        cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 64k -y "{output_filename}"'
-    elif file_format == "flac":
-        cmd = f'ffmpeg -i "{output_wav}" -y "{output_filename}"'
-    elif file_format == "mp3 320k":
-        cmd = f'ffmpeg -i "{output_wav}" -b:a 320k -y "{output_filename}"'
-    elif file_format == "mp3 128k":
-        cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
-    elif file_format == "mp3 v0":
-        cmd = f'ffmpeg -i "{output_wav}" -q:a 0 -y "{output_filename}"'
-    else:  # wav
-        pass
-    if cmd:
-        cmd += " -loglevel error"  # make output less verbose in the cmd window
-        subprocess.run(cmd, shell=True, check=True)
+    if file_format and file_format != "wav":
+        cmd = ""
+        if file_format == "m4a aac_he_v2 32k":
+            # note: need to compile ffmpeg with --enable-libfdk_aac
+            cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 32k -y "{output_filename}"'
+        elif file_format == "m4a aac_he_v2 64k":
+            cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 64k -y "{output_filename}"'
+        elif file_format == "flac":
+            cmd = f'ffmpeg -i "{output_wav}" -y "{output_filename}"'
+        elif file_format == "mp3 320k":
+            cmd = f'ffmpeg -i "{output_wav}" -b:a 320k -y "{output_filename}"'
+        elif file_format == "mp3 128k":
+            cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
+        elif file_format == "mp3 v0":
+            cmd = f'ffmpeg -i "{output_wav}" -q:a 0 -y "{output_filename}"'
+        
+        if cmd:
+            cmd += " -loglevel error"  # make output less verbose in the cmd window
+            try:
+                subprocess.run(cmd, shell=True, check=True)
+                LOG.info(f"Converted to {file_format} format: {output_filename}")
+            except Exception as e:
+                LOG.error(f"Error converting to {file_format}: {e}")
+                return (output_wav, preview_images)
 
     # Generate spectrogram
     try:
@@ -363,11 +376,7 @@ def generate_cond(
         audio_spectrogram = None
         clean_spectrogram = None
 
-    # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
-    if file_naming in ["verbose", "prompt"]:
-        delete_files_async([output_wav, output_filename], 30)
-
-    return (output_filename, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images])
+    return (output_filename if file_format != "wav" else output_wav, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images])
 
 
 def compute_metrics(audio, clean_audio=None, degraded_audio=None, model=None, device="cuda"):
@@ -675,6 +684,13 @@ def generate_cond_restoration(
     generation_dir = os.path.join(output_dir, f"generation_{current_time}")
     os.makedirs(generation_dir, exist_ok=True)
 
+    # Set output filenames in the generation directory
+    output_wav = os.path.join(generation_dir, "output.wav")
+    if file_format:
+        filename_extension = file_format.split(" ")[0].lower()
+    else:
+        filename_extension = "wav"
+    output_filename = os.path.join(generation_dir, f"output.{filename_extension}")
 
     generate_args = {
         "model": model,
@@ -699,19 +715,6 @@ def generate_cond_restoration(
     
     audio, final_metrics = generate_diffusion_cond(**generate_args)
 
-
-    # simple e.g. "output.wav"
-    basename = "output"
-
-    if file_format:
-        filename_extension = file_format.split(" ")[0].lower()
-    else:
-        filename_extension = "wav"
-    output_filename = "%s.%s" % (basename, filename_extension)
-    output_wav = "%s.wav" % basename
-
-
-
     # Combine per-step metrics with final metrics
     if final_metrics is not None:
         # Add per-step metrics to the final metrics
@@ -734,7 +737,6 @@ def generate_cond_restoration(
             LOG.info(f"Metrics saved to {metrics_file}")
         except Exception as e:
             LOG.error(f"Error saving metrics to file: {e}")
-        
 
     # Encode the audio to WAV format
     audio = rearrange(audio, "b d n -> d (b n)")
@@ -772,26 +774,38 @@ def generate_cond_restoration(
     else:
         clean_audio = clean_audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
 
+    # Save the WAV file
+    try:
+        torchaudio.save(output_wav, audio, sample_rate)
+        LOG.info(f"Saved WAV file to {output_wav}")
+    except Exception as e:
+        LOG.error(f"Error saving WAV file {output_wav}: {e}")
+        return (None, preview_images, final_metrics)
 
     # If file_format is other than wav, convert to other file format
-    cmd = ""
-    if file_format == "m4a aac_he_v2 32k":
-        cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 32k -y "{output_filename}"'
-    elif file_format == "m4a aac_he_v2 64k":
-        cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 64k -y "{output_filename}"'
-    elif file_format == "flac":
-        cmd = f'ffmpeg -i "{output_wav}" -y "{output_filename}"'
-    elif file_format == "mp3 320k":
-        cmd = f'ffmpeg -i "{output_wav}" -b:a 320k -y "{output_filename}"'
-    elif file_format == "mp3 128k":
-        cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
-    elif file_format == "mp3 v0":
-        cmd = f'ffmpeg -i "{output_wav}" -q:a 0 -y "{output_filename}"'
-    else:  # wav
-        pass
-    if cmd:
-        cmd += " -loglevel error"  # make output less verbose in the cmd window
-        subprocess.run(cmd, shell=True, check=True)
+    if file_format and file_format != "wav":
+        cmd = ""
+        if file_format == "m4a aac_he_v2 32k":
+            cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 32k -y "{output_filename}"'
+        elif file_format == "m4a aac_he_v2 64k":
+            cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 64k -y "{output_filename}"'
+        elif file_format == "flac":
+            cmd = f'ffmpeg -i "{output_wav}" -y "{output_filename}"'
+        elif file_format == "mp3 320k":
+            cmd = f'ffmpeg -i "{output_wav}" -b:a 320k -y "{output_filename}"'
+        elif file_format == "mp3 128k":
+            cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
+        elif file_format == "mp3 v0":
+            cmd = f'ffmpeg -i "{output_wav}" -q:a 0 -y "{output_filename}"'
+        
+        if cmd:
+            cmd += " -loglevel error"  # make output less verbose in the cmd window
+            try:
+                subprocess.run(cmd, shell=True, check=True)
+                LOG.info(f"Converted to {file_format} format: {output_filename}")
+            except Exception as e:
+                LOG.error(f"Error converting to {file_format}: {e}")
+                return (output_wav, preview_images, final_metrics)
 
     # Generate spectrogram
     try:
@@ -805,12 +819,8 @@ def generate_cond_restoration(
         audio_spectrogram = None
         clean_spectrogram = None
 
-    # Asynchronously delete the files after returning the output file, so as to prevent clutter in the directory
-    if file_naming in ["verbose", "prompt"]:
-        delete_files_async([output_wav, output_filename], 30)
-
     LOG.info("Audio restoration completed")
-    return (output_filename, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images], final_metrics)
+    return (output_filename if file_format != "wav" else output_wav, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images], final_metrics)
 
 #  Asynchronously delete the given list of filenames after delay seconds. Sets up thread that sleeps for delay then deletes.
 def delete_files_async(filenames, delay):
