@@ -35,7 +35,7 @@ effects:
     effect_type: overdrive # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
       - color_min: 80
-        color_max: 100
+        color_max: 90
         gain_min: 20
         gain_max: 25
         weight: 1
@@ -46,15 +46,15 @@ effects:
       - reverb_preset1:
           reverberance_min: 40
           reverberance_max: 50
-          damping_min: 10
+          damping_min: 40
           damping_max: 50
-          room_scale_min: 70
+          room_scale_min: 90
           room_scale_max: 100
-          stereo_depth_min: 80
+          stereo_depth_min: 90
           stereo_depth_max: 100
           use_delay: true
           delay_min: 20
-          delay_max: 50
+          delay_max: 30
           wet_gain_min: 0
           wet_gain_max: 10
           weight: 1
