@@ -881,8 +881,7 @@ class SoxEffectTransform(nn.Module):
                         LOG.debug(f"Processing {len(param_sets)} reverb parameter sets for {effect_name}")
                         for i, param_set in enumerate(param_sets):
                             # Check if param_set is a flat dictionary with direct parameters
-                            if "proba" in param_set or "reverberance_min" in param_set:
-                                # Direct structure with keys like proba, proba_w, etc.
+                            if "reverberance_min" in param_set:
                                 LOG.debug(f"Processing reverb param set {i}, params: {param_set}")
                                 
                                 # Get default values from the flat dictionary
@@ -954,7 +953,7 @@ class SoxEffectTransform(nn.Module):
                         LOG.debug(f"Processing {len(param_sets)} flanger parameter sets for {effect_name}")
                         for i, param_set in enumerate(param_sets):
                             # Check if param_set is a flat dictionary with direct parameters
-                            if "weight" in param_set or "proba" in param_set:
+                            if "weight" in param_set:
                                 # Direct structure with keys
                                 LOG.debug(f"Processing flanger param set {i}, params: {param_set}")
                                 
@@ -977,7 +976,7 @@ class SoxEffectTransform(nn.Module):
                         LOG.debug(f"Processing {len(param_sets)} echo parameter sets for {effect_name}")
                         for i, param_set in enumerate(param_sets):
                             # Check if param_set is a flat dictionary with direct parameters
-                            if "weight" in param_set or "proba" in param_set:
+                            if "weight" in param_set in param_set:
                                 # Direct structure with keys
                                 LOG.debug(f"Processing echo param set {i}, params: {param_set}")
                                 

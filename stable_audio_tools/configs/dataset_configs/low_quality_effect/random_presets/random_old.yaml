@@ -7,8 +7,7 @@ effects:
   - name: equalizer
     effect_type: equalizer # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.55
-        freq_mean: 2000
+      - freq_mean: 2000
         freq_std: 700
         db_min: 25
         db_max: 37
@@ -17,19 +16,19 @@ effects:
   - name: bass
     effect_type: bass # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.2
-        freq_min: 50
+      - freq_min: 50
         freq_max: 1500
         db_min: 12
         db_max: 22
         weight: 1
 
-  - name: treble
-    effect_type: treble # Simple treble boost effect
+  - name: treble # TODO make it functional
+    effect_type: treble # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.2
-        gain_min: 9  # Increased for more noticeable effect
-        gain_max: 10  # Maximum safe value for treble effect
+      - freq_min: 0
+        freq_max: 500
+        gain_min: -15  # Used to be db_min but code expects gain_min
+        gain_max: -5  # Used to be db_max but code expects gain_max
         weight: 1
 
   - name: overdrive
@@ -43,19 +42,16 @@ effects:
   - name: reverb
     effect_type: reverb # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.2
-        proba_w: 0.
+      - proba_w: 0.
         proba_delay: 0.3
         weight: 1
 
   - name: flanger
     effect_type: flanger # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.1
-        weight: 1
+      - weight: 1
 
 # tremolo:
-#   proba: 0.1
 #   speed_min: 100 # in Hz
 #   speed_max: 12000 
 #   depth_min : 10 # in %
@@ -64,8 +60,7 @@ effects:
   - name: echo
     effect_type: echo # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.2
-        proba_next_echo: 0.5
+      - proba_next_echo: 0.5
         gain_in_min: 0.9
         gain_in_max: 1.
         gain_out_min: 0.1
@@ -79,20 +74,17 @@ effects:
   - name: riaa
     effect_type: riaa # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.1
-        weight: 1
+      - weight: 1
 
   - name: hilbert
     effect_type: hilbert # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.1
-        weight: 1
+      - weight: 1
 
   - name: sinc
     effect_type: sinc # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.1
-        att_max: 100 #in dB
+      - att_max: 100 #in dB
         max_freq: 8000
         min_freq: 450
         weight: 1
@@ -100,8 +92,7 @@ effects:
   - name: band
     effect_type: band # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - proba: 1 # 0.1
-        max_freq: 8000
+      - max_freq: 8000
         min_freq: 500
         noise_proba: 0.3
         weight: 1
