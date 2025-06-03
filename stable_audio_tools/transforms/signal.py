@@ -16,7 +16,7 @@ import yaml
 LOG = logging.getLogger(__name__)
 
 # Logging configuration
-logging.basicConfig(level=logging.INFO, 
+logging.basicConfig(level=logging.DEBUG, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
 
@@ -318,10 +318,10 @@ class SoxEffectTransform(nn.Module):
                     params.get("freq_max", 10000)
                 )
             
-            # Get gain from range
+            # Get gain from range (check for both db_min/db_max and gain_min/gain_max)
             db_value = np.random.uniform(
-                params.get("db_min", -10),
-                params.get("db_max", 10)
+                params.get("db_min", params.get("gain_min", -10)),
+                params.get("db_max", params.get("gain_max", 10))
             )
             
             # Get bandwidth (Q factor)
