@@ -25,13 +25,11 @@ effects:
         weight: 1
 
   - name: treble
-    effect_type: treble # Attack and decay times, transfer function points, gain, initial delay, release time
+    effect_type: treble # Simple treble boost effect
     param_sets:
       - proba: 1 # 0.2
-        freq_min: 3000
-        freq_max: 10000
-        db_min: 12
-        db_max: 22
+        gain_min: 9  # Increased for more noticeable effect
+        gain_max: 10  # Maximum safe value for treble effect
         weight: 1
 
   - name: overdrive

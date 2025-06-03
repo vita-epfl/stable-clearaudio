@@ -400,26 +400,26 @@ class SoxEffectTransform(nn.Module):
             debug_info = [f"gain={gain:.1f}dB", f"freq={center_freq:.1f}Hz", f"Q={q_factor:.2f}"]
             
         elif effect_type == "treble":
-            # Get center frequency
-            center_freq = np.random.uniform(
-                params.get("freq_min", 3000),
-                params.get("freq_max", 10000)
-            )
-            
-            # Get gain
-            gain = np.random.uniform(
-                params.get("gain_min", -15),
-                params.get("gain_max", 15)
-            )
-            
-            # Get Q factor
-            q_factor = np.random.uniform(
-                params.get("q_min", 0.5),
-                params.get("q_max", 2.0)
-            )
-            
-            params_string = f"treble {gain} {center_freq} {q_factor}"
-            debug_info = [f"center_freq={center_freq:.2f}Hz", f"gain={gain:.2f}dB", f"q_factor={q_factor:.2f}"]
+            # Check if params is a dictionary
+            if not isinstance(params, dict):
+                LOG.warning(f"Invalid parameter type for treble effect: {type(params)}, expected dict")
+                return "", []
+                
+            # Get gain (only parameter we need for simplified treble effect)
+            if "gain_min" in params and "gain_max" in params:
+                gain = np.random.uniform(
+                    params.get("gain_min", -10),
+                    params.get("gain_max", 10)
+                )
+                # Ensure gain is within safe range
+                gain = max(-10, min(10, gain))
+                
+                # Use simplified treble effect format
+                params_string = f"treble {gain}"
+                debug_info = [f"gain={gain:.2f}dB"]
+            else:
+                LOG.warning(f"Missing required gain parameters for treble effect")
+                return "", []
             
         elif effect_type == "overdrive":
             # Get gain
@@ -788,32 +788,26 @@ class SoxEffectTransform(nn.Module):
                     if isinstance(param_sets, list):
                         LOG.debug(f"Processing {len(param_sets)} treble parameter sets for {effect_name}")
                         for i, param_set in enumerate(param_sets):
-                            # Check if param_set is a flat dictionary with direct parameters
-                            if "freq_min" in param_set or "db_min" in param_set:
-                                # Direct structure with keys like freq_min, freq_max, etc.
+                            if isinstance(param_set, dict):
                                 LOG.debug(f"Processing treble param set {i}, params: {param_set}")
                                 
-                                # Utiliser la fonction helper pour traiter les paramètres
-                                params_string, debug_info = SoxEffectTransform._process_effect_params(
-                                    effect_name, "treble", param_set, is_flat=True)
-                                
-                                # Ajouter l'effet au transform
-                                if params_string:
-                                    sox_effect_transform.add_effect(params_string.strip().split(" "))
-                                    LOG.debug(f"Added treble effect {i} with: {', '.join(debug_info)}")
+                                # Extract gain parameters directly
+                                if "gain_min" in param_set and "gain_max" in param_set:
+                                    gain_min = param_set.get("gain_min", -10)
+                                    gain_max = param_set.get("gain_max", 10)
+                                    gain = np.random.uniform(gain_min, gain_max)
+                                    
+                                    # Ensure gain is within safe range
+                                    gain = max(-10, min(10, gain))
+                                    
+                                    # Simplified treble effect - only use gain parameter
+                                    effect = ["treble", str(gain)]
+                                    sox_effect_transform.add_effect(effect)
+                                    LOG.debug(f"Added treble effect {i} with gain={gain:.2f}dB")
+                                else:
+                                    LOG.warning(f"Missing gain parameters for treble effect in param set {i}")
                             else:
-                                # Old format: dict with a single key-value pair where value is another dict
-                                for set_name, set_params in param_set.items():
-                                    LOG.debug(f"Processing treble set: {set_name}, params: {set_params}")
-                                    
-                                    # Utiliser la fonction helper pour traiter les paramètres
-                                    params_string, debug_info = SoxEffectTransform._process_effect_params(
-                                        effect_name, "treble", set_params, is_flat=True)
-                                    
-                                    # Ajouter l'effet au transform
-                                    if params_string:
-                                        sox_effect_transform.add_effect(params_string.strip().split(" "))
-                                        LOG.debug(f"Added treble effect {set_name} with: {', '.join(debug_info)}")
+                                LOG.warning(f"Invalid parameter type for treble effect: {type(param_set)}, expected dict")
                     else:
                         LOG.warning(f"param_sets should be a list for treble effect {effect_name}")
                 elif effect_cfg["effect_type"] == "bass":
@@ -1467,18 +1461,14 @@ class SoxEffectTransform(nn.Module):
         Q factor (float) controls the bandwidth—or number of frequencies—that will be impacted
         """
         # Ensure parameters are within safe ranges for SoX
-        gain = max(-20, min(20, gain))  # Limit gain to safer range
-        center_freq = max(100, min(3000, center_freq))  # Limit frequency to safer range
+        gain = max(-10, min(10, gain))  # Limit gain to very safe range
         
-        # Format: treble gain [frequency[k] [width_q]]
-        # SoX expects 'k' after frequency to indicate kilohertz if frequency > 1000
-        freq_str = f"{center_freq}" if center_freq < 1000 else f"{center_freq/1000}k"
-        
-        # Add 'q' after Q value to indicate it's a Q factor
-        q_str = f"{Q}q"
-        
-        effect = ['treble', str(gain), freq_str, q_str]
+        # Use the simplest form of the treble effect which is more reliable
+        # Format: treble gain
+        effect = ['treble', str(gain)]
         self.effects.append(effect)
+        
+        LOG.debug(f"Using simplified treble effect: {effect}")
         return self
 
     def add_bass(self, center_freq: float, gain: float, Q: float = 0.707) -> SoxEffectTransform:
