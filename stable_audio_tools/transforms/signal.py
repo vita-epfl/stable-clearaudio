@@ -1463,10 +1463,21 @@ class SoxEffectTransform(nn.Module):
 
     def add_treble(self, center_freq: float, gain: float, Q: float = 0.707) -> SoxEffectTransform:
         """
-        gain (float) desired gain at the boost (or attenuation) in dB [-100 to 100]
+        gain (float) desired gain at the boost (or attenuation) in dB [-20 to 20]
         Q factor (float) controls the bandwidth—or number of frequencies—that will be impacted
         """
-        effect = ['treble', str(gain), str(center_freq), str(Q)]
+        # Ensure parameters are within safe ranges for SoX
+        gain = max(-20, min(20, gain))  # Limit gain to safer range
+        center_freq = max(100, min(3000, center_freq))  # Limit frequency to safer range
+        
+        # Format: treble gain [frequency[k] [width_q]]
+        # SoX expects 'k' after frequency to indicate kilohertz if frequency > 1000
+        freq_str = f"{center_freq}" if center_freq < 1000 else f"{center_freq/1000}k"
+        
+        # Add 'q' after Q value to indicate it's a Q factor
+        q_str = f"{Q}q"
+        
+        effect = ['treble', str(gain), freq_str, q_str]
         self.effects.append(effect)
         return self
 
