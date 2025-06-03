@@ -1,43 +1,60 @@
 # @package dataset.low_quality_effect.random
-#### IF mode random
-random_effects:
-  max_effect: 4
-  min_effect: 1
+min_effects: 1
+max_effects: 1
+available_effects: ["treble"]
 
-equalizer:
-  proba: 0.55
-  freq_mean: 2000
-  freq_std: 700
-  db_min: 10
-  db_max: 22
+effects:
+  - name: equalizer
+    effect_type: equalizer # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.55
+        freq_mean: 2000
+        freq_std: 700
+        db_min: 25
+        db_max: 37
+        weight: 1
 
-bass:
-  proba: 0.2
-  freq_min: 50
-  freq_max: 1500
-  db_min: 12
-  db_max: 22
+  - name: bass
+    effect_type: bass # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.2
+        freq_min: 50
+        freq_max: 1500
+        db_min: 12
+        db_max: 22
+        weight: 1
 
-treble:
-  proba: 0.2
-  freq_min: 3000
-  freq_max: 10000
-  db_min: 12
-  db_max: 22
+  - name: treble
+    effect_type: treble # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.2
+        freq_min: 3000
+        freq_max: 10000
+        db_min: 12
+        db_max: 22
+        weight: 1
 
-overdrive:
-  proba: 0.15
-  min_int: 1
-  max_int: 8
+  - name: overdrive
+    effect_type: overdrive # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.15
+        min_int: 1
+        max_int: 8
+        weight: 1
 
-reverb:
-  proba: 0.2
-  proba_w: 0.
-  proba_delay: 0.3
+  - name: reverb
+    effect_type: reverb # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.2
+        proba_w: 0.
+        proba_delay: 0.3
+        weight: 1
 
-
-flanger:
-  proba: 0.1
+  - name: flanger
+    effect_type: flanger # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.1
+        weight: 1
 
 # tremolo:
 #   proba: 0.1
@@ -46,41 +63,47 @@ flanger:
 #   depth_min : 10 # in %
 #   depth_max : 90
 
-echo:
-  proba: 0.2
-  proba_next_echo: 0.5
-  gain_in_min: 0.9
-  gain_in_max: 1.
-  gain_out_min: 0.1
-  gain_out_max: 0.9
-  delay_max: 500 #in milliseconds, must be inferior to length audio
-  delay_min: 100
-  decay_min: 0.1
-  decay_max: 0.9
+  - name: echo
+    effect_type: echo # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.2
+        proba_next_echo: 0.5
+        gain_in_min: 0.9
+        gain_in_max: 1.
+        gain_out_min: 0.1
+        gain_out_max: 0.9
+        delay_max: 500 #in milliseconds, must be inferior to length audio
+        delay_min: 100
+        decay_min: 0.1
+        decay_max: 0.9
+        weight: 1
 
+  - name: riaa
+    effect_type: riaa # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.1
+        weight: 1
 
-riaa:
-  proba: 0.1
+  - name: hilbert
+    effect_type: hilbert # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.1
+        weight: 1
 
-hilbert:
-  proba: 0.1
+  - name: sinc
+    effect_type: sinc # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.1
+        att_max: 100 #in dB
+        max_freq: 8000
+        min_freq: 450
+        weight: 1
 
-sinc:
-  proba: 0.1
-  att_max: 100 #in dB
-  max_freq: 8000
-  min_freq: 450
-
-band:
-  proba: 0.1
-  max_freq: 8000
-  min_freq: 500
-  noise_proba: 0.3
-
-
-
-
-
-
-
-
+  - name: band
+    effect_type: band # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - proba: 1 # 0.1
+        max_freq: 8000
+        min_freq: 500
+        noise_proba: 0.3
+        weight: 1
