@@ -678,7 +678,20 @@ class DiffusionCondDemoCallback(pl.Callback):
             
             # Create demos directory in a location with write permissions
             project_root = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
-            demos_dir = osp.join(project_root, "stable_audio_tools", "output", "demos", f"{current_datetime}{max_epochs}")
+            
+            # Get the wandb run name if available
+            wandb_name = ""
+            if hasattr(trainer, 'loggers'):
+                for logger in trainer.loggers:
+                    if isinstance(logger, wandb.wandb_sdk.wandb_run.Run) or hasattr(logger, 'experiment'):
+                        # Get the experiment which is the actual wandb run
+                        experiment = logger if isinstance(logger, wandb.wandb_sdk.wandb_run.Run) else logger.experiment
+                        if hasattr(experiment, 'name'):
+                            wandb_name = f"_{experiment.name}"
+                            break
+            
+            # Use the wandb name in the demos directory path
+            demos_dir = osp.join(project_root, "stable_audio_tools", "output", "demos", f"{wandb_name}")
             os.makedirs(demos_dir, exist_ok=True)
             
             # Extract input filename from demo conditioning if available
