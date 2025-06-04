@@ -1,2 +1,0 @@
-Run to build degraded dataset:
-python stable_audio_tools/configs/dataset_configs/build_dataset/build_degraded_dataset.py --config stable_audio_tools/configs/dataset_configs/build_dataset/build_degraded_config_RCP.json
