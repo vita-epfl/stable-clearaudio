@@ -88,8 +88,8 @@ def main():
         logger = pl.loggers.WandbLogger(project=args.name)
         logger.watch(training_wrapper)
     
-        if args.save_dir and isinstance(logger.experiment.id, str):
-            checkpoint_dir = os.path.join(args.save_dir, logger.experiment.project, logger.experiment.id, "checkpoints") 
+        if args.save_dir and isinstance(logger.experiment.name, str):
+            checkpoint_dir = os.path.join(args.save_dir, logger.experiment.project, logger.experiment.name, "checkpoints") 
         else:
             checkpoint_dir = None
     elif args.logger == 'comet':
