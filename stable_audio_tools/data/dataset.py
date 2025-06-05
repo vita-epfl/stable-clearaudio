@@ -11,7 +11,7 @@ import time
 import torch
 import torchaudio
 import webdataset as wds
-from tqdm import tqdm
+
 from os import path
 from torch import nn
 from torchaudio import transforms as T
@@ -185,9 +185,6 @@ class SampleDataset(torch.utils.data.Dataset):
         self.custom_metadata_fns = {}
         self.custom_metadata_args_map = {}
         
-        # Initialiser le compteur pour le suivi avec tqdm
-        self.item_counter = 0
-        self.progress_bar = None
 
         for config in configs:
             self.root_paths.append(config.path)
@@ -215,10 +212,6 @@ class SampleDataset(torch.utils.data.Dataset):
         return len(self.filenames)
 
     def __getitem__(self, idx):
-        # Initialize progress bar if not already done
-        if self.progress_bar is None:
-            self.progress_bar = tqdm(total=len(self), desc="Processing audio files", position=0, leave=True)
-        
         audio_filename = self.filenames[idx]
         try:
             start_time = time.time()
@@ -226,10 +219,6 @@ class SampleDataset(torch.utils.data.Dataset):
             info = {}
             info["total_length"] = audio.shape[-1]
             
-            # Update progress bar
-            self.item_counter += 1
-            self.progress_bar.update(1)
-            self.progress_bar.set_postfix(file=os.path.basename(audio_filename))
 
             audio, t_start, t_end, seconds_start, seconds_total, padding_mask = self.pad_crop(audio)
 
