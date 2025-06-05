@@ -15,6 +15,7 @@ RUN apt update && apt-get install -y \
     sox \
     libsox-dev \
     libsox-fmt-all \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the source code into the container
