@@ -262,6 +262,8 @@ def sample_k(
         **extra_args
     ):
 
+    dist_shift = extra_args.pop('dist_shift', None)
+
     is_k_diff = sampler_type in ["k-heun", "k-lms", "k-dpmpp-2s-ancestral", "k-dpm-2", "k-dpm-fast", "k-dpm-adaptive", "dpmpp-2m-sde", "dpmpp-3m-sde","dpmpp-2m"]
     is_v_diff = sampler_type in ["v-ddim", "v-ddim-cfgpp"]
 
@@ -321,7 +323,7 @@ def sample_k(
 
         if sampler_type == "v-ddim" or sampler_type == "v-ddim-cfgpp":
             use_cfg_pp = sampler_type == "v-ddim-cfgpp"
-            return sample(model_fn, x, steps, eta=0.0, sigma_max=sigma_max, cfg_pp=use_cfg_pp, callback=callback, **extra_args)
+            return sample(model_fn, x, steps, eta=0.0, sigma_max=sigma_max, cfg_pp=use_cfg_pp, callback=callback, dist_shift=dist_shift, **extra_args)
     else:
         raise ValueError(f"Unknown sampler type {sampler_type}")
 
@@ -343,17 +345,17 @@ def sample_rf(
         **extra_args
     ):
 
+    dist_shift = extra_args.pop('dist_shift', None)
+
     if sigma_max > 1:
         sigma_max = 1
 
     if cond_fn is not None:
-        denoiser = make_cond_model_fn(denoiser, cond_fn)
+        model_fn = make_cond_model_fn(model_fn, cond_fn)
 
     if init_data is not None:
 
-        if "dist_shift" in extra_args:
-            dist_shift = extra_args["dist_shift"]
-
+        if dist_shift:
             # Shift the sigma_max value for init audio to account for the time shift in the sampler
             if sigma_max < 1:
                 sigma_max = dist_shift.time_shift(torch.tensor(sigma_max), init_data.shape[-1]).item()
@@ -367,8 +369,8 @@ def sample_rf(
         x = noise
 
     if sampler_type == "euler":
-        return sample_discrete_euler(model_fn, x, steps, sigma_max, callback=callback, **extra_args)
+        return sample_discrete_euler(model_fn, x, steps, sigma_max, callback=callback, dist_shift=dist_shift, **extra_args)
     elif sampler_type == "rk4":
-        return sample_rk4(model_fn, x, steps, sigma_max, callback=callback, **extra_args)
+        return sample_rk4(model_fn, x, steps, sigma_max, callback=callback, dist_shift=dist_shift, **extra_args)
     elif sampler_type == "dpmpp":
-        return sample_flow_dpmpp(model_fn, x, steps, sigma_max, callback=callback, **extra_args)
+        return sample_flow_dpmpp(model_fn, x, steps, sigma_max, callback=callback, dist_shift=dist_shift, **extra_args)
