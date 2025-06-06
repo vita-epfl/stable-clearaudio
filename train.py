@@ -103,18 +103,31 @@ def main():
     # Checkpoint callback configuration based on validation availability
     if val_dl:
         print("Using validation checkpoint callback")
-        ckpt_callback = pl.callbacks.ModelCheckpoint(
-            dirpath=checkpoint_dir,
-            save_top_k=args.save_top_k,  # Save the N best models
-            monitor='train/loss',  # Use train loss that's definitely available
-            mode='min',  # Minimize the loss
-            every_n_train_steps=args.checkpoint_every,
-            save_last=True,  # Always save the last model
-            filename='{epoch}-{step}-{train_loss:.4f}'
-        )
+        ckpt_params = {
+            "dirpath": checkpoint_dir,
+            "save_top_k": args.save_top_k,
+            "monitor": 'train/loss',
+            "mode": 'min',
+            "filename": '{epoch}-{step}-{train_loss:.4f}'
+        }
+        
+        # Check which checkpoint frequency to use
+        if args.checkpoint_every_n_epoch > 0:
+            ckpt_params["every_n_epochs"] = args.checkpoint_every_n_epoch
+        elif args.checkpoint_every > 0:
+            ckpt_params["every_n_train_steps"] = args.checkpoint_every
+        else:
+            # Default to check every epoch if neither is specified
+            ckpt_params["every_n_epochs"] = 1
+            
+        ckpt_callback = pl.callbacks.ModelCheckpoint(**ckpt_params)
     else:
         print("Using training checkpoint callback")
-        ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
+        # For non-validation case, use the same logic
+        if args.checkpoint_every_n_epoch > 0:
+            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_epochs=args.checkpoint_every_n_epoch, dirpath=checkpoint_dir, save_top_k=-1)
+        else:
+            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
     
     save_model_config_callback = ModelConfigEmbedderCallback(model_config)
     
@@ -124,7 +137,7 @@ def main():
     if val_dl and args.early_stopping:
         print("Using early stopping callback")
         early_stop_callback = pl.callbacks.EarlyStopping(
-            monitor='train/loss',  # Use train loss which is available
+            monitor='train/loss',
             patience=args.early_stopping_patience,
             mode='min',
             verbose=True
@@ -193,7 +206,14 @@ def main():
 
     val_args = {}
     
-    if args.val_every > 0:
+    # Manage validation by number of epochs
+    if args.val_every_n_epoch > 0:
+        val_args.update({
+            "check_val_every_n_epoch": args.val_every_n_epoch,
+            "val_check_interval": None,
+        })
+    # Manage validation by number of steps
+    elif args.val_every > 0:
         val_args.update({
             "check_val_every_n_epoch": None,
             "val_check_interval": args.val_every,
