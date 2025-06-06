@@ -24,6 +24,7 @@ class ModelConfigEmbedderCallback(pl.Callback):
 def main():
     torch.multiprocessing.set_sharing_strategy('file_system')
     args = get_all_args()
+    
     seed = args.seed
 
     # Set a different seed for each process if using SLURM
@@ -99,13 +100,59 @@ def main():
         logger = None
         checkpoint_dir = args.save_dir if args.save_dir else None
         
-    ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
+    # Checkpoint callback configuration based on validation availability
+    if val_dl:
+        print("Using validation checkpoint callback")
+        ckpt_params = {
+            "dirpath": checkpoint_dir,
+            "save_top_k": args.save_top_k,
+            "monitor": 'train/loss',
+            "mode": 'min',
+            "filename": '{epoch}-{step}-{train_loss:.4f}'
+        }
+        
+        # Check which checkpoint frequency to use
+        if args.checkpoint_every_n_epoch > 0:
+            ckpt_params["every_n_epochs"] = args.checkpoint_every_n_epoch
+        elif args.checkpoint_every > 0:
+            ckpt_params["every_n_train_steps"] = args.checkpoint_every
+        else:
+            # Default to check every epoch if neither is specified
+            ckpt_params["every_n_epochs"] = 1
+            
+        ckpt_callback = pl.callbacks.ModelCheckpoint(**ckpt_params)
+    else:
+        print("Using training checkpoint callback")
+        # For non-validation case, use the same logic
+        if args.checkpoint_every_n_epoch > 0:
+            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_epochs=args.checkpoint_every_n_epoch, dirpath=checkpoint_dir, save_top_k=-1)
+        else:
+            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
+    
     save_model_config_callback = ModelConfigEmbedderCallback(model_config)
+    
+    # Early stopping configuration if validation is available
+    callbacks = [ckpt_callback, exc_callback, save_model_config_callback]
+    
+    if val_dl and args.early_stopping:
+        print("Using early stopping callback")
+        early_stop_callback = pl.callbacks.EarlyStopping(
+            monitor='train/loss',
+            patience=args.early_stopping_patience,
+            mode='min',
+            verbose=True
+        )
+        callbacks.append(early_stop_callback)
 
     if args.val_dataset_config:
+        print("Using validation demo callback")
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=val_dl)
     else:
+        print("Using training demo callback")
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=train_dl)
+    
+    # Add demo_callback to the callbacks list
+    callbacks.append(demo_callback)
 
     #Combine args and config dicts
     args_dict = vars(args)
@@ -159,7 +206,14 @@ def main():
 
     val_args = {}
     
-    if args.val_every > 0:
+    # Manage validation by number of epochs
+    if args.val_every_n_epoch > 0:
+        val_args.update({
+            "check_val_every_n_epoch": args.val_every_n_epoch,
+            "val_check_interval": None,
+        })
+    # Manage validation by number of steps
+    elif args.val_every > 0:
         val_args.update({
             "check_val_every_n_epoch": None,
             "val_check_interval": args.val_every,
@@ -172,14 +226,14 @@ def main():
         strategy=strategy,
         precision=args.precision,
         accumulate_grad_batches=args.accum_batches, 
-        callbacks=[ckpt_callback, demo_callback, exc_callback, save_model_config_callback],
+        callbacks=callbacks,  # Using the callbacks list defined above
         logger=logger,
         log_every_n_steps=1,
         max_epochs=model_config["training"]["max_epochs"],
         default_root_dir=args.save_dir,
         gradient_clip_val=args.gradient_clip_val,
         reload_dataloaders_every_n_epochs = 0,
-        num_sanity_val_steps=0, # If you need to debug validation, change this line
+        num_sanity_val_steps=2 if val_dl else 0,  # Testing validation before starting if available
         **val_args      
     )
 
