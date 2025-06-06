@@ -2,6 +2,7 @@ import torch
 import json
 import os
 import pytorch_lightning as pl
+import logging
 
 from prefigure.prefigure import get_all_args, push_wandb_config
 from stable_audio_tools.data.dataset import create_dataloader_from_config, fast_scandir
@@ -9,6 +10,9 @@ from stable_audio_tools.models import create_model_from_config
 from stable_audio_tools.models.utils import load_ckpt_state_dict, remove_weight_norm_from_model
 from stable_audio_tools.training import create_training_wrapper_from_config, create_demo_callback_from_config
 from stable_audio_tools.training.utils import copy_state_dict
+
+# Logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class ExceptionCallback(pl.Callback):
     def on_exception(self, trainer, module, err):
@@ -24,6 +28,7 @@ class ModelConfigEmbedderCallback(pl.Callback):
 def main():
     torch.multiprocessing.set_sharing_strategy('file_system')
     args = get_all_args()
+    
     seed = args.seed
 
     # Set a different seed for each process if using SLURM
@@ -99,13 +104,46 @@ def main():
         logger = None
         checkpoint_dir = args.save_dir if args.save_dir else None
         
-    ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
+    # Checkpoint callback configuration based on validation availability
+    if val_dl:
+        logging.info("Validation dataloader detected - Setting up val_loss monitoring")
+        ckpt_callback = pl.callbacks.ModelCheckpoint(
+            dirpath=checkpoint_dir,
+            save_top_k=args.save_top_k,  # Save the N best models
+            monitor='val_loss',  # Metric to monitor
+            mode='min',  # Minimize the loss
+            every_n_train_steps=args.checkpoint_every,
+            save_last=True,  # Always save the last model
+            filename='{epoch}-{step}-{val_loss:.4f}'
+        )
+    else:
+        logging.info("No validation dataloader - Regular checkpoint saving")
+        ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
+    
     save_model_config_callback = ModelConfigEmbedderCallback(model_config)
+    
+    # Early stopping configuration if validation is available
+    callbacks = [ckpt_callback, exc_callback, save_model_config_callback]
+    
+    if val_dl and args.early_stopping:
+        logging.info(f"Early stopping enabled with patience of {args.early_stopping_patience}")
+        early_stop_callback = pl.callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=args.early_stopping_patience,
+            mode='min',
+            verbose=True
+        )
+        callbacks.append(early_stop_callback)
 
     if args.val_dataset_config:
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=val_dl)
+        logging.info(f"Using validation dataset for demos")
     else:
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=train_dl)
+        logging.info(f"Using training dataset for demos")
+    
+    # Add demo_callback to the callbacks list
+    callbacks.append(demo_callback)
 
     #Combine args and config dicts
     args_dict = vars(args)
@@ -172,16 +210,21 @@ def main():
         strategy=strategy,
         precision=args.precision,
         accumulate_grad_batches=args.accum_batches, 
-        callbacks=[ckpt_callback, demo_callback, exc_callback, save_model_config_callback],
+        callbacks=callbacks,  # Using the callbacks list defined above
         logger=logger,
         log_every_n_steps=1,
         max_epochs=model_config["training"]["max_epochs"],
         default_root_dir=args.save_dir,
         gradient_clip_val=args.gradient_clip_val,
         reload_dataloaders_every_n_epochs = 0,
-        num_sanity_val_steps=0, # If you need to debug validation, change this line
+        num_sanity_val_steps=2 if val_dl else 0,  # Testing validation before starting if available
         **val_args      
     )
+    
+    if val_dl:
+        logging.info("Training with validation enabled")
+    else:
+        logging.info("Training without validation")
 
     trainer.fit(training_wrapper, train_dl, val_dl, ckpt_path=resume_path)
 
