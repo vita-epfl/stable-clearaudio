@@ -3,7 +3,7 @@
     "datasets": [
         {
             "id": "maestro_short",
-            "path": "/mnt/vita/scratch/datasets/maestro_short/clean/",
+            "path": "/mnt/vita/scratch/datasets/maestro-v3.0.0/maestro_full_train",
             "custom_metadata_module": "stable_audio_tools/configs/dataset_configs/custom_metadata/audio_restoration_md.py",
             "custom_metadata_args": {
                 "build_degraded": true,

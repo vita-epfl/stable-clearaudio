@@ -1,7 +1,7 @@
 # @package dataset.low_quality_effect.random
 min_effects: 1
 max_effects: 3
-available_effects: ["equalizer", "bass", "overdrive"]
+available_effects: ["equalizer", "lowpass", "highpass"]
 
 effects:
   - name: equalizer
@@ -11,6 +11,24 @@ effects:
         freq_std: 700
         db_min: 25
         db_max: 37
+        weight: 1
+
+  - name: highpass
+    effect_type: highpass # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - freq_min: 1500
+        freq_max: 2000
+        db_min: 25
+        db_max: 37
+        weight: 1
+  
+  - name: lowpass
+    effect_type: lowpass # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - freq_min: 50
+        freq_max: 1500
+        db_min: 12
+        db_max: 22
         weight: 1
 
   - name: bass
