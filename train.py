@@ -2,7 +2,6 @@ import torch
 import json
 import os
 import pytorch_lightning as pl
-import logging
 
 from prefigure.prefigure import get_all_args, push_wandb_config
 from stable_audio_tools.data.dataset import create_dataloader_from_config, fast_scandir
@@ -10,9 +9,6 @@ from stable_audio_tools.models import create_model_from_config
 from stable_audio_tools.models.utils import load_ckpt_state_dict, remove_weight_norm_from_model
 from stable_audio_tools.training import create_training_wrapper_from_config, create_demo_callback_from_config
 from stable_audio_tools.training.utils import copy_state_dict
-
-# Logging configuration
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class ExceptionCallback(pl.Callback):
     def on_exception(self, trainer, module, err):
@@ -106,18 +102,16 @@ def main():
         
     # Checkpoint callback configuration based on validation availability
     if val_dl:
-        logging.info("Validation dataloader detected - Setting up val_loss monitoring")
         ckpt_callback = pl.callbacks.ModelCheckpoint(
             dirpath=checkpoint_dir,
             save_top_k=args.save_top_k,  # Save the N best models
-            monitor='val_loss',  # Metric to monitor
+            monitor='train/loss',  # Use train loss that's definitely available
             mode='min',  # Minimize the loss
             every_n_train_steps=args.checkpoint_every,
             save_last=True,  # Always save the last model
-            filename='{epoch}-{step}-{val_loss:.4f}'
+            filename='{epoch}-{step}-{train_loss:.4f}'
         )
     else:
-        logging.info("No validation dataloader - Regular checkpoint saving")
         ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
     
     save_model_config_callback = ModelConfigEmbedderCallback(model_config)
@@ -126,9 +120,8 @@ def main():
     callbacks = [ckpt_callback, exc_callback, save_model_config_callback]
     
     if val_dl and args.early_stopping:
-        logging.info(f"Early stopping enabled with patience of {args.early_stopping_patience}")
         early_stop_callback = pl.callbacks.EarlyStopping(
-            monitor='val_loss',
+            monitor='train/loss',  # Use train loss which is available
             patience=args.early_stopping_patience,
             mode='min',
             verbose=True
@@ -137,10 +130,8 @@ def main():
 
     if args.val_dataset_config:
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=val_dl)
-        logging.info(f"Using validation dataset for demos")
     else:
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=train_dl)
-        logging.info(f"Using training dataset for demos")
     
     # Add demo_callback to the callbacks list
     callbacks.append(demo_callback)
@@ -220,11 +211,6 @@ def main():
         num_sanity_val_steps=2 if val_dl else 0,  # Testing validation before starting if available
         **val_args      
     )
-    
-    if val_dl:
-        logging.info("Training with validation enabled")
-    else:
-        logging.info("Training without validation")
 
     trainer.fit(training_wrapper, train_dl, val_dl, ckpt_path=resume_path)
 
