@@ -187,7 +187,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         
         # Generate output filenames
         base_filename = file_path.stem
-        output_filename = f"{base_filename}_degraded.wav"
+        output_filename = f"{base_filename}_degraded_{'_'.join(config.degradation_presets)}.wav"
         
         # Save degraded audio
         degraded_path = Path(config.degraded_output_dir) / output_filename
@@ -425,11 +425,10 @@ def main():
 
     # If a configuration file is provided, load it
     if args.config:
-        cfg_file = args.config
+        cfg_file = Path(__file__).parent / args.config
     else:
         # Use the default JSON configuration file in the same directory
-        script_dir = Path(__file__).parent
-        cfg_file = script_dir / "build_degraded_config_workstation.json"
+        cfg_file = Path(__file__).parent / "build_degraded_config_workstation.json"
     
     # Ensure the config file exists
     if not Path(cfg_file).exists():

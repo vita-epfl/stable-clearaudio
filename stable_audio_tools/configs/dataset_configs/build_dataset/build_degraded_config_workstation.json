@@ -1,5 +1,5 @@
 {
-    "dataset_path": "/home/alefevre/datasets/maestro/maestro-v3.0.0/2015",
+    "dataset_path": "/home/alefevre/datasets/maestro/maestro-v3.0.0/maestro_full_train/maestro_full_train",
     "degraded_output_dir": "/home/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/build_dataset/output/degraded",
     "clean_output_dir": "/home/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/build_dataset/output/clean",
     "sox_noises_dir": "/home/alefevre/datasets/audio_effects/sox_noises",
@@ -7,6 +7,6 @@
     "build_clean_dataset": true,
     "duration": 10,
     "num_files": 1,
-    "degradation_presets": ["random_degradations"],
-    "effects_mode": "random"
+    "degradation_presets": ["lowpass"],
+    "effects_mode": "specific"
 }
