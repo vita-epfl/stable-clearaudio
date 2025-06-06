@@ -140,6 +140,59 @@ To test the autoencoder, run:
 python stable_audio_tools/tests/test_autoencoder.py --config <path_to_model_config.json> --input <path_to_your_clean_audio.wav> --output <path_to_output_audio.wav> --ckpt_path <path_to_your_ckpt>
 ```
 
+## Example
+
+```bash
+python train.py \
+    --pretrained-ckpt-path stable_audio_tools/checkpoints/model.ckpt \
+    --model-config stable_audio_tools/configs/model_configs/audio_restoration/stable_clearaudio_rcp.json \
+    --dataset-config stable_audio_tools/configs/dataset_configs/maestro_RCP_intense_eq.json \
+    --val-dataset-config stable_audio_tools/configs/dataset_configs/maestro_RCP_intense_eq_valid.json \
+    --val-every-n-epoch 1 \
+    --checkpoint-every-n-epoch 1 \
+    --early-stopping true \
+    --early-stopping-patience 5 \
+    --save-top-k 3 \
+    --name stable-clearaudio-early-stopping-intense-equalizer \
+    --save-dir stable_audio_tools/output/checkpoints \
+    --strategy ddp_find_unused_parameters_true \
+    --batch-size 64
+```
+
+### Training Command Explained
+
+This command initiates the training process for the Stable-ClearAudio model, which is designed for audio restoration. The command uses various parameters to configure the training process, including model checkpoints, configurations, datasets, and training strategies.
+
+Here's what each parameter does:
+
+- **python train.py**: Executes the main training script.
+
+- **--pretrained-ckpt-path**: Specifies the path to a pre-trained model checkpoint to start training from. This enables transfer learning by building upon existing weights.
+
+- **--model-config**: Defines the model architecture configuration file. This JSON file contains the specific parameters for the Stable-ClearAudio model with RCP (Restoration, Compression, Processing) capabilities.
+
+- **--dataset-config**: Specifies the configuration file for the training dataset. This file configures the Maestro dataset with intense equalizer effects for RCP tasks.
+
+- **--val-dataset-config**: Provides the configuration file for the validation dataset, similar to the training dataset but specifically for validation purposes.
+
+- **--val-every-n-epoch**: Sets the validation frequency to occur after every epoch, allowing continuous monitoring of model performance.
+
+- **--checkpoint-every-n-epoch**: Saves model checkpoints after every epoch, ensuring no training progress is lost.
+
+- **--early-stopping**: Enables early stopping, which will halt training if the model performance stops improving.
+
+- **--early-stopping-patience**: Sets the early stopping patience to 2 epochs, meaning training will stop if the performance doesn't improve for 2 consecutive epochs.
+
+- **--save-top-k**: Keeps the 3 best-performing model checkpoints based on validation metrics.
+
+- **--name**: Assigns a descriptive name to this training run for identification and logging purposes.
+
+- **--save-dir**: Specifies the directory where model checkpoints will be saved.
+
+- **--strategy**: Sets the distributed training strategy to DDP (Distributed Data Parallel) with unused parameter detection, useful for training efficiency and handling complex models.
+
+- **--batch-size**: Defines the number of samples processed in each training batch. A batch size of 64 balances between memory usage and training speed.
+
 # Configurations
 Training and inference code for `stable-audio-tools` is based around JSON configuration files that define model hyperparameters, training settings, and information about your training dataset.
 
