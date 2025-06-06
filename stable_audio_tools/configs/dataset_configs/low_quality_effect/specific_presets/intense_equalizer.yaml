@@ -1,4 +1,4 @@
-# @package dataset.low_quality_effect.eq1
+# @package dataset.low_quality_effect.intense_equalizer
 mode: set   # list of effects given in parameters, could be mode: random
 
 # Create several modified versions of the HQ audio
@@ -11,7 +11,7 @@ transform_type: sox_audio_effect
 effects:
 #### TEST
 # 1 Progressive of High cuts with varying q-factor
-  - name: 'eq_1'
+  - name: 'intense_equalizer'
     params: 
       # Piano : Typical frequencies
       # Bass : ~27 Hz (A0) à ~250 Hz
