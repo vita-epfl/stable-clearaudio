@@ -16,7 +16,7 @@ import yaml
 LOG = logging.getLogger(__name__)
 
 # Logging configuration
-logging.basicConfig(level=logging.INFO, 
+logging.basicConfig(level=logging.DEBUG, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
 
@@ -740,14 +740,25 @@ class SoxEffectTransform(nn.Module):
                         # Calculate weights for param sets if specified
                         set_weights = []
                         for param_set in param_sets:
+                            # Handle string parameter sets directly
+                            if isinstance(param_set, str):
+                                set_weight = 1.0
                             # Check if param_set is a dict with multiple direct key-value pairs
-                            if "weight" in param_set:
+                            elif isinstance(param_set, dict) and "weight" in param_set:
                                 # Direct structure with keys like proba, weight, etc.
                                 set_weight = param_set.get("weight", 1.0)
+                            # Old format: dict with a single key-value pair where value is another dict
+                            elif isinstance(param_set, dict):
+                                try:
+                                    set_name, set_params = next(iter(param_set.items()))
+                                    set_weight = set_params.get("weight", 1.0) if isinstance(set_params, dict) else 1.0
+                                except (AttributeError, StopIteration):
+                                    LOG.warning(f"Invalid parameter set format: {param_set}")
+                                    set_weight = 0.0
                             else:
-                                # Old format: dict with a single key-value pair where value is another dict
-                                set_name, set_params = next(iter(param_set.items()))
-                                set_weight = set_params.get("weight", 1.0)
+                                LOG.warning(f"Unexpected parameter set type: {type(param_set)}")
+                                set_weight = 0.0
+                                
                             set_weights.append(set_weight)
                         
                         # Normalize weights
@@ -756,8 +767,15 @@ class SoxEffectTransform(nn.Module):
                             set_weights = [w / total_weight for w in set_weights]
                         # Apply all parameter sets as defined in intense_equalizer.yaml
                         for i, param_set in enumerate(param_sets):
+                            # Handle string parameter sets directly
+                            if isinstance(param_set, str):
+                                # Split the string into command parts to be used as effect parameters
+                                effect_parts = param_set.strip().split(" ")
+                                if effect_parts:
+                                    sox_effect_transform.add_effect(effect_parts)
+                                    LOG.debug(f"Added direct string effect: {param_set}")
                             # Check if param_set is a flat dictionary with direct parameters
-                            if "freq_min" in param_set or "freq_mean" in param_set:
+                            elif isinstance(param_set, dict) and ("freq_min" in param_set or "freq_mean" in param_set):
                                 # Utiliser la fonction helper pour traiter les paramètres
                                 LOG.debug(f"Processing param set {i}, params: {param_set}")
                                 params_string, debug_info = SoxEffectTransform._process_effect_params(
@@ -767,28 +785,45 @@ class SoxEffectTransform(nn.Module):
                                 if params_string:
                                     sox_effect_transform.add_effect(params_string.strip().split(" "))
                                     LOG.debug(f"Added equalizer effect {i} with: {', '.join(debug_info)}")
+                            # Old format: dict with a single key-value pair where value is another dict
+                            elif isinstance(param_set, dict):
+                                try:
+                                    for set_name, set_params in param_set.items():
+                                        LOG.debug(f"Processing set: {set_name}, params: {set_params}")
+                                        
+                                        if isinstance(set_params, dict):
+                                            # Utiliser la fonction helper pour traiter les paramètres
+                                            params_string, debug_info = SoxEffectTransform._process_effect_params(
+                                                effect_name, "equalizer", set_params, is_flat=True)
+                                            
+                                            # Ajouter l'effet au transform
+                                            if params_string:
+                                                sox_effect_transform.add_effect(params_string.strip().split(" "))
+                                                LOG.debug(f"Added equalizer effect {set_name} with: {', '.join(debug_info)}")
+                                        else:
+                                            LOG.warning(f"Skipping non-dict set_params: {set_params} of type {type(set_params)}")
+                                except (AttributeError, TypeError) as e:
+                                    LOG.warning(f"Error processing parameter set: {param_set}, error: {str(e)}")
                             else:
-                                # Old format: dict with a single key-value pair where value is another dict
-                                for set_name, set_params in param_set.items():
-                                    LOG.debug(f"Processing set: {set_name}, params: {set_params}")
-                                    
-                                    # Utiliser la fonction helper pour traiter les paramètres
-                                    params_string, debug_info = SoxEffectTransform._process_effect_params(
-                                        effect_name, "equalizer", set_params, is_flat=True)
-                                    
-                                    # Ajouter l'effet au transform
-                                    if params_string:
-                                        sox_effect_transform.add_effect(params_string.strip().split(" "))
-                                        LOG.debug(f"Added equalizer effect {set_name} with: {', '.join(debug_info)}")
+                                LOG.warning(f"Skipping unsupported parameter set type: {type(param_set)}")
                                     
                     else:
                         LOG.warning(f"param_sets should be a list for {effect_name}, found {type(param_sets)}")
-                elif effect_cfg["effect_type"] == "treble":
+                elif effect_cfg["effect_type"] in ["treble", "highpass", "lowpass"]:
+                    # Handle all filter-type effects (treble, highpass, lowpass) similarly
+                    effect_type = effect_cfg["effect_type"]
                     param_sets = effect_cfg.get("param_sets", [])
                     if isinstance(param_sets, list):
-                        LOG.debug(f"Processing {len(param_sets)} treble parameter sets for {effect_name}")
+                        LOG.debug(f"Processing {len(param_sets)} {effect_type} parameter sets for {effect_name}")
                         for i, param_set in enumerate(param_sets):
-                            if isinstance(param_set, dict):
+                            # Handle string parameter sets directly
+                            if isinstance(param_set, str):
+                                # Split the string into command parts to be used as effect parameters
+                                effect_parts = param_set.strip().split(" ")
+                                if effect_parts:
+                                    sox_effect_transform.add_effect(effect_parts)
+                                    LOG.debug(f"Added direct string {effect_type} effect: {param_set}")
+                            elif isinstance(param_set, dict):
                                 LOG.debug(f"Processing treble param set {i}, params: {param_set}")
                                 
                                 # Extract gain parameters directly
