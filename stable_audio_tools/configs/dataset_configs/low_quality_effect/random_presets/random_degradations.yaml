@@ -1,16 +1,50 @@
 # @package dataset.low_quality_effect.random
 min_effects: 1
+<<<<<<< HEAD
 max_effects: 5
 available_effects: ["equalizer_1", "equalizer_2", "equalizer_3", "lowpass", "highpass"]
+=======
+max_effects: 3
+available_effects: ["equalizer", "lowpass", "highpass"]
+>>>>>>> f51cb75 (Updating degradation configs)
 
 effects:
   - name: equalizer_1
     effect_type: equalizer # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
+<<<<<<< HEAD
       - "equalizer 120 1.0 -30"
   
   - name: equalizer_2
     effect_type: equalizer # Attack and decay times, transfer function points, gain, initial delay, release time
+=======
+      - freq_mean: 2000
+        freq_std: 700
+        db_min: 25
+        db_max: 37
+        weight: 1
+
+  - name: highpass
+    effect_type: highpass # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - freq_min: 1500
+        freq_max: 2000
+        db_min: 25
+        db_max: 37
+        weight: 1
+  
+  - name: lowpass
+    effect_type: lowpass # Attack and decay times, transfer function points, gain, initial delay, release time
+    param_sets:
+      - freq_min: 50
+        freq_max: 1500
+        db_min: 12
+        db_max: 22
+        weight: 1
+
+  - name: bass
+    effect_type: bass # Attack and decay times, transfer function points, gain, initial delay, release time
+>>>>>>> f51cb75 (Updating degradation configs)
     param_sets:
       - "equalizer 700 1.2 -25"
   
