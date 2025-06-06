@@ -102,6 +102,7 @@ def main():
         
     # Checkpoint callback configuration based on validation availability
     if val_dl:
+        print("Using validation checkpoint callback")
         ckpt_callback = pl.callbacks.ModelCheckpoint(
             dirpath=checkpoint_dir,
             save_top_k=args.save_top_k,  # Save the N best models
@@ -112,6 +113,7 @@ def main():
             filename='{epoch}-{step}-{train_loss:.4f}'
         )
     else:
+        print("Using training checkpoint callback")
         ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
     
     save_model_config_callback = ModelConfigEmbedderCallback(model_config)
@@ -120,6 +122,7 @@ def main():
     callbacks = [ckpt_callback, exc_callback, save_model_config_callback]
     
     if val_dl and args.early_stopping:
+        print("Using early stopping callback")
         early_stop_callback = pl.callbacks.EarlyStopping(
             monitor='train/loss',  # Use train loss which is available
             patience=args.early_stopping_patience,
@@ -129,8 +132,10 @@ def main():
         callbacks.append(early_stop_callback)
 
     if args.val_dataset_config:
+        print("Using validation demo callback")
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=val_dl)
     else:
+        print("Using training demo callback")
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=train_dl)
     
     # Add demo_callback to the callbacks list
