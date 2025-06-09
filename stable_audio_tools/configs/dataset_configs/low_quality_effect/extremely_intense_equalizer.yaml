@@ -1,17 +1,15 @@
-# @package dataset.low_quality_effect.eq1
-mode: set   # list of effects given in parameters, could be mode: random
-
-# Create several modified versions of the HQ audio
-# Space separated
-# equalizer, freq, Q factor, gain db
-# bass gain, freq, q factor
-# overdrive, gain db, colour db
 transform_type: sox_audio_effect
+
+available_effects: ["extremely_intense_eq"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1 
+max_effects: 1
 
 effects:
 #### TEST
 # 1 Progressive of High cuts with varying q-factor
-  - name: 'eq_1'
+  - name: 'extremely_intense_eq'
     params: 
       - "equalizer 8000 1.0 60"  # Extremely aggressive high frequency boost
       - "equalizer 4000 1.5 -45" # Major mid-range notch
@@ -20,3 +18,4 @@ effects:
       - "overdrive 40 60"        # Heavy distortion
       - "echo 0.8 0.5 100 0.5"   # Disruptive echo
     gain: 0.04  # Control the intensity of the pink noise
+    weight: 1

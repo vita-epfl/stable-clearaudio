@@ -1,11 +1,14 @@
-# @package dataset.low_quality_effect.smartphone_playback
-mode: set
-
 transform_type: sox_audio_effect
+
+available_effects: ["smartphone_playback"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
   - name: 'smartphone_playback'
-    params:
+    param_sets:
       - "bandpass 100 16000" # Typical smartphone speaker range
       - "equalizer 200 2q -4" # Reduce low frequencies (small speakers)
       - "equalizer 1000 1.5q 2" # Boost mids (typical of small speakers)
@@ -13,3 +16,4 @@ effects:
       - "compand 0.2,0.5 6:-70,-60,-20 -5 -90 0.1" # Light compression
       - "gain -n -1" # Slight volume adjustment
       - "channels 1" # Mono output
+    weight: 1

@@ -1,11 +1,14 @@
-# @package dataset.low_quality_effect.smartphone_recording
-mode: set
-
 transform_type: sox_audio_effect
+
+available_effects: ["run_1"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
   - name: 'run_1'
-    params:
+    param_sets:
       - "gain -n -12"  # Pre-attenuation to prevent clipping (increased from -9 to -12)
       - "bandpass 150 2500"  # Limite la bande passante aux fréquences captées par un micro de smartphone (even narrower range)
       - "equalizer 6000 0.7q 6"  # Accentuation encore plus forte des aigus, fréquence plus haute, Q plus étroit

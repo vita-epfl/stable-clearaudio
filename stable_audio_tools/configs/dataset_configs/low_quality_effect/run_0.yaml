@@ -1,12 +1,14 @@
-# @package dataset.low_quality_effect.simple_degradation
-mode: set # Liste des effets spécifiés dans "effects". Peut être random si besoin.
-
-# Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
 transform_type: sox_audio_effect
 
+available_effects: ["run_0"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
+
 effects:
-- name: 'simple_degradation'
-  params:
+- name: 'run_0'
+  param_sets:
   - "lowpass 8000" # Gentle high-frequency roll-off
   - "compand 0.005,0.05 6:-70,-60,-20 -5 -90 0.1" # Mild compression
   - "gain -3" # Apply a -3dB gain

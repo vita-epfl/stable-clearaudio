@@ -1,8 +1,11 @@
-# @package dataset.low_quality_effect.live_recording
-mode: set  # Liste des effets spécifiés dans "effects". Peut être random si besoin.
-
 # Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
 transform_type: sox_audio_effect
+
+available_effects: ["live_recording"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
 ###### REAL WORLD

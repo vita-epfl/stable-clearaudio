@@ -1,12 +1,15 @@
-# @package dataset.low_quality_effect.strong_mp3_compression
-mode: set # Liste des effets spécifiés dans "effects". Peut être random si besoin.
-
 # Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
 transform_type: sox_audio_effect
 
+available_effects: ["strong_mp3_compression"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
+
 effects:
 - name: 'strong_mp3_compression'
-  params:
+  param_sets:
   - "lowpass 8000" # Extremely restricted frequency cutoff (telephone quality)
   - "compand 0.001,0.02 15:-90,-70,-30 -15 -90 0.01" # Maximum compression possible
   - "equalizer 1000 1q 8" # Extreme emphasis on mid frequencies
@@ -17,6 +20,7 @@ effects:
   - "bandreject 60 2q" # Filter out some frequencies
   - "dither -s" # Heavy quantization noise
   gain: 0.05
+  weight: 1
 
 external_sounds:  
   - name: high_frequency_sine

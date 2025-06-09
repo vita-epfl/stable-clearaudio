@@ -1,7 +1,7 @@
-# @package dataset.low_quality_effect.random_medium_degradation
-mode: random # Selects effects randomly from available_effects
-
 transform_type: sox_audio_effect
+
+available_effects: ["medium_compand", "medium_equalizer", "medium_reverb"]
+randomise_effects: true # If false, applies all the effects in available_effects
 
 # min and max effects à sélectionner dans available_effects
 min_effects: 3
@@ -12,7 +12,7 @@ effects:
   - name: medium_compand
     effect_type: compand # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - points_min: "6:-80,-70,-20"
+      - points_min: "6:-80,-70,-20" 
         points_max: "6:-30,-20,10"
         gain_db_min: -15
         gain_db_max: 5
@@ -24,7 +24,7 @@ effects:
         soft_knee_db_max: 10.0
         initial_delay_s_min: 0.02
         initial_delay_s_max: 0.08
-        weight: 1
+    weight: 1
 
   - name: medium_equalizer
     effect_type: equalizer # Center frequency, Q factor, gain
@@ -35,7 +35,7 @@ effects:
         q_factor_max: 5.0
         gain_db_min: -18
         gain_db_max: 18
-        weight: 1
+    weight: 1
 
   - name: medium_reverb
     effect_type: reverb # Reverberance, HF damping, room scale, stereo depth, pre-delay, wet gain
@@ -52,14 +52,14 @@ effects:
         pre_delay_ms_max: 100
         wet_gain_db_min: -3
         wet_gain_db_max: 6
-        weight: 1
+    weight: 1
 
   - name: medium_lowpass
     effect_type: lowpass # Cutoff frequency
     param_sets:
       - freq_hz_min: 1000
         freq_hz_max: 6000
-        weight: 1
+    weight: 1
 
 # Overall gain to be applied after random effects
 gain: 0.5

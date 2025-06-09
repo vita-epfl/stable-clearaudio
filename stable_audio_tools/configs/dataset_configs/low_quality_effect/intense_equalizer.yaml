@@ -1,12 +1,10 @@
-# @package dataset.low_quality_effect.intense_equalizer
-mode: set   # list of effects given in parameters, could be mode: random
-
-# Create several modified versions of the HQ audio
-# Space separated
-# equalizer, freq, Q factor, gain db
-# bass gain, freq, q factor
-# overdrive, gain db, colour db
 transform_type: sox_audio_effect
+
+available_effects: ["intense_equalizer"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
 #### TEST
@@ -22,3 +20,4 @@ effects:
       - "equalizer 700 1.2 -25"     # Léger notch dans le bas-médium pour aérer
       - "equalizer 2000 1.2 30"     # Boost subtil des harmoniques aiguës
     gain: 0.4  # Control the intensity of the pink noise
+    weight: 1

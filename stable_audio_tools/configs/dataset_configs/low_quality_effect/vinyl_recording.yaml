@@ -1,11 +1,14 @@
-# @package dataset.low_quality_effect.vinyl_recording
-mode: set
-
 transform_type: sox_audio_effect
+
+available_effects: ["vinyl_recording"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
   - name: 'vinyl_recording'
-    params:
+    param_sets:
       - "synth whitenoise"  # Surface noise
       - "gain -n -70"  # Adjust noise level (reduced from -50 to -70)
       - "synth sine mix 33.3 vol 0.002"  # Turntable rumble at 33.3 RPM
@@ -16,3 +19,4 @@ effects:
       - "compand 0.1,0.3 6:-70,-60,-20 -5 -90 0.1"  # Light compression
       - "gain -n -1"  # Level adjustment
       - "channels 1"  # Mono output
+    weight: 1

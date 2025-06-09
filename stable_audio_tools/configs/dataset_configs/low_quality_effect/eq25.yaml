@@ -1,12 +1,10 @@
-# @package dataset.low_quality_effect.eq25
-mode: set   # list of effects given in parameters, could be mode: random
-
-# Create several modified versions of the HQ audio
-# Space separated
-# equalizer, freq, Q factor, gain db
-# bass gain, freq, q factor
-# overdrive, gain db, colour db
 transform_type: sox_audio_effect
+
+available_effects: ["eq_25"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
 #### TEST
@@ -17,3 +15,4 @@ effects:
       - "overdrive 15 1"
       - "equalizer 1800 3 15"
       - 'equalizer 2500 2 15'
+    weight: 1

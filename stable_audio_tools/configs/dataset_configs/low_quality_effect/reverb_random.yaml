@@ -1,111 +1,26 @@
-# @package dataset.low_quality_effect.random
+transform_type: sox_audio_effect
+
+available_effects: ["reverb"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
 min_effects: 1
 max_effects: 1
-available_effects: ["reverb"]
 
 effects:
-  - name: equalizer
-    effect_type: equalizer # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - freq_mean: 2000
-        freq_std: 700
-        db_min: 25
-        db_max: 37
-        weight: 1
-
-  - name: bass
-    effect_type: bass # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - freq_min: 50
-        freq_max: 1500
-        db_min: 12
-        db_max: 22
-        weight: 1
-
-  - name: treble # TODO make it functional
-    effect_type: treble # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - freq_min: 0
-        freq_max: 500
-        gain_min: -15  # Used to be db_min but code expects gain_min
-        gain_max: -5  # Used to be db_max but code expects gain_max
-        weight: 1
-
-  - name: overdrive
-    effect_type: overdrive # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - color_min: 80
-        color_max: 90
-        gain_min: 20
-        gain_max: 25
-        weight: 1
-
   - name: reverb
     effect_type: reverb # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - reverb_preset1:
-          reverberance_min: 40
-          reverberance_max: 50
-          damping_min: 40
-          damping_max: 50
-          room_scale_min: 90
-          room_scale_max: 100
-          stereo_depth_min: 90
-          stereo_depth_max: 100
-          use_delay: true
-          delay_min: 20
-          delay_max: 30
-          wet_gain_min: 0
-          wet_gain_max: 10
-          weight: 1
-
-  - name: flanger
-    effect_type: flanger # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - weight: 1
-
-# tremolo:
-#   speed_min: 100 # in Hz
-#   speed_max: 12000 
-#   depth_min : 10 # in %
-#   depth_max : 90
-
-  - name: echo
-    effect_type: echo # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - proba_next_echo: 0.5
-        gain_in_min: 0.9
-        gain_in_max: 1.
-        gain_out_min: 0.1
-        gain_out_max: 0.9
-        delay_max: 500 #in milliseconds, must be inferior to length audio
-        delay_min: 100
-        decay_min: 0.1
-        decay_max: 0.9
-        weight: 1
-
-  - name: riaa
-    effect_type: riaa # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - weight: 1
-
-  - name: hilbert
-    effect_type: hilbert # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - weight: 1
-
-  - name: sinc
-    effect_type: sinc # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - att_max: 100 #in dB
-        max_freq: 8000
-        min_freq: 450
-        weight: 1
-
-  - name: band
-    effect_type: band # Attack and decay times, transfer function points, gain, initial delay, release time
-    param_sets:
-      - max_freq: 8000
-        min_freq: 500
-        noise_proba: 0.3
-        weight: 1
+      - reverberance_min: 40
+        reverberance_max: 50
+        damping_min: 40
+        damping_max: 50
+        room_scale_min: 90
+        room_scale_max: 100
+        stereo_depth_min: 90
+        stereo_depth_max: 100
+        use_delay: true
+        delay_min: 20
+        delay_max: 30
+        wet_gain_min: 0
+        wet_gain_max: 10
+    weight: 1

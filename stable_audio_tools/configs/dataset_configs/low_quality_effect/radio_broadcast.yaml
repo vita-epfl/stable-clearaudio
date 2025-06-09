@@ -1,16 +1,20 @@
-# @package dataset.low_quality_effect.radio_broadcast
-mode: set
-
 transform_type: sox_audio_effect
+
+available_effects: ["radio_broadcast"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
   - name: 'radio_broadcast'
-    params:
+    param_sets:
       - "bandpass 300 3400" # Typical telephone/radio bandwidth
       - "compand 0.3,1 6:-70,-60,-20 -5 -90 0.2" # Dynamic range compression
       - "gain -n -3" # Slight volume reduction
       - "equalizer 1000 1.5q -2" # Mid-frequency emphasis
       - "channels 1" # Mono output
+    weight: 1
 
 external_sounds:  
   - name: pink_noise

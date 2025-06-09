@@ -1,25 +1,33 @@
-# @package dataset.low_quality_effect.real_world
-mode: set # Liste des effets spécifiés dans "effects". Peut être random si besoin.
-
 # Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
 transform_type: sox_audio_effect
+
+available_effects: ["live_recording", "strong_mp3_compression", "vinyl_recording", "radio_broadcast", 
+  "smartphone_playback", "smartphone_recording", "add_pink_noise", "add_background_sound", "aliasing", 
+  "clipping", "dynamic_range_compression", "harmonic_distortion", "low_quality_mp3_compression", "speed_up", 
+  "wow_resampling", "delay", "high_pass_filter", "low_pass_filter"]
+randomise_effects: true # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 2
 
 effects:
 ###### REAL WORLD
 - name: 'live_recording'
-  params:
+  param_sets:
   - "reverb 50 50 100 100 great_hall" # Reverberation effect simulating a large room
   - "synth pinknoise" # Pink noise
   - "gain -n -60" # Adjust noise level to 60 dB SNR
+  weight: 1
 
 - name: 'strong_mp3_compression'
-  params:
+  param_sets:
   - "rate 16000" # Reduction of sampling to 16 kHz
   - "compand 0.3,1 -40,-40,-20,-10 -10 -0.1" # Dynamic compression
   - "gain -3" # Global reduction in gain to simulate MP3 artefacts
+  weight: 1
 
 - name: 'vinyl_recording'
-  params:
+  param_sets:
   - "synth pinknoise" # Pink noise
   - "gain -n -60" # Adjust noise level to 60 dB SNR
   - "overdrive 10 30" #Distortion to imitate analog saturation
@@ -27,18 +35,18 @@ effects:
   - "vibro 1.3 33" #Wow & Flutter (1.3 intensity and 33 Hz for vinyl)
 
 - name: 'radio_broadcast'
-  params:
+  param_sets:
   - "compand 0.3,0.2 -40,-40,-20,-10 -10 -0.1 0.2" # Dynamic compression
   - "speed 1.02" # 2 % acceleration
 
 - name: 'smartphone_playback'
-  params:
+  param_sets:
   - "highpass 500" # Caractéristique passe-haut du haut-parleur du smartphone
   - "synth pinknoise" # Pink noise
   - "gain -n -60" # Adjust noise level to simulate environment
 
 - name: 'smartphone_recording'
-  params:
+  param_sets:
   - "highpass 300" # IR simulée pour un micro de smartphone
   - "compand 0.1,0.01 -40,-40,-20,-10 -10 -0.1" # Compression dynamique pour simuler l'auto-gain
   - "gain -n -3" # Clipping de 3 % des échantillons
@@ -46,54 +54,54 @@ effects:
   - "gain -n -60" # Adjust noise level
 
 - name: 'add_pink_noise'
-  params:
+  param_sets:
   - "synth pinknoise" # Pink noise
   - "gain -n -60" # Adjust noise level with SNR at 60 dB
 
 - name: 'add_background_sound'
-  params:
+  param_sets:
   - "mcompand 0.005,0.1 0.0,-50.1,-0.1,-50,-0.2,-30" # Simulation of a sound background
   - "gain -n -60" #Adjustment for environmental noise (like a restaurant)
 
 - name: 'aliasing'
-  params:
+  param_sets:
   - "rate 4000" # Drastic reduction in the sampling rate (aliasing)
   - "rate 44100" # Return to the original sampling rate
 
 - name: 'clipping'
-  params:
+  param_sets:
   - "gain -n -0.5" # Normalization to exceed [-1,1]
   - "vol 1.1" # Clipping manuel
 
 - name: 'dynamic_range_compression'
-  params:
+  param_sets:
   - "compand 0.1,0.01 -40,-40,-20,-10 -10 -0.1" # Dynamic signal compression
 
 - name: 'harmonic_distortion'
-  params:
+  param_sets:
   - "overdrive 15 20" # Multiple harmonic distortion application
 
 - name: 'low_quality_mp3_compression'
-  params:
+  param_sets:
   - "rate 8000" # Reduction in sampling frequency
   - "gain -n -5" # Global compression
 
 - name: 'speed_up'
-  params:
+  param_sets:
   - "speed 1.05" # 5 % acceleration
 
 - name: 'wow_resampling'
-  params:
+  param_sets:
   - "vibro 3 0.5" # Wow type distortion with temporal change
 
 - name: 'delay'
-  params:
+  param_sets:
   - "pad 22050@0" # Insertion of silence at the start
 
 - name: 'high_pass_filter'
-  params:
+  param_sets:
   - "highpass 1000" # Pass-Haut filter from 1000 Hz
 
 - name: 'low_pass_filter'
-  params:
+  param_sets:
   - "lowpass 800" # 800 Hz low pass filter

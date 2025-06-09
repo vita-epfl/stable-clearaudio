@@ -1,11 +1,14 @@
-# @package dataset.low_quality_effect.smartphone_recording
-mode: set
-
 transform_type: sox_audio_effect
+
+available_effects: ["smartphone_recording"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
   - name: 'smartphone_recording'
-    params:
+    param_sets:
       - "gain -n -6"  # Pre-attenuation to prevent clipping (increased from -3 to -6)
       - "bandpass 300 3500"  # Limite la bande passante aux fréquences captées par un micro de smartphone
       - "equalizer 4000 1.5q 2"  # Légère accentuation des aigus
@@ -14,8 +17,10 @@ effects:
       - "compand 0.3,1 6:-70,-60,-20 -5 -90 0.2"  # Compression dynamique (auto-gain du smartphone)
       - "overdrive 2 20"  # Simuler le clipping (réduit de 3% à 2% des samples affectés)
       - "channels 1"  # Sortie en mono
+    weight: 1
 
 external_sounds:  
   - name: pink_noise
     sound_path: 
       - "/home/alefevre/datasets/external_sounds/pink_noise/light_pink_noise_60s.wav"
+    weight: 1

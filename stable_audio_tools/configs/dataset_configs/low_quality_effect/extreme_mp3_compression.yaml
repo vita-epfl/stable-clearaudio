@@ -1,8 +1,11 @@
-# @package dataset.low_quality_effect.extreme_mp3_compression
-mode: set # Liste des effets spécifiés dans "effects". Peut être random si besoin.
-
 # Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
 transform_type: sox_audio_effect
+
+available_effects: ["extreme_mp3_compression"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
 
 effects:
 - name: 'extreme_mp3_compression'
@@ -20,4 +23,5 @@ effects:
   - "overdrive 20 25" # Réintroduction d'une légère distorsion (depuis version extrême)
   - "dither -s -p 12" # Bruit de quantification modéré (intermédiaire entre -p 8 et -s seul)
   gain: 0.045 # Niveau de gain équilibré
+  weight: 1
 

@@ -13,24 +13,28 @@ effects:
     effect_type: equalizer
     param_sets:
       - "equalizer 120 1.0 -30"
+    weight: 1
 
   - name: equalizer_2
     effect_type: equalizer
     param_sets:
       - "equalizer 700 1.2 -25"
+    weight: 1
 
-  
   - name: equalizer_3
     effect_type: equalizer
     param_sets:
       - "equalizer 2000 1.2 30"
+    weight: 1
 
   - name: highpass
     effect_type: highpass
     param_sets:
       - "highpass 1500"
+    weight: 1
   
   - name: lowpass
     effect_type: lowpass
     param_sets:
       - "lowpass 500"
+    weight: 1
