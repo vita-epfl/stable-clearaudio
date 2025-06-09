@@ -42,7 +42,6 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
 
     degradation_presets = build_degraded_args.get("degradation_presets", None)
     low_quality_effects_dir = build_degraded_args.get("low_quality_effects_dir", None)
-    effects_mode = build_degraded_args.get("effects_mode", "specific")
 
     # Get the absolute path of the low quality effects directory
     if low_quality_effects_dir.startswith("/") and not os.path.exists(low_quality_effects_dir):
@@ -56,22 +55,9 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
             relative_path = low_quality_effects_dir[len("/stable_audio_tools/"):]
             low_quality_effects_dir = str(base_path / relative_path)  # Don't add 'stable_audio_tools' again
 
-    if effects_mode == "random":
-        # select a random preset from the random presets directory
-        preset_dir = os.path.join(low_quality_effects_dir, "random_presets")
-        # Choose a random preset from the directory, not from degradation_presets
-        presets_available = os.listdir(preset_dir)
-        if not presets_available:
-            LOG.error(f"No presets found in {preset_dir}")
-            return []
-        random_preset_name = random.choice(degradation_presets)
-        degradation_presets = [random_preset_name]
 
-    elif effects_mode == "specific":
-        preset_dir = os.path.join(low_quality_effects_dir, "specific_presets")
-        degradation_presets = build_degraded_args.get("degradation_presets", None)
-    else:
-        raise ValueError("Invalid effects_mode. Must be 'random' or 'specific'")
+    preset_dir = os.path.join(low_quality_effects_dir)
+    degradation_presets = build_degraded_args.get("degradation_presets", None)
 
     for preset_name in degradation_presets:
         # Check if preset_name exists in low_quality_effects_dir
