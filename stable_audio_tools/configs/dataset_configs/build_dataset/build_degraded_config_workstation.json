@@ -7,6 +7,6 @@
     "build_clean_dataset": true,
     "duration": 10,
     "num_files": 1,
-    "degradation_presets": ["lowpass"],
-    "effects_mode": "specific"
+    "degradation_presets": ["random_degradations"],
+    "effects_mode": "random"
 }
