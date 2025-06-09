@@ -73,78 +73,76 @@ def apply_config_to_audio(info, audio, preset_path):
             LOG.error(f"Configuration file not found: {preset_path}")
             return audio
 
-        # Load the configuration
-        try:
-            preset_cfg = load_yaml_config(preset_path)
-            LOG.debug(f"Configuration loaded: {preset_path}")
+        preset_cfg = load_yaml_config(preset_path)
+        LOG.debug(f"Configuration loaded: {preset_path}")
+        
+        transform = SoxEffectTransform.get_effects_transform(preset_cfg)
+        transforms = [transform]
+        LOG.debug(f"Applying SoX transformation: {transform.name}")
+        
+        if transforms:
+            for transform in transforms:
+                # Apply the transformation
+                LOG.debug(f"Applying SoX transformation: {transform.name}")
+                LOG.debug(f"Effects to apply: {transform.effects}")
+
+                # Apply the transformation
+                processed_wave, processed_sr = transform.apply_tensor(
+                    audio, info["sample_rate"]
+                )
+                
+                # Appliquer le gain s'il est spécifié dans l'effet
+                if "effects" in preset_cfg: # TODO Check if redundant with lines 361
+                    for effect in preset_cfg["effects"]:
+                        if "gain" in effect:
+                            gain_value = float(effect["gain"])
+                            LOG.debug(f"Applying gain after SOX effects: {gain_value}")
+                            # Normaliser d'abord la waveform
+                            if processed_wave.abs().max() > 0:
+                                processed_wave = processed_wave / processed_wave.abs().max()
+                            # Puis appliquer le gain
+                            processed_wave = processed_wave * gain_value
+                            LOG.debug(f"Applied gain. New max amplitude: {processed_wave.abs().max().item()}")
+                
+                # Update the audio clip
+                audio = processed_wave
+                info["sample_rate"] = processed_sr
+                info["num_samples"] = processed_wave.shape[1]
+                
+                LOG.debug(f"SoX effects applied successfully. New shape: {processed_wave.shape}")
+        else:
+            LOG.warning(f"No SoX effect transformations found in configuration {preset_path}")
             
-            transform = SoxEffectTransform.get_effects_transform(preset_cfg)
-            transforms = [transform]
-            LOG.debug(f"Applying SoX transformation: {transform.name}")
-            
+        # Process external sounds if any
+        if "external_sounds" in preset_cfg:
+            external_sounds_cfg = preset_cfg["external_sounds"]
+            LOG.debug("External sounds found in configuration. Adding...")
+            transforms = ExternalSoundTransform.get_external_sounds_transforms(external_sounds_cfg)
+
             if transforms:
+                # Apply each transformation
                 for transform in transforms:
-                    # Apply the transformation
-                    LOG.debug(f"Applying SoX transformation: {transform.name}")
-                    LOG.debug(f"Effects to apply: {transform.effects}")
+                    LOG.debug(f"Applying external sound: {transform.sound_name}")
 
                     # Apply the transformation
-                    processed_wave, processed_sr = transform.apply_tensor(
+                    processed_wave, processed_sr = transform.apply_external_sound(
                         audio, info["sample_rate"]
                     )
-                    
-                    # Appliquer le gain s'il est spécifié dans l'effet
-                    if "effects" in preset_cfg: # TODO Check if redundant with lines 361
-                        for effect in preset_cfg["effects"]:
-                            if "gain" in effect:
-                                gain_value = float(effect["gain"])
-                                LOG.debug(f"Applying gain after SOX effects: {gain_value}")
-                                # Normaliser d'abord la waveform
-                                if processed_wave.abs().max() > 0:
-                                    processed_wave = processed_wave / processed_wave.abs().max()
-                                # Puis appliquer le gain
-                                processed_wave = processed_wave * gain_value
-                                LOG.debug(f"Applied gain. New max amplitude: {processed_wave.abs().max().item()}")
-                    
+
                     # Update the audio clip
                     audio = processed_wave
                     info["sample_rate"] = processed_sr
-                    info["num_samples"] = processed_wave.shape[1]
-                    
-                    LOG.debug(f"SoX effects applied successfully. New shape: {processed_wave.shape}")
+
+                    LOG.debug(f"External sound added successfully: {transform.sound_name}")
             else:
-                LOG.warning(f"No SoX effect transformations found in configuration {preset_path}")
-                
-            # Process external sounds if any
-            if "external_sounds" in preset_cfg:
-                external_sounds_cfg = preset_cfg["external_sounds"]
-                LOG.debug("External sounds found in configuration. Adding...")
-                transforms = ExternalSoundTransform.get_external_sounds_transforms(external_sounds_cfg)
-
-                if transforms:
-                    # Apply each transformation
-                    for transform in transforms:
-                        LOG.debug(f"Applying external sound: {transform.sound_name}")
-
-                        # Apply the transformation
-                        processed_wave, processed_sr = transform.apply_external_sound(
-                            audio, info["sample_rate"]
-                        )
-
-                        # Update the audio clip
-                        audio = processed_wave
-                        info["sample_rate"] = processed_sr
-
-                        LOG.debug(f"External sound added successfully: {transform.sound_name}")
-                else:
-                    LOG.error(
-                        f"No external sound transformation found in configuration {preset_path}"
-                    )
-        except Exception as e:
-            LOG.error(f"Error when applying configuration: {str(e)}")
-            import traceback
-            LOG.error(traceback.format_exc())
-            return audio
+                LOG.error(
+                    f"No external sound transformation found in configuration {preset_path}"
+                )
+        # except Exception as e:
+        #     LOG.error(f"Error when applying configuration: {str(e)}")
+        #     import traceback
+        #     LOG.error(traceback.format_exc())
+        #     return audio
 
         return audio
 
