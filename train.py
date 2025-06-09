@@ -106,9 +106,9 @@ def main():
         ckpt_params = {
             "dirpath": checkpoint_dir,
             "save_top_k": args.save_top_k,
-            "monitor": 'train_loss',  # Changed from 'train/loss' for consistency
+            "monitor": 'train/loss',  # Changed from 'train/loss' for consistency
             "mode": 'min',
-            "filename": '{epoch}-{step}-{train_loss:.6f}'
+            "filename": '{epoch}-{step}-{train/loss:.6f}'
         }
         
         # Check which checkpoint frequency to use
