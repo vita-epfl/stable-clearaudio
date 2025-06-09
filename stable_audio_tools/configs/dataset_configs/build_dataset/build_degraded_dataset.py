@@ -46,7 +46,6 @@ class BuildDatasetConfig:
     duration: float
     num_files: int
     degradation_presets: List[str] = field(default_factory=list)
-    effects_mode: str = "specific"
     noise_gain: float = 1.0
     
 
@@ -171,7 +170,6 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         build_degraded_args = {
             "degradation_presets": config.degradation_presets,
             "low_quality_effects_dir": config.low_quality_effects_dir,
-            "effects_mode": config.effects_mode
         }
 
         LOG.debug(f"Building degraded audio with {build_degraded_args}")

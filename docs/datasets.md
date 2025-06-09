@@ -68,8 +68,7 @@ For audio restoration, the configuration typically includes:
                     "build_degraded_args": {
                         "sox_noises_dir": "/path/to/sox_noises",
                         "low_quality_effects_dir": "/path/to/low_quality_effect",
-                        "degradation_presets": ["strong_mp3_compression"],
-                        "effects_mode": "specific"
+                        "degradation_presets": ["strong_mp3_compression"]
                     }
                 }
             }
@@ -86,9 +85,6 @@ When building degraded audio on-the-fly (with `build_degraded: true`), you can c
 - `sox_noises_dir`: Directory containing noise samples for SoX-based effects
 - `low_quality_effects_dir`: Directory containing effect configuration files
 - `degradation_presets`: List of degradation preset names to apply to the audio
-- `effects_mode`: Specifies how effects should be applied:
-  - `specific`: Uses specific effect presets defined in configuration files
-  - `random`: Applies random effects based on preset configurations
 
 The system will apply each preset in the `degradation_presets` list to the audio sequentially. Each preset corresponds to a YAML configuration file located in the `low_quality_effects_dir` directory, with specific presets typically stored in a `specific` subdirectory and random presets in a `random` subdirectory.
 

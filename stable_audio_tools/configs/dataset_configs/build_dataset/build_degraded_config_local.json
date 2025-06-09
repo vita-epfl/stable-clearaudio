@@ -7,6 +7,5 @@
     "build_clean_dataset": true,
     "duration": 10.0,
     "num_files": -1,
-    "degradation_presets": ["eq1"],
-    "effects_mode": "specific"
+    "degradation_presets": ["eq1"]
 }
