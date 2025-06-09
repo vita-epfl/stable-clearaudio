@@ -54,7 +54,7 @@ def load_yaml_config(file_path):
         config = yaml.safe_load(file)
     return config
 
-def apply_config_to_audio(info, audio, preset_path, effects_mode):
+def apply_config_to_audio(info, audio, preset_path):
         """
         Retrieves an audio from the dataset, applies the effects from the configuration, and adds the specified external audio.
 

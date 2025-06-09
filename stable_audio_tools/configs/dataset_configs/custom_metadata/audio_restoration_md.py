@@ -89,8 +89,7 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
         audio = signal.apply_config_to_audio(
             info, 
             audio, 
-            preset_path,
-            effects_mode
+            preset_path
         )
 
     # Return the degraded audio data
