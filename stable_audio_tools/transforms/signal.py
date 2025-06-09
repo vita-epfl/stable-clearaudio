@@ -78,13 +78,9 @@ def apply_config_to_audio(info, audio, preset_path, effects_mode):
             preset_cfg = load_yaml_config(preset_path)
             LOG.debug(f"Configuration loaded: {preset_path}")
             
-            if effects_mode == "random":
-                # In random mode, we only apply one transformation (as each random preset contains one list of effects)
-                transform = SoxEffectTransform.get_random_effects_transform(preset_cfg)
-                transforms = [transform]
-            elif effects_mode == "specific":
-                # In specific mode, we apply all transformations specified in "effects" in the preset_cfg
-                transforms = SoxEffectTransform.get_specific_effects_transforms(preset_cfg)
+            transform = SoxEffectTransform.get_effects_transform(preset_cfg)
+            transforms = [transform]
+            LOG.debug(f"Applying SoX transformation: {transform.name}")
             
             if transforms:
                 for transform in transforms:
@@ -563,7 +559,7 @@ class SoxEffectTransform(nn.Module):
         return params_string, debug_info
 
     @staticmethod
-    def get_random_effects_transform(preset_cfg: Any) -> Union[SoxEffectTransform, List[SoxEffectTransform]]:
+    def get_effects_transform(preset_cfg: Any) -> Union[SoxEffectTransform, List[SoxEffectTransform]]:
         """
         Create a SoxEffectTransform with random or specific effects based on the preset configuration.
         
