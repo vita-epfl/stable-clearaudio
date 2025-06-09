@@ -408,11 +408,7 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
         sigmas = sigmas[:, None, None]
         noise = torch.randn_like(diffusion_input)
         noised_inputs = diffusion_input * alphas + noise * sigmas
-
-        if self.diffusion_objective == "v":
-            targets = noise * alphas - diffusion_input * sigmas
-        elif self.diffusion_objective == "rectified_flow":
-            targets = noise - diffusion_input
+        targets = noise * alphas - diffusion_input * sigmas
 
         p.tick("noise")
 
@@ -556,20 +552,23 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
             # Gather losses across all GPUs
             val_loss = self.all_gather(val_loss).mean().item()
 
+            # Log individual timestep losses
             log_metric(self.logger, outputs_key, val_loss, step=self.global_step)
+            self.log(outputs_key, val_loss)
 
         # Get average over all timesteps
-        val_loss = torch.tensor([val for val in self.validation_step_outputs.values()]).mean()
+        val_loss = torch.tensor([sum(vals)/len(vals) for vals in self.validation_step_outputs.values()]).mean()
 
         # Gather losses across all GPUs
         val_loss = self.all_gather(val_loss).mean().item()
 
+        # Log using both methods for compatibility
         log_metric(self.logger, 'val/avg_loss', val_loss, step=self.global_step)
+        self.log('val/avg_loss', val_loss, sync_dist=True)
 
         # Reset validation losses
         for validation_timestep in self.validation_timesteps:
             self.validation_step_outputs[f'val/loss_{validation_timestep:.1f}'] = []
-
 
     def export_model(self, path, use_safetensors=False):
         if self.diffusion_ema is not None:
