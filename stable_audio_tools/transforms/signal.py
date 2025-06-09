@@ -577,7 +577,7 @@ class SoxEffectTransform(nn.Module):
         if 'transform_type' in preset_cfg and preset_cfg['transform_type'] == 'sox_audio_effect':
             LOG.debug("Creating specific SoxEffectTransform objects from configuration: {preset_cfg}")
         else:
-            LOG.error(f"Invalid transform type: {preset_cfg['transform_type']}")
+            LOG.error("Invalid or missing transform type")
             return None
         
         # Initialize transform
