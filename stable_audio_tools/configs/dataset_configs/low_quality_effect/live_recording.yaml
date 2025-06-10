@@ -10,7 +10,7 @@ max_effects: 1
 effects:
 ###### REAL WORLD
   - name: 'live_recording'
-    params:
+    param_sets:
       - "reverb 50 50 100 100" # Reverberation effect simulating a large room
       - "channels 1" # Convert to mono as the model only supports mono audio
 

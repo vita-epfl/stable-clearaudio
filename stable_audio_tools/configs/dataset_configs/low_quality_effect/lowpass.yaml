@@ -9,7 +9,7 @@ max_effects: 1
 
 effects:
 - name: 'lowpass'
-  params:
+  param_sets:
   # Strong lowpass: e.g., cutoff frequency at 3000Hz. Single-pole is -6dB/octave, sox default is 2-pole (-12dB/octave)
   - "lowpass 500" 
   gain: 0.8 # Adjust gain to a neutral level

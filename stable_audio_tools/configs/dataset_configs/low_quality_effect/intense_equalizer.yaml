@@ -10,7 +10,7 @@ effects:
 #### TEST
 # 1 Progressive of High cuts with varying q-factor
   - name: 'intense_equalizer'
-    params: 
+    param_sets: 
       # Piano : Typical frequencies
       # Bass : ~27 Hz (A0) à ~250 Hz
       # Mediums : 250 Hz à 2000 Hz

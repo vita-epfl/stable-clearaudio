@@ -9,7 +9,7 @@ max_effects: 1
 effects:
 #### TEST
   - name: 'eq_25'
-    params: 
+    param_sets: 
       - "bass -25 850 1"
       - "treble -25 4000 0.8"
       - "overdrive 15 1"

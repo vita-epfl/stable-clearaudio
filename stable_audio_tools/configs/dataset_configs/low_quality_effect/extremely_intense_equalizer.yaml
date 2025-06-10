@@ -10,7 +10,7 @@ effects:
 #### TEST
 # 1 Progressive of High cuts with varying q-factor
   - name: 'extremely_intense_eq'
-    params: 
+    param_sets: 
       - "equalizer 8000 1.0 60"  # Extremely aggressive high frequency boost
       - "equalizer 4000 1.5 -45" # Major mid-range notch
       - "equalizer 500 0.8 50"   # Massive low-mid boost
