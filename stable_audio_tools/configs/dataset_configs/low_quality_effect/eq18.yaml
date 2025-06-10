@@ -9,7 +9,7 @@ max_effects: 1
 effects:
 #### TEST
   - name: 'eq_18'
-    params: 
+    param_sets: 
       - "equalizer 2001 9 -31"
       - "equalizer 2507 0.7 21"
       - "equalizer 5130 2 -24"

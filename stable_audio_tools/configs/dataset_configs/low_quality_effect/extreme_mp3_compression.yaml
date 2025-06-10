@@ -9,7 +9,7 @@ max_effects: 1
 
 effects:
 - name: 'extreme_mp3_compression'
-  params:
+  param_sets:
   - "lowpass 7500" # Équilibre pour la coupure des hautes fréquences
   - "compand 0.00275,0.03 15:-90,-65,-30 -15 -90 0.0125" # Compression modérée et équilibrée
   - "equalizer 800 1q 8.5" # Accentuation modérée des médiums

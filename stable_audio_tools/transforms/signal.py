@@ -78,7 +78,6 @@ def apply_config_to_audio(info, audio, preset_path):
         
         transform = SoxEffectTransform.get_effects_transform(preset_cfg)
         transforms = [transform]
-        LOG.debug(f"Applying SoX transformation: {transform.name}")
         
         if transforms:
             for transform in transforms:
@@ -580,9 +579,6 @@ class SoxEffectTransform(nn.Module):
             LOG.error("Invalid or missing transform type")
             return None
         
-        # Initialize transform
-        sox_effect_transform = SoxEffectTransform("random_preset")
-        
         if "available_effects" not in preset_cfg:
             LOG.error(f"available_effects not found in configuration. Preset config: {preset_cfg}")
             return None
@@ -645,6 +641,12 @@ class SoxEffectTransform(nn.Module):
             p=np.array(effects_weights)  # Already normalized
         )
         
+        # Create a string representation of the selected effects
+        effects_name = "_".join(effects_to_apply)
+        
+        # Initialize transform with the string name
+        sox_effect_transform = SoxEffectTransform(effects_name)
+        
         # Apply each selected effect with random parameters
         for effect_name in effects_to_apply:
             if effect_name not in effects_dict:
@@ -652,6 +654,10 @@ class SoxEffectTransform(nn.Module):
                 continue
                 
             effect_cfg = effects_dict[effect_name]
+
+            if "param_sets" not in effect_cfg:
+                LOG.warning(f"param_sets not found in effect {effect_name}")
+                continue
             param_sets = effect_cfg.get("param_sets", [])
 
             if not isinstance(param_sets, list):
