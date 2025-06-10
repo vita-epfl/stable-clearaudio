@@ -108,7 +108,7 @@ def main():
             "save_top_k": args.save_top_k,
             "monitor": 'val/avg_loss',
             "mode": 'min',
-            "filename": '{epoch}-{step}-{val/avg_loss:.6f}'
+            "filename": '{epoch}-{step}'
         }
         
         # Check which checkpoint frequency to use
