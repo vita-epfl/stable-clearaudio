@@ -21,6 +21,16 @@ class ModelConfigEmbedderCallback(pl.Callback):
     def on_save_checkpoint(self, trainer, pl_module, checkpoint):
         checkpoint["model_config"] = self.model_config
 
+def str_to_bool(value):
+    """Reliably converts a value (string, number, boolean) to a boolean.
+    Specifically, the strings 'false', '0', '' are considered as False.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() != "false" and value != "0" and value != ""
+    return bool(value)
+
 def main():
     torch.multiprocessing.set_sharing_strategy('file_system')
     args = get_all_args()
@@ -134,7 +144,8 @@ def main():
     # Early stopping configuration if validation is available
     callbacks = [ckpt_callback, exc_callback, save_model_config_callback]
     
-    if val_dl and args.early_stopping:
+    early_stopping_enabled = str_to_bool(args.early_stopping)
+    if val_dl and early_stopping_enabled:
         print("Using early stopping callback")
         early_stop_callback = pl.callbacks.EarlyStopping(
             monitor='train/loss',
