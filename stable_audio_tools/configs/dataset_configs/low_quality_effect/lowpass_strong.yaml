@@ -1,0 +1,16 @@
+# Available SoX effects: https://manpages.ubuntu.com/manpages/lunar/en/man1/sox.1.html#effects
+transform_type: sox_audio_effect
+
+available_effects: ["lowpass"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
+
+effects:
+- name: 'lowpass'
+  param_sets:
+  # Strong lowpass: e.g., cutoff frequency at 3000Hz. Single-pole is -6dB/octave, sox default is 2-pole (-12dB/octave)
+  - "lowpass 150" 
+  gain: 0.8 # Adjust gain to a neutral level
+  weight: 1

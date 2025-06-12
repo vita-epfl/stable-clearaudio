@@ -1,0 +1,14 @@
+transform_type: sox_audio_effect
+
+available_effects: ["highpass_strong"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
+
+effects:
+- name: 'highpass_strong'
+  param_sets:
+  # Strong highpass
+  - "highpass 2500"
+  gain: 0.8 # Adjust gain to a neutral level

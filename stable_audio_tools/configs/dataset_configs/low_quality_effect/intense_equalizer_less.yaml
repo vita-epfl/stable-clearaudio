@@ -1,0 +1,17 @@
+transform_type: sox_audio_effect
+
+available_effects: ["light_equalizer"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 1
+
+effects:
+  - name: 'light_equalizer'
+    param_sets:
+      # Subtle tonal shaping
+      - "equalizer 120 0.8 -6"       # Gentle low cut to reduce muddiness
+      - "equalizer 700 0.9 -4"       # Slight dip to reduce boxiness
+      - "equalizer 2000 0.7 5"       # Small boost to enhance clarity
+    gain: 0.4  # Softer presence of the effect
+    weight: 1  # Less dominant in the mix
