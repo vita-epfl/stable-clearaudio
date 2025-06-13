@@ -554,7 +554,7 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
 
             # Log individual timestep losses
             log_metric(self.logger, outputs_key, val_loss, step=self.global_step)
-            self.log(outputs_key, val_loss)
+            self.log(outputs_key, val_loss, sync_dist=True)
 
         # Get average over all timesteps
         val_loss = torch.tensor([sum(vals)/len(vals) for vals in self.validation_step_outputs.values()]).mean()
