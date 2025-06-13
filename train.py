@@ -116,7 +116,7 @@ def main():
         ckpt_params = {
             "dirpath": checkpoint_dir,
             "save_top_k": args.save_top_k,
-            "monitor": 'train/loss',  # Utiliser la perte d'entraînement puisque les métriques de validation ne sont pas disponibles
+            "monitor": 'train/loss',
             "mode": 'min',
             "filename": '{epoch}-{step}-{train_loss:.6f}'
         }
