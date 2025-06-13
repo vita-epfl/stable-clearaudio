@@ -660,8 +660,8 @@ class SoxEffectTransform(nn.Module):
                 continue
             param_sets = effect_cfg.get("param_sets", [])
 
-            if not isinstance(param_sets, list):
-                LOG.warning(f"param_sets should be a list for effect {effect_name}")
+            if not param_sets:
+                LOG.warning(f"param_sets is empty for effect {effect_name}")
                 continue
 
             for i, param_set in enumerate(param_sets):
@@ -693,9 +693,6 @@ class SoxEffectTransform(nn.Module):
                                         LOG.debug(f"Added equalizer effect {i} with: {', '.join(debug_info)}")
                                 else:
                                     LOG.warning(f"Skipping unsupported parameter set type: {type(param_set)}")
-                                            
-                            else:
-                                LOG.warning(f"param_sets should be a list for {effect_name}, found {type(param_sets)}")
                         elif effect_cfg["effect_type"] in ["treble", "highpass", "lowpass"]:
                             # Handle all filter-type effects (treble, highpass, lowpass) similarly
                             effect_type = effect_cfg["effect_type"]
@@ -721,8 +718,6 @@ class SoxEffectTransform(nn.Module):
                                         LOG.warning(f"Missing gain parameters for {effect_type} effect in param set {i}")
                                 else:
                                     LOG.warning(f"Invalid parameter type for treble effect: {type(param_set)}, expected dict")
-                            else:
-                                LOG.warning(f"param_sets should be a list for treble effect {effect_name}")
                         elif effect_cfg["effect_type"] == "bass":
                             LOG.debug(f"Processing {len(param_sets)} bass parameter sets for {effect_name}")
                             for i, param_set in enumerate(param_sets):
@@ -741,8 +736,6 @@ class SoxEffectTransform(nn.Module):
                                         LOG.debug(f"Added bass effect {i} with: {', '.join(debug_info)}")
                                 else:
                                     LOG.warning(f"Skipping unsupported parameter set type: {type(param_set)}")
-                            else:
-                                LOG.warning(f"param_sets should be a list for bass effect {effect_name}")
                         elif effect_cfg["effect_type"] == "overdrive":
                             LOG.debug(f"Processing {len(param_sets)} overdrive parameter sets for {effect_name}")
                             for i, param_set in enumerate(param_sets):
@@ -761,8 +754,6 @@ class SoxEffectTransform(nn.Module):
                                         LOG.debug(f"Added overdrive effect {i} with: {', '.join(debug_info)}")
                                 else:
                                     LOG.warning(f"Skipping unsupported parameter set type: {type(param_set)}")
-                            else:
-                                LOG.warning(f"param_sets should be a list for overdrive effect {effect_name}")
                         elif effect_cfg["effect_type"] == "reverb":
                             LOG.debug(f"Processing {len(param_sets)} reverb parameter sets for {effect_name}")
                             for i, param_set in enumerate(param_sets):
@@ -801,8 +792,6 @@ class SoxEffectTransform(nn.Module):
                                     LOG.debug(f"Added reverb {i} with: reverberance={reverberance}, damping={damping}, room_scale={room_scale}, stereo_depth={stereo_depth}")
                                 else:
                                     LOG.warning(f"Skipping unsupported parameter set type: {type(param_set)}")
-                            else:
-                                LOG.warning(f"param_sets should be a list for reverb effect {effect_name}")
                         elif effect_cfg["effect_type"] == "echo":
                             LOG.debug(f"Processing {len(param_sets)} echo parameter sets for {effect_name}")
                             for i, param_set in enumerate(param_sets):
@@ -833,8 +822,6 @@ class SoxEffectTransform(nn.Module):
                                     params_string = f"echo {gain_in} {gain_out} {delay} {decay}"
                                     sox_effect_transform.add_effect(params_string.strip().split(" "))
                                     LOG.debug(f"Added echo effect {i} with: gain_in={gain_in:.2f}, gain_out={gain_out:.2f}, delay={delay:.1f}ms, decay={decay:.2f}")
-                            else:
-                                LOG.warning(f"param_sets should be a list for echo effect {effect_name}")
                         elif effect_cfg["effect_type"] == "sinc":
                             LOG.debug(f"Processing {len(param_sets)} sinc parameter sets for {effect_name}")
                             for i, param_set in enumerate(param_sets):
@@ -857,8 +844,6 @@ class SoxEffectTransform(nn.Module):
                                     params_string = f"sinc -{attenuation} {cutoff_freq}"
                                     sox_effect_transform.add_effect(params_string.strip().split(" "))
                                     LOG.debug(f"Added sinc low-pass filter {i} with: attenuation={attenuation:.1f}dB, cutoff={cutoff_freq:.1f}Hz")
-                            else:
-                                LOG.warning(f"param_sets should be a list for sinc effect {effect_name}")
                         elif effect_cfg["effect_type"] == "band":
                             LOG.debug(f"Processing {len(param_sets)} band parameter sets for {effect_name}")
                             for i, param_set in enumerate(param_sets):
@@ -892,8 +877,6 @@ class SoxEffectTransform(nn.Module):
                                         params_string = f"band -n {center_freq} {width_q}"
                                         sox_effect_transform.add_effect(params_string.strip().split(" "))
                                         LOG.debug(f"Added band-pass filter {set_name} with: center={center_freq:.1f}Hz, width_q={width_q:.2f}")
-                            else:
-                                LOG.warning(f"param_sets should be a list for band effect {effect_name}")
                     else:
                         LOG.warning(f"No effect_type specified for {effect_name}")
         
