@@ -112,13 +112,13 @@ def main():
         
     # Checkpoint callback configuration based on validation availability
     if val_dl:
-        print("Using validation checkpoint callback")
+        print("Using checkpoint callback with training loss")
         ckpt_params = {
             "dirpath": checkpoint_dir,
             "save_top_k": args.save_top_k,
-            "monitor": 'val/avg_loss',
+            "monitor": 'train/loss',  # Utiliser la perte d'entraînement puisque les métriques de validation ne sont pas disponibles
             "mode": 'min',
-            "filename": '{epoch}-{step}'
+            "filename": '{epoch}-{step}-{train_loss:.6f}'
         }
         
         # Check which checkpoint frequency to use
