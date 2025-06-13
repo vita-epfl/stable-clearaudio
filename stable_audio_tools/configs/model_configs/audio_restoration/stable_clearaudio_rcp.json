@@ -71,7 +71,7 @@
         "io_channels": 64
     },
     "training": {
-        "max_epochs": 1200,
+        "max_epochs": 5000,
         "use_ema": true,
         "log_loss_info": false,
         "optimizer_configs": {
@@ -95,8 +95,8 @@
             }
         },
         "demo": {
-            "demo_every": 32,
-            "demo_steps": 300,
+            "demo_every": 64,
+            "demo_steps": 250,
             "num_demos": 1,
             "demo_cond_from_batch": true,
             "display_audio_cond": true,
