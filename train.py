@@ -66,9 +66,14 @@ def main():
         with open(args.val_dataset_config) as f:
             val_dataset_config = json.load(f)
 
+        # Use smaller batch size for validation to ensure compatibility with distributed training
+        # With 255 validation samples and 4 GPUs, each GPU gets ~63 samples
+        # Use batch size of 32 to ensure each GPU can form at least 1 batch
+        val_batch_size = min(args.batch_size, 32)
+        
         val_dl = create_dataloader_from_config(
             val_dataset_config,
-            batch_size=args.batch_size,
+            batch_size=val_batch_size,
             num_workers=args.num_workers,
             sample_rate=model_config["sample_rate"],
             sample_size=model_config["sample_size"],
