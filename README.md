@@ -114,6 +114,9 @@ Additional optional flags for `train.py` include:
 - `--batch-size`
   - Number of samples per-GPU during training. Should be set as large as your GPU VRAM will allow.
   - *Default*: 8
+- `--val-batch-size`
+  - Number of samples per-GPU during validation. Should be set as large as `(val_dataset_size // num_gpus) // 2` or `val_dataset_size // num_gpus`. Reduce this number if you get the error "Total length of DataLoader across ranks is zero".
+  - *Default*: 8
 - `--num-gpus`
   - Number of GPUs per-node to use for training
   - *Default*: 1

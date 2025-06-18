@@ -66,9 +66,12 @@ def main():
         with open(args.val_dataset_config) as f:
             val_dataset_config = json.load(f)
 
+        # Use smaller batch size for validation to ensure compatibility with distributed training
+        val_batch_size = args.val_batch_size
+        
         val_dl = create_dataloader_from_config(
             val_dataset_config,
-            batch_size=args.batch_size,
+            batch_size=val_batch_size,
             num_workers=args.num_workers,
             sample_rate=model_config["sample_rate"],
             sample_size=model_config["sample_size"],
