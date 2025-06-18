@@ -2,7 +2,7 @@
     "dataset_type": "audio_dir",
     "datasets": [
         {
-            "id": "maestro_short",
+            "id": "maestro_full_valid",
             "path": "/mnt/vita/scratch/datasets/maestro-v3.0.0/maestro_full_valid",
             "custom_metadata_module": "stable_audio_tools/configs/dataset_configs/custom_metadata/audio_restoration_md.py",
             "custom_metadata_args": {
