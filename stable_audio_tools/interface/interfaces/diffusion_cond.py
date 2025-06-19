@@ -819,11 +819,13 @@ def create_metric_plots(metrics_data_list, labels):
         if n_plots == 0:
             return None
         
-        n_cols = 2
+        n_cols = 3
         n_rows = (n_plots + n_cols - 1) // n_cols
 
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows), squeeze=False)
-        axes = axes.flatten()
+        # Create figure with extra space for legend
+        fig = plt.figure(figsize=(15, 4 * n_rows + 1))
+        gs = plt.GridSpec(n_rows + 1, n_cols, height_ratios=[1] * n_rows + [0.2])
+        axes = [fig.add_subplot(gs[i // n_cols, i % n_cols]) for i in range(n_plots)]
 
         plot_idx = 0
 
@@ -843,6 +845,10 @@ def create_metric_plots(metrics_data_list, labels):
         
         # Plot restoration success metrics, one plot per file
         if restoration_metrics_keys:
+            # Create a single legend for all restoration plots
+            legend_handles = []
+            legend_labels = []
+            
             for i, metrics_data in enumerate(metrics_data_list):
                 file_restoration_metrics = [k for k in restoration_metrics_keys if k in metrics_data] if metrics_data else []
 
@@ -851,14 +857,23 @@ def create_metric_plots(metrics_data_list, labels):
                     steps = metrics_data["steps"]
                     for metric_name in file_restoration_metrics:
                         label = metric_name.replace('restoration_success_', '')
-                        ax.plot(steps, metrics_data[metric_name], '-o', label=label, markersize=4)
+                        line = ax.plot(steps, metrics_data[metric_name], '-o', label=label, markersize=4)[0]
+                        if i == 0:  # Only collect handles and labels from first plot
+                            legend_handles.append(line)
+                            legend_labels.append(label)
                     
                     ax.set_xlabel('Step')
                     ax.set_ylabel('Value')
-                    ax.set_title(f'Restoration Success for {labels[i]}')
+                    ax.set_title(f'NRS for {labels[i]}')
                     ax.grid(True)
-                    ax.legend(loc='best')
                     plot_idx += 1
+
+            # Add single legend at the bottom
+            if legend_handles:
+                legend_ax = fig.add_subplot(gs[-1, :])
+                legend_ax.axis('off')
+                legend_ax.set_title('Legend for Normalized Restoration Success (NRS)')
+                legend_ax.legend(legend_handles, legend_labels, loc='center', ncol=len(legend_handles))
 
         # Hide unused subplots
         for i in range(plot_idx, len(axes)):
@@ -950,7 +965,7 @@ def create_sampling_ui(model_config):
                     gr.Markdown("The uploaded audio will be used as conditioning input for the model")
                 
                 # Steps slider
-                default_steps = 25 if is_audio_restoration else (50 if is_rf else 100)
+                default_steps = 30 if is_audio_restoration else (50 if is_rf else 100)
                 steps_slider = gr.Slider(
                     minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
                 )
@@ -1068,14 +1083,15 @@ def create_sampling_ui(model_config):
                         minimum=0,
                         maximum=100,
                         step=1,
-                        value=0,
+                        value=2,
                         label="Compute Metrics Every N Steps",
                         visible=is_audio_restoration,
                     )
             if is_audio_restoration:
                 with gr.Accordion("Audio Inputs", open=True):
                     degraded_audio_files = gr.File(label="Degraded audio files", file_count="multiple")
-                    file_labels = gr.Textbox(label="File labels (comma-separated)")
+                    degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play")
+                    degraded_audio_player = gr.Audio(label="Degraded audio player")
                     clean_audio = gr.Audio(label="Clean reference audio")
             else:
                 # Default generation tab
@@ -1123,7 +1139,6 @@ def create_sampling_ui(model_config):
                         file_format_dropdown,
                         file_naming_dropdown,
                         degraded_audio_files,
-                        file_labels,
                         clean_audio,
                     ]
             else:
@@ -1187,20 +1202,30 @@ def create_sampling_ui(model_config):
                     outputs=[inpaint_audio_input],
                 )
 
-    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, file_naming, degraded_audio_files, file_labels, clean_audio):
+    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, file_naming, degraded_audio_files, clean_audio):
         if not is_audio_restoration:
             return [], [], None
 
         if not degraded_audio_files:
             raise gr.Error("No degraded audio files provided.")
 
-        labels = [label.strip() for label in file_labels.split(',')]
-        if len(labels) == 1 and len(degraded_audio_files) > 1:
-            # If only one label is provided for multiple files, use it as a base name
-            base_label = labels[0]
-            labels = [f"{base_label}_{i+1}" for i in range(len(degraded_audio_files))]
-        elif len(labels) != len(degraded_audio_files):
-            raise gr.Error("Number of labels must match number of files, or provide one label as a base name.")
+        labels = []
+        for f in degraded_audio_files:
+            filename = os.path.basename(f.name)
+            filename_no_ext = os.path.splitext(filename)[0]
+            
+            # Remove time suffix like _5s
+            base_name = re.sub(r'_\d+s$', '', filename_no_ext)
+            
+            parts = base_name.split('_')
+            
+            # Check for known modifiers
+            modifiers = ["light", "strong"]
+            
+            if len(parts) > 1 and parts[-1] in modifiers:
+                labels.append(parts[-1])
+            else:
+                labels.append("base")
 
         all_metrics = []
         output_audios_list = []
@@ -1273,6 +1298,27 @@ def create_sampling_ui(model_config):
     
     output_audio_dropdown.change(fn=select_audio, inputs=output_audio_dropdown, outputs=output_audio_player)
 
+    if is_audio_restoration:
+        def update_degraded_dropdown(files):
+            if not files:
+                return gr.update(choices=[], value=None), None
+            
+            choices = [(os.path.basename(f.name), f.name) for f in files]
+            first_filepath = choices[0][1] if choices else None
+
+            return gr.update(choices=choices, value=first_filepath), first_filepath
+
+        degraded_audio_files.upload(
+            fn=update_degraded_dropdown,
+            inputs=[degraded_audio_files],
+            outputs=[degraded_audio_dropdown, degraded_audio_player]
+        )
+        
+        degraded_audio_dropdown.change(
+            fn=lambda x: x, 
+            inputs=[degraded_audio_dropdown], 
+            outputs=[degraded_audio_player]
+        )
 
 def create_diffusion_cond_ui(model_config, in_model, in_model_half=True):
     global model, sample_size, sample_rate, model_type, model_half
