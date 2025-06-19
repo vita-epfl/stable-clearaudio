@@ -6,6 +6,45 @@ import re
 import subprocess
 import torch
 import torchaudio
+import warnings
+import io
+from PIL import Image
+
+# Supprimer les avertissements
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message="At least one mel filterbank has all zero values")
+
+# Modifier à la fois la fonction audio_spectrogram_image et appliquer un monkey patch direct à Gradio
+from stable_audio_tools.interface.aeiou import audio_spectrogram_image as original_audio_spectrogram_image
+
+# Définir une nouvelle fonction qui enveloppe l'originale pour garantir les images RGB
+def wrapped_audio_spectrogram_image(*args, **kwargs):
+    img = original_audio_spectrogram_image(*args, **kwargs)
+    if img.mode == "RGBA":
+        img = img.convert("RGB")
+    return img
+
+# Remplacer la fonction originale par notre wrapper
+from stable_audio_tools.interface import aeiou
+aeiou.audio_spectrogram_image = wrapped_audio_spectrogram_image
+
+# Monkey patch direct sur les fonctions de Gradio
+import gradio.processing_utils
+original_encode_pil = gradio.processing_utils.encode_pil_to_bytes
+
+# Remplacer la fonction encode_pil_to_bytes pour empêcher l'usage de WEBP
+def safe_encode_pil_to_bytes(pil_image, format="JPEG", **params):
+    # Toujours utiliser JPEG au lieu de WEBP
+    if format.upper() == "WEBP":
+        format = "JPEG"
+    # Convertir RGBA en RGB si on utilise JPEG
+    if format.upper() == "JPEG" and pil_image.mode == "RGBA":
+        pil_image = pil_image.convert("RGB")
+    # Appeler la fonction originale avec les modifications
+    return original_encode_pil(pil_image, format=format, **params)
+
+# Appliquer le monkey patch
+gradio.processing_utils.encode_pil_to_bytes = safe_encode_pil_to_bytes
 
 from einops import rearrange
 from safetensors.torch import load_file

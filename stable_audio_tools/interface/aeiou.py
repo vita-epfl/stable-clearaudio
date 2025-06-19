@@ -231,7 +231,11 @@ def audio_spectrogram_image(waveform, power=2.0, sample_rate=48000, print=print,
     "Wrapper for calling above two routines at once, does Mel scale; Modified from PyTorch tutorial https://pytorch.org/tutorials/beginner/audio_feature_extractions_tutorial.html"
     melspec = mel_spectrogram(waveform, power=power, db=db, sample_rate=sample_rate, debug=log)
     melspec = melspec[0] # TODO: only left channel for now
-    return spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage, figsize=figsize)
+    img = spectrogram_image(melspec, title="MelSpectrogram", ylabel='mel bins (log freq)', db_range=db_range, justimage=justimage, figsize=figsize)
+    # Convert to RGB mode to ensure compatibility
+    if img.mode == "RGBA":
+        img = img.convert("RGB")
+    return img
 
 from matplotlib.ticker import AutoLocator 
 def tokens_spectrogram_image(

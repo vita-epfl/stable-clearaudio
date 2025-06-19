@@ -1231,7 +1231,7 @@ def create_sampling_ui(model_config):
             )
             
             # Rename file based on original filename
-            original_filename = os.path.basename(degraded_audio_file.orig_name)
+            original_filename = os.path.basename(degraded_audio_file.name)
             original_filename_without_ext = os.path.splitext(original_filename)[0]
             ext = os.path.splitext(audio)[1]
             restored_filename = f"{original_filename_without_ext}_restored{ext}"
