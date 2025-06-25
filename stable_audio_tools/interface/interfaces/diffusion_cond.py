@@ -1,13 +1,21 @@
 import gc
 import numpy as np
-import gradio as gr
-import json
 import re
-import subprocess
+import io
+import os
+import gc
+import time
+import glob
+import json
 import torch
+import gradio as gr
+import logging
 import torchaudio
 import threading
-import os, time
+import subprocess
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from io import BytesIO
 
@@ -1197,6 +1205,7 @@ def create_sampling_ui(model_config):
                     degraded_audio_files = gr.File(label="Degraded audio files", file_count="multiple")
                     degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play")
                     degraded_audio_player = gr.Audio(label="Degraded audio player")
+                    process_folder_textbox = gr.Textbox(label="Process folder", placeholder="Path to folder with degraded audio files")
                     clean_audio = gr.Audio(label="Clean reference audio")
             else:
                 # Default generation tab
@@ -1245,6 +1254,7 @@ def create_sampling_ui(model_config):
                         file_naming_dropdown,
                         degraded_audio_files,
                         clean_audio,
+                        process_folder_textbox,
                     ]
             else:
                 LOG.info("Default generation mode enabled")
@@ -1307,41 +1317,83 @@ def create_sampling_ui(model_config):
                     outputs=[inpaint_audio_input],
                 )
 
-    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, file_naming, degraded_audio_files, clean_audio):
+    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, file_naming, degraded_audio_files, clean_audio, process_folder_path=None):
         if not is_audio_restoration:
             return [], [], None
-
-        if not degraded_audio_files:
+            
+        # Check if we have a folder path to process
+        folder_files = []
+        if process_folder_path and os.path.isdir(process_folder_path):
+            LOG.info(f"Processing folder: {process_folder_path}")
+            # Get all audio files from the folder
+            extensions = [".wav", ".mp3", ".flac", ".ogg", ".m4a"]
+            for ext in extensions:
+                folder_files.extend(glob.glob(os.path.join(process_folder_path, f"*{ext}")))
+            
+            if not folder_files:
+                raise gr.Error(f"No audio files found in folder {process_folder_path}")
+            
+            LOG.info(f"Found {len(folder_files)} audio files to process")
+        elif not degraded_audio_files:
             raise gr.Error("No degraded audio files provided.")
 
         labels = []
-        for f in degraded_audio_files:
-            filename = os.path.basename(f.name)
-            filename_no_ext = os.path.splitext(filename)[0]
-            
-            # Remove time suffix like _5s
-            base_name = re.sub(r'_\d+s$', '', filename_no_ext)
-            
-            parts = base_name.split('_')
-            
-            # Check for known modifiers
-            modifiers = ["light", "strong"]
-            
-            if len(parts) > 1 and parts[-1] in modifiers:
-                labels.append(parts[-1])
-            else:
-                labels.append("base")
+        
+        # If we're processing from a folder
+        if process_folder_path and folder_files:
+            for f in folder_files:
+                filename = os.path.basename(f)
+                filename_no_ext = os.path.splitext(filename)[0]
+                
+                # Remove time suffix like _5s
+                base_name = re.sub(r'_\d+s$', '', filename_no_ext)
+                
+                parts = base_name.split('_')
+                
+                # Check for known modifiers
+                modifiers = ["light", "strong"]
+                
+                if len(parts) > 1 and parts[-1] in modifiers:
+                    labels.append(parts[-1])
+                else:
+                    labels.append("base")
+        # If we're processing uploaded files
+        else:
+            for f in degraded_audio_files:
+                filename = os.path.basename(f.name)
+                filename_no_ext = os.path.splitext(filename)[0]
+                
+                # Remove time suffix like _5s
+                base_name = re.sub(r'_\d+s$', '', filename_no_ext)
+                
+                parts = base_name.split('_')
+                
+                # Check for known modifiers
+                modifiers = ["light", "strong"]
+                
+                if len(parts) > 1 and parts[-1] in modifiers:
+                    labels.append(parts[-1])
+                else:
+                    labels.append("base")
 
         all_metrics = []
         output_audios_list = []
         output_spectrograms_list = []
 
-        for i, degraded_audio_file in enumerate(degraded_audio_files):
+        # Determine which files to process - either from folder or uploaded files
+        files_to_process = folder_files if process_folder_path and folder_files else [f.name for f in degraded_audio_files]
             
-            audio_data, sr = torchaudio.load(degraded_audio_file.name)
-            if audio_data.shape[0] == 1:
-                audio_data = audio_data.repeat(2,1)
-            degraded_audio_input = (sr, audio_data.numpy())
+        for i, degraded_audio_path in enumerate(files_to_process):
+            LOG.info(f"Processing file {i+1}/{len(files_to_process)}: {os.path.basename(degraded_audio_path)}")
+            
+            try:
+                audio_data, sr = torchaudio.load(degraded_audio_path)
+                if audio_data.shape[0] == 1:
+                    audio_data = audio_data.repeat(2,1)
+                degraded_audio_input = (sr, audio_data.numpy())
+            except Exception as e:
+                LOG.error(f"Error loading audio file {degraded_audio_path}: {str(e)}")
+                continue
 
             audio, spectrograms, metrics = generate_cond_restoration(
                 steps=steps,
@@ -1361,10 +1413,21 @@ def create_sampling_ui(model_config):
             )
             
             # Rename file based on original filename
-            original_filename = os.path.basename(degraded_audio_file.name)
+            original_filename = os.path.basename(degraded_audio_path)
             original_filename_without_ext = os.path.splitext(original_filename)[0]
             ext = os.path.splitext(audio)[1]
             restored_filename = f"{original_filename_without_ext}_restored{ext}"
+            
+            # Also save detailed metrics with filename for each processed file
+            if metrics is not None:
+                metrics_filename = f"{original_filename_without_ext}_metrics.json"
+                metrics_path = os.path.join(os.path.dirname(audio), metrics_filename)
+                try:
+                    with open(metrics_path, 'w') as f:
+                        json.dump(metrics, f, indent=2)
+                    LOG.info(f"Saved detailed metrics to {metrics_filename}")
+                except Exception as e:
+                    LOG.error(f"Error saving metrics to {metrics_filename}: {str(e)}")
             
             output_dir = os.path.dirname(audio)
             new_filepath = os.path.join(output_dir, restored_filename)
