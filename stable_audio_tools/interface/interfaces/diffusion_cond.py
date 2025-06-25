@@ -901,8 +901,12 @@ def create_metric_plots(metrics_data_list, labels):
             if metrics_data:
                 all_metric_keys.update(k for k in metrics_data.keys() if k not in ["steps", "timestamp", "sample_rate", "sample_size", "generation_params"])
 
-        restoration_metrics_keys = sorted([k for k in all_metric_keys if k.startswith('restoration_success_')])
-        main_metrics_keys = sorted([k for k in all_metric_keys if k not in restoration_metrics_keys])
+        # Exclude all degraded_ metrics from plotting
+        filtered_metric_keys = [k for k in all_metric_keys if not k.startswith('degraded_')]
+        
+        # Now separate the remaining metrics into restoration and main categories
+        restoration_metrics_keys = sorted([k for k in filtered_metric_keys if k.startswith('restoration_success_')])
+        main_metrics_keys = sorted([k for k in filtered_metric_keys if k not in restoration_metrics_keys])
 
         if not main_metrics_keys and not restoration_metrics_keys:
             LOG.warning("No metrics found to plot.")
