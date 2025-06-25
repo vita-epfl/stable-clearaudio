@@ -33,7 +33,7 @@ import logging
 LOG = logging.getLogger(__name__)
 # handler
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.DEBUG)
+LOG.setLevel(logging.INFO)
 
 model = None
 model_type = None
@@ -130,7 +130,7 @@ def generate_cond(
     if seed == -1:
         seed = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
 
-    input_sample_size = sample_size
+    input_sample_size = init_audio[1].shape[-1]
 
     if init_audio is not None:
         in_sr, init_audio = init_audio
@@ -235,7 +235,7 @@ def generate_cond(
     
     generate_args = {
         "model": model,
-        "conditioning_tensors": conditioning_tensors,  # Utiliser les tenseurs pré-traités plutôt que le dictionnaire brut
+        "conditioning_tensors": conditioning_tensors,
         "negative_conditioning": negative_conditioning,
         "steps": steps,
         "cfg_scale": cfg_scale,
@@ -254,11 +254,7 @@ def generate_cond(
         "rho": rho,
     }
 
-    if model_type == "diffusion_cond":
-        # Do the audio generation
-        audio = generate_diffusion_cond(**generate_args)
-
-    elif model_type == "diffusion_cond_inpaint":
+    if model_type == "diffusion_cond_inpaint":
         if inpaint_audio is not None:
             # Convert mask start and end from percentages to sample indices
             mask_start = int(mask_maskstart * sample_rate)
@@ -270,8 +266,9 @@ def generate_cond(
             generate_args.update(
                 {"inpaint_audio": inpaint_audio, "inpaint_mask": inpaint_mask}
             )
-
-        audio = generate_diffusion_cond_inpaint(**generate_args)
+        audio, metrics = generate_diffusion_cond_inpaint(**generate_args)
+    else:
+        audio, metrics = generate_diffusion_cond(**generate_args)
     
     LOG.info("Generation completed")
 
@@ -379,139 +376,139 @@ def generate_cond(
     return (output_filename if file_format != "wav" else output_wav, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images])
 
 
-def compute_metrics(audio, clean_audio=None, degraded_audio=None, model=None, device="cuda"):
-    """Compute audio quality metrics between the generated audio and clean reference if provided."""
-    metrics = {}
+# def compute_metrics(audio, clean_audio=None, degraded_audio=None, model=None, device="cuda"):
+#     """Compute audio quality metrics between the generated audio and clean reference if provided."""
+#     metrics = {}
     
-    if clean_audio is not None and model is not None:
-        from stable_audio_tools.training.losses.metrics import (
-            LogSpectralDistance,
-            LTASDistance,
-            SISDRMetric,
-            SNRMetric,
-            STFTDistance,
-            MelDistance
-        )
+#     if clean_audio is not None and model is not None:
+#         from stable_audio_tools.training.losses.metrics import (
+#             LogSpectralDistance,
+#             LTASDistance,
+#             SISDRMetric,
+#             SNRMetric,
+#             STFTDistance,
+#             MelDistance
+#         )
         
-        # Move tensors to the correct device and ensure they're float32
-        audio = audio.to(device)
-        clean_audio = clean_audio.to(device)
+#         # Move tensors to the correct device and ensure they're float32
+#         audio = audio.to(device)
+#         clean_audio = clean_audio.to(device)
         
-        LOG.info(f"Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}")
-        LOG.info(f"Audio dtypes - Generated: {audio.dtype}, Clean: {clean_audio.dtype}")
-        LOG.info(f"Audio ranges - Generated: [{audio.min().item():.3f}, {audio.max().item():.3f}], Clean: [{clean_audio.min().item():.3f}, {clean_audio.max().item():.3f}]")
+#         LOG.info(f"Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}")
+#         LOG.info(f"Audio dtypes - Generated: {audio.dtype}, Clean: {clean_audio.dtype}")
+#         LOG.info(f"Audio ranges - Generated: [{audio.min().item():.3f}, {audio.max().item():.3f}], Clean: [{clean_audio.min().item():.3f}, {clean_audio.max().item():.3f}]")
         
-        # If using a pretransform model, process both audios through the same pipeline
-        if model.pretransform is not None:
-            # Encode both audios to latent space
-            clean_audio = clean_audio.to(device)
-            audio = audio.to(device)
-            degraded_audio = degraded_audio.to(device)
-            clean_audio_latent = model.pretransform.encode(clean_audio.unsqueeze(0))
-            audio_latent = model.pretransform.encode(audio.unsqueeze(0))
-            degraded_audio_latent = model.pretransform.encode(degraded_audio.unsqueeze(0))
-            # Decode back to waveform space for consistent comparison
-            clean_audio = model.pretransform.decode(clean_audio_latent)
-            degraded_audio = model.pretransform.decode(degraded_audio_latent)
+#         # If using a pretransform model, process both audios through the same pipeline
+#         if model.pretransform is not None:
+#             # Encode both audios to latent space
+#             clean_audio = clean_audio.to(device)
+#             audio = audio.to(device)
+#             degraded_audio = degraded_audio.to(device)
+#             clean_audio_latent = model.pretransform.encode(clean_audio.unsqueeze(0))
+#             audio_latent = model.pretransform.encode(audio.unsqueeze(0))
+#             degraded_audio_latent = model.pretransform.encode(degraded_audio.unsqueeze(0))
+#             # Decode back to waveform space for consistent comparison
+#             clean_audio = model.pretransform.decode(clean_audio_latent)
+#             degraded_audio = model.pretransform.decode(degraded_audio_latent)
             
-            # Remove batch dimension and ensure correct shape
-            audio = audio.squeeze(0)
-            clean_audio = clean_audio.squeeze(0)
-            degraded_audio = degraded_audio.squeeze(0)
-            LOG.info(f"After transform - Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}, Degraded: {degraded_audio.shape}")
+#             # Remove batch dimension and ensure correct shape
+#             audio = audio.squeeze(0)
+#             clean_audio = clean_audio.squeeze(0)
+#             degraded_audio = degraded_audio.squeeze(0)
+#             LOG.info(f"After transform - Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}, Degraded: {degraded_audio.shape}")
         
-        # Ensure both audios are the same length
-        if audio.shape[-1] != clean_audio.shape[-1]:
-            min_length = min(audio.shape[-1], clean_audio.shape[-1])
-            audio = audio[..., :min_length]
-            clean_audio = clean_audio[..., :min_length]
-            LOG.info(f"After length adjustment - Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}")
+#         # Ensure both audios are the same length
+#         if audio.shape[-1] != clean_audio.shape[-1]:
+#             min_length = min(audio.shape[-1], clean_audio.shape[-1])
+#             audio = audio[..., :min_length]
+#             clean_audio = clean_audio[..., :min_length]
+#             LOG.info(f"After length adjustment - Audio shapes - Generated: {audio.shape}, Clean: {clean_audio.shape}")
         
-        metrics_instances = {
-            'lsd': LogSpectralDistance().to(device),
-            'ltas': LTASDistance().to(device),
-            'sisdr': SISDRMetric().to(device),
-            'snr': SNRMetric().to(device),
-            'stft': STFTDistance().to(device),
-            'mel': MelDistance(sample_rate=model.sample_rate).to(device)
-        }
+#         metrics_instances = {
+#             'lsd': LogSpectralDistance().to(device),
+#             'ltas': LTASDistance().to(device),
+#             'sisdr': SISDRMetric().to(device),
+#             'snr': SNRMetric().to(device),
+#             'stft': STFTDistance().to(device),
+#             'mel': MelDistance(sample_rate=model.sample_rate).to(device)
+#         }
         
-        # Calculate metrics between generated and clean audio
-        for name, metric in metrics_instances.items():
-            try:
-                # Calculate demo metric (generated vs clean)
-                demo_metric = metric(audio, clean_audio).item()
-                metrics[name] = demo_metric
+#         # Calculate metrics between generated and clean audio
+#         for name, metric in metrics_instances.items():
+#             try:
+#                 # Calculate demo metric (generated vs clean)
+#                 demo_metric = metric(audio, clean_audio).item()
+#                 metrics[name] = demo_metric
                 
-                # Calculate degraded metric (degraded vs clean)
-                degraded_metric = metric(degraded_audio, clean_audio).item()
+#                 # Calculate degraded metric (degraded vs clean)
+#                 degraded_metric = metric(degraded_audio, clean_audio).item()
                 
-                # Calculate clean metric (clean vs clean)
-                clean_metric = metric(clean_audio, model.pretransform.decode(model.pretransform.encode(clean_audio.unsqueeze(0))).squeeze(0)).item()
+#                 # Calculate clean metric (clean vs clean)
+#                 clean_metric = metric(clean_audio, model.pretransform.decode(model.pretransform.encode(clean_audio.unsqueeze(0))).squeeze(0)).item()
                 
-                # Calculate restoration success metric
-                restoration_success = 1 - abs((demo_metric - degraded_metric)) / abs((clean_metric - degraded_metric))
-                metrics[f'restoration_success_{name}'] = restoration_success
+#                 # Calculate restoration success metric
+#                 restoration_success = 1 - abs((demo_metric - degraded_metric)) / abs((clean_metric - degraded_metric))
+#                 metrics[f'restoration_success_{name}'] = restoration_success
                 
-                LOG.info(f"Computed {name}: {demo_metric:.3f}")
-                LOG.info(f"Restoration success for {name}: {restoration_success:.3f}")
-            except Exception as e:
-                LOG.error(f"Error computing {name}: {str(e)}")
+#                 LOG.info(f"Computed {name}: {demo_metric:.3f}")
+#                 LOG.info(f"Restoration success for {name}: {restoration_success:.3f}")
+#             except Exception as e:
+#                 LOG.error(f"Error computing {name}: {str(e)}")
         
-        # Latent space losses if using a pretransform model
-        if model.pretransform is not None:
-            try:
-                LOG.info("Computing latent space metrics...")
-                # MSE Loss
-                demo_mse = F.mse_loss(audio_latent, clean_audio_latent)
-                degraded_mse = F.mse_loss(degraded_audio_latent, clean_audio_latent)
-                clean_mse = F.mse_loss(clean_audio_latent, clean_audio_latent)
-                metrics['latent_mse_loss'] = demo_mse.item()
-                metrics['restoration_success_latent_mse_loss'] = 1 - abs((demo_mse.item() - degraded_mse.item())) / abs((clean_mse.item() - degraded_mse.item()))
-                LOG.info(f"Latent MSE Loss: {demo_mse.item():.3f}")
-                LOG.info(f"Restoration Success Latent MSE: {metrics['restoration_success_latent_mse_loss']:.3f}")
+#         # Latent space losses if using a pretransform model
+#         if model.pretransform is not None:
+#             try:
+#                 LOG.info("Computing latent space metrics...")
+#                 # MSE Loss
+#                 demo_mse = F.mse_loss(audio_latent, clean_audio_latent)
+#                 degraded_mse = F.mse_loss(degraded_audio_latent, clean_audio_latent)
+#                 clean_mse = F.mse_loss(clean_audio_latent, clean_audio_latent)
+#                 metrics['latent_mse_loss'] = demo_mse.item()
+#                 metrics['restoration_success_latent_mse_loss'] = 1 - abs((demo_mse.item() - degraded_mse.item())) / abs((clean_mse.item() - degraded_mse.item()))
+#                 LOG.info(f"Latent MSE Loss: {demo_mse.item():.3f}")
+#                 LOG.info(f"Restoration Success Latent MSE: {metrics['restoration_success_latent_mse_loss']:.3f}")
                 
-                # L1 Loss
-                demo_l1 = F.l1_loss(audio_latent, clean_audio_latent)
-                degraded_l1 = F.l1_loss(degraded_audio_latent, clean_audio_latent)
-                clean_l1 = F.l1_loss(clean_audio_latent, clean_audio_latent)
-                metrics['latent_l1_loss'] = demo_l1.item()
-                metrics['restoration_success_latent_l1_loss'] = 1 - abs((demo_l1.item() - degraded_l1.item())) / abs((clean_l1.item() - degraded_l1.item()))
-                LOG.info(f"Latent L1 Loss: {demo_l1.item():.3f}")
-                LOG.info(f"Restoration Success Latent L1: {metrics['restoration_success_latent_l1_loss']:.3f}")
-            except Exception as e:
-                LOG.error(f"Error computing latent space metrics: {str(e)}")
+#                 # L1 Loss
+#                 demo_l1 = F.l1_loss(audio_latent, clean_audio_latent)
+#                 degraded_l1 = F.l1_loss(degraded_audio_latent, clean_audio_latent)
+#                 clean_l1 = F.l1_loss(clean_audio_latent, clean_audio_latent)
+#                 metrics['latent_l1_loss'] = demo_l1.item()
+#                 metrics['restoration_success_latent_l1_loss'] = 1 - abs((demo_l1.item() - degraded_l1.item())) / abs((clean_l1.item() - degraded_l1.item()))
+#                 LOG.info(f"Latent L1 Loss: {demo_l1.item():.3f}")
+#                 LOG.info(f"Restoration Success Latent L1: {metrics['restoration_success_latent_l1_loss']:.3f}")
+#             except Exception as e:
+#                 LOG.error(f"Error computing latent space metrics: {str(e)}")
         
-        # Waveform domain losses
-        try:
-            LOG.info("Computing waveform domain losses...")
-            # MSE Loss
-            demo_waveform_mse = F.mse_loss(audio, clean_audio)
-            degraded_waveform_mse = F.mse_loss(degraded_audio, clean_audio)
-            clean_waveform_mse = F.mse_loss(clean_audio, clean_audio)
-            metrics['waveform_mse_loss'] = demo_waveform_mse.item()
-            metrics['restoration_success_waveform_mse_loss'] = 1 - abs((demo_waveform_mse.item() - degraded_waveform_mse.item())) / abs((clean_waveform_mse.item() - degraded_waveform_mse.item()))
-            LOG.info(f"Waveform MSE Loss: {demo_waveform_mse.item():.3f}")
-            LOG.info(f"Restoration Success Waveform MSE: {metrics['restoration_success_waveform_mse_loss']:.3f}")
+#         # Waveform domain losses
+#         try:
+#             LOG.info("Computing waveform domain losses...")
+#             # MSE Loss
+#             demo_waveform_mse = F.mse_loss(audio, clean_audio)
+#             degraded_waveform_mse = F.mse_loss(degraded_audio, clean_audio)
+#             clean_waveform_mse = F.mse_loss(clean_audio, clean_audio)
+#             metrics['waveform_mse_loss'] = demo_waveform_mse.item()
+#             metrics['restoration_success_waveform_mse_loss'] = 1 - abs((demo_waveform_mse.item() - degraded_waveform_mse.item())) / abs((clean_waveform_mse.item() - degraded_waveform_mse.item()))
+#             LOG.info(f"Waveform MSE Loss: {demo_waveform_mse.item():.3f}")
+#             LOG.info(f"Restoration Success Waveform MSE: {metrics['restoration_success_waveform_mse_loss']:.3f}")
             
-            # L1 Loss
-            demo_waveform_l1 = F.l1_loss(audio, clean_audio)
-            degraded_waveform_l1 = F.l1_loss(degraded_audio, clean_audio)
-            clean_waveform_l1 = F.l1_loss(clean_audio, clean_audio)
-            metrics['waveform_l1_loss'] = demo_waveform_l1.item()
-            metrics['restoration_success_waveform_l1_loss'] = 1 - abs((demo_waveform_l1.item() - degraded_waveform_l1.item())) / abs((clean_waveform_l1.item() - degraded_waveform_l1.item()))
-            LOG.info(f"Waveform L1 Loss: {demo_waveform_l1.item():.3f}")
-            LOG.info(f"Restoration Success Waveform L1: {metrics['restoration_success_waveform_l1_loss']:.3f}")
-        except Exception as e:
-            LOG.error(f"Error computing waveform domain losses: {str(e)}")
+#             # L1 Loss
+#             demo_waveform_l1 = F.l1_loss(audio, clean_audio)
+#             degraded_waveform_l1 = F.l1_loss(degraded_audio, clean_audio)
+#             clean_waveform_l1 = F.l1_loss(clean_audio, clean_audio)
+#             metrics['waveform_l1_loss'] = demo_waveform_l1.item()
+#             metrics['restoration_success_waveform_l1_loss'] = 1 - abs((demo_waveform_l1.item() - degraded_waveform_l1.item())) / abs((clean_waveform_l1.item() - degraded_waveform_l1.item()))
+#             LOG.info(f"Waveform L1 Loss: {demo_waveform_l1.item():.3f}")
+#             LOG.info(f"Restoration Success Waveform L1: {metrics['restoration_success_waveform_l1_loss']:.3f}")
+#         except Exception as e:
+#             LOG.error(f"Error computing waveform domain losses: {str(e)}")
     
-    return metrics
+#     return metrics
 
 
 def generate_cond_restoration(
     steps=250,
     preview_every=None,
-    metrics_every=0,  # New parameter for metrics computation frequency
+    metrics_every=0,
     seed=-1,
     sampler_type="dpmpp-3m-sde",
     sigma_min=0.03,
@@ -525,6 +522,9 @@ def generate_cond_restoration(
     batch_size=1,
 ):
     LOG.info("Starting audio restoration")
+    
+    # Access global variables
+    global sample_rate, model
     
     # Initialize metrics dictionary
     metrics_dict = {}
@@ -547,7 +547,7 @@ def generate_cond_restoration(
         seed = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
     LOG.info(f"Using seed: {seed}")
 
-    input_sample_size = sample_size
+    input_sample_size = degraded_audio[1].shape[-1]
 
     if degraded_audio is not None:
         in_sr, degraded_audio = degraded_audio
@@ -566,8 +566,6 @@ def generate_cond_restoration(
 
         if degraded_audio.dim() == 1:
             degraded_audio = degraded_audio.unsqueeze(0)
-        elif degraded_audio.dim() == 2:
-            degraded_audio = degraded_audio.transpose(0, 1)
 
         if in_sr != sample_rate:
             resample_tf = (
@@ -579,8 +577,8 @@ def generate_cond_restoration(
 
         audio_length = degraded_audio.shape[-1]
 
-        if audio_length > sample_size:
-            degraded_audio = degraded_audio[:, :sample_size]
+        if audio_length > input_sample_size:
+            degraded_audio = degraded_audio[:, :input_sample_size]
 
         if degraded_audio.shape[0] == 1:
             degraded_audio = degraded_audio.repeat(2, 1)
@@ -617,8 +615,8 @@ def generate_cond_restoration(
             clean_audio = resample_tf(clean_audio)
 
         audio_length = clean_audio.shape[-1]
-        if audio_length > sample_size:
-            clean_audio = clean_audio[:, :sample_size]
+        if audio_length > input_sample_size:
+            clean_audio = clean_audio[:, :input_sample_size]
         
         if clean_audio.shape[0] == 1:
             clean_audio = clean_audio.repeat(2, 1)
@@ -648,33 +646,6 @@ def generate_cond_restoration(
                 (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
             )
 
-        # Compute metrics at specified intervals if metrics_every is set
-        if metrics_every > 0 and (current_step) % metrics_every == 0:
-            LOG.info(f"Computing metrics at step {current_step}")
-            if model.pretransform is not None:
-                denoised = model.pretransform.decode(denoised)
-            denoised = rearrange(denoised, "b d n -> d (b n)")
-            denoised = denoised.clamp(-1, 1)
-            
-            # Compute metrics for this step
-            step_metrics = compute_metrics(
-                denoised, 
-                clean_audio[1] if clean_audio is not None else None,
-                degraded_audio[1] if degraded_audio is not None else None,
-                model=model,
-                device=device
-            )
-
-            # Create a new dictionary for this step's metrics
-            step_data = {
-                "metrics": step_metrics,
-                "step": current_step,
-                "sigma": float(sigma)
-            }
-            
-            # Store in the metrics dictionary with the step number as key
-            metrics_dict[f"step_{current_step}"] = step_data
-    # Create date-based directory structure
     current_date = time.strftime("%Y-%m-%d")
     current_time = time.strftime("%H-%M-%S")
     output_dir = os.path.join("output", current_date)
@@ -683,14 +654,6 @@ def generate_cond_restoration(
     # Create a subdirectory for this specific generation
     generation_dir = os.path.join(output_dir, f"generation_{current_time}")
     os.makedirs(generation_dir, exist_ok=True)
-
-    # Set output filenames in the generation directory
-    output_wav = os.path.join(generation_dir, "output.wav")
-    if file_format:
-        filename_extension = file_format.split(" ")[0].lower()
-    else:
-        filename_extension = "wav"
-    output_filename = os.path.join(generation_dir, f"output.{filename_extension}")
 
     generate_args = {
         "model": model,
@@ -703,42 +666,148 @@ def generate_cond_restoration(
         "sampler_type": sampler_type,
         "sigma_min": sigma_min,
         "sigma_max": sigma_max,
-        "callback": progress_callback if (preview_every is not None or metrics_every > 0) else None,
+        "callback": progress_callback if (preview_every is not None) else None,
         "scale_phi": cfg_rescale,
         "rho": rho,
         "clean_audio": clean_audio,
-        "output_dir": generation_dir
+        "output_dir": generation_dir,
+        "metrics_every": metrics_every
     }
 
     # Do the audio generation
     LOG.info("Generating audio")
     
     audio, final_metrics = generate_diffusion_cond(**generate_args)
+    
+    # Prepare the file names to avoid reference errors
+    output_wav = os.path.join(generation_dir, "output.wav")
+    filename_extension = file_format.split(" ")[0].lower() if file_format else "wav"
+    output_filename = os.path.join(generation_dir, f"output.{filename_extension}")
 
     # Combine per-step metrics with final metrics
     if final_metrics is not None:
-        # Add per-step metrics to the final metrics
-        final_metrics["step_metrics"] = metrics_dict
-        # Add generation parameters
         final_metrics["generation_params"] = {
             "steps": steps,
             "metrics_every": metrics_every,
             "preview_every": preview_every,
-            "sampler_type": sampler_type,
-            "sigma_min": sigma_min,
-            "sigma_max": sigma_max,
-            "rho": rho
         }
-        # Save metrics to JSON file
-        metrics_file = os.path.join(generation_dir, "metrics.json")
+        
         try:
+            # Define NumpyEncoder for JSON serialization
+            class NumpyEncoder(json.JSONEncoder):
+                def default(self, obj):
+                    if isinstance(obj, np.ndarray): return obj.tolist()
+                    if isinstance(obj, np.integer): return int(obj)
+                    if isinstance(obj, np.floating): return float(obj)
+                    return super(NumpyEncoder, self).default(obj)
+            
+            metrics_file = os.path.join(generation_dir, "metrics.json")
+            detailed_metrics_file = os.path.join(generation_dir, "detailed_metrics.json")
             with open(metrics_file, 'w') as f:
-                json.dump(final_metrics, f, indent=4)
+                json.dump(final_metrics, f, indent=4, cls=NumpyEncoder)
             LOG.info(f"Metrics saved to {metrics_file}")
+            
+            # Create a new detailed metrics file with degraded and restored metrics
+            detailed_metrics = {}
+            
+            # Get degraded audio path
+            degraded_audio_path = os.path.join(generation_dir, "degraded_audio.wav")
+            degraded_audio_path_relative = degraded_audio_path.split('clean_audio_pairs/')[-1] if 'clean_audio_pairs/' in degraded_audio_path else degraded_audio_path
+            
+            # Create a dictionary for degraded metrics
+            degraded_losses = {
+                "timestamp": time.strftime("%Y-%m-%d_%H-%M-%S"),
+                "steps": 0
+            }
+            
+            # Handle sample_rate and sample_size specially to ensure they're single values
+            sample_rate = final_metrics.get("sample_rate", 0)
+            if isinstance(sample_rate, list) and len(sample_rate) > 0:
+                sample_rate = sample_rate[0]
+            degraded_losses["sample_rate"] = sample_rate
+            
+            sample_size = final_metrics.get("sample_size", 0)
+            if isinstance(sample_size, list) and len(sample_size) > 0:
+                sample_size = sample_size[0]
+            degraded_losses["sample_size"] = sample_size
+            
+            # Extract only metrics with the 'degraded_' prefix but remove the prefix
+            for key in final_metrics:
+                if key.startswith("degraded_"):
+                    # Remove the 'degraded_' prefix to get a clean key name
+                    clean_key = key[len("degraded_"):]  # This removes 'degraded_' prefix
+                    # Ensure we're storing just a single value
+                    value = final_metrics[key]
+                    if isinstance(value, list) and len(value) > 0:
+                        value = value[0]  # Take the first value if it's a list
+                    degraded_losses[clean_key] = value
+            
+            detailed_metrics["degraded"] = {
+                "losses": degraded_losses,
+                "audio": degraded_audio_path_relative
+            }
+            
+            # Get restored audio path
+            restored_audio_path = output_filename if file_format != "wav" else output_wav
+            restored_audio_path_relative = restored_audio_path.split('clean_audio_pairs/')[-1] if 'clean_audio_pairs/' in restored_audio_path else restored_audio_path
+            
+            # Create a dictionary for restored metrics
+            restored_losses = {}
+            
+            # Handle sample_rate and sample_size specially to ensure they're single values
+            sample_rate = final_metrics.get("sample_rate", 0)
+            if isinstance(sample_rate, list) and len(sample_rate) > 0:
+                sample_rate = sample_rate[0]
+            restored_losses["sample_rate"] = sample_rate
+            
+            sample_size = final_metrics.get("sample_size", 0)
+            if isinstance(sample_size, list) and len(sample_size) > 0:
+                sample_size = sample_size[0]
+            restored_losses["sample_size"] = sample_size
+            
+            # Add timestamp
+            restored_losses["timestamp"] = time.strftime("%Y-%m-%d_%H-%M-%S")
+            
+            # Only copy demo metrics and other relevant metrics with simplified keys
+            for key, value in final_metrics.items():
+                # Process demo metrics - remove the prefix
+                if key.startswith("demo_"):
+                    clean_key = key[len("demo_"):]  # Remove 'demo_' prefix
+                    # Ensure single value
+                    if isinstance(value, list) and len(value) > 0:
+                        value = value[0]  # Take first value if it's a list
+                    restored_losses[clean_key] = value
+                # Process restoration success metrics - remove the prefix
+                elif key.startswith("restoration_success_"):
+                    clean_key = f"restoration_{key[len('restoration_success_'):]}"
+                    if isinstance(value, list) and len(value) > 0:
+                        value = value[0]  # Take first value if it's a list
+                    restored_losses[clean_key] = value
+                # Include other relevant metrics (not prefixed, not degraded, not dicts)
+                elif (key not in ["generation_params"] and 
+                      not key.startswith("degraded_") and 
+                      not isinstance(value, dict)):
+                    if isinstance(value, list) and len(value) > 0:
+                        value = value[0]  # Take first value if it's a list
+                    restored_losses[key] = value
+            
+            detailed_metrics["restored"] = {
+                "losses": restored_losses,
+                "audio": restored_audio_path_relative
+            }
+            
+            # Save the detailed metrics file
+            with open(detailed_metrics_file, 'w') as f:
+                json.dump(detailed_metrics, f, indent=4, cls=NumpyEncoder)
+            LOG.info(f"Detailed metrics saved to {detailed_metrics_file}")
+            
         except Exception as e:
             LOG.error(f"Error saving metrics to file: {e}")
+            import traceback
+            LOG.error(traceback.format_exc())
 
-    # Encode the audio to WAV format
+    # File names are already defined above
+
     audio = rearrange(audio, "b d n -> d (b n)")
 
     # Check if the audio tensor is empty before normalization
@@ -760,21 +829,6 @@ def generate_cond_restoration(
     else:
         audio = audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
     
-    clean_audio = clean_audio[1]
-    max_abs_val = torch.max(torch.abs(clean_audio))
-    if max_abs_val > 1e-7:
-        clean_audio = (
-            clean_audio.to(torch.float32)
-            .div(max_abs_val)
-            .clamp(-1, 1)
-            .mul(32767)
-            .to(torch.int16)
-            .cpu()
-        )
-    else:
-        clean_audio = clean_audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
-
-    # Save the WAV file
     try:
         torchaudio.save(output_wav, audio, sample_rate)
         LOG.info(f"Saved WAV file to {output_wav}")
@@ -810,9 +864,11 @@ def generate_cond_restoration(
     # Generate spectrogram
     try:
         audio_spectrogram = audio_spectrogram_image(audio, sample_rate=sample_rate)
-        # Generate clean audio spectrogram if available
         clean_spectrogram = None
         if clean_audio is not None:
+            clean_audio = clean_audio[1]
+            max_abs_val = torch.max(torch.abs(clean_audio))
+            clean_audio = clean_audio.to(torch.float32).div(max_abs_val).clamp(-1, 1).mul(32767).to(torch.int16).cpu() if max_abs_val > 1e-7 else clean_audio.clamp(-1, 1).mul(32767).to(torch.int16).cpu()
             clean_spectrogram = audio_spectrogram_image(clean_audio, sample_rate=sample_rate)
     except Exception as e:
         LOG.warning(f"Could not generate spectrogram: {e}")
@@ -833,119 +889,109 @@ def delete_files_async(filenames, delay):
     threading.Thread(target=delete_files_after_delay, args=(filenames, delay)).start()
 
 
-def create_metric_plots(metrics_data):
-    """Create plots for all metrics over steps."""
-    if not metrics_data or "step_metrics" not in metrics_data or not metrics_data["step_metrics"]:
-        return None
-        
+def create_metric_plots(metrics_data_list, labels):
     try:
-        # Get all metric names from the first step
-        first_step = next(iter(metrics_data["step_metrics"].values()))
-        all_metric_names = list(first_step["metrics"].keys())
-        
-        if not all_metric_names:
+        if not metrics_data_list:
+            LOG.warning("No metrics data provided to plot.")
             return None
-            
-        # Separate original metrics from restoration success metrics
-        metric_names = [name for name in all_metric_names if not name.startswith('restoration_success_')]
-            
-        # Create a figure with subplots for each metric plus one for combined restoration
-        n_metrics = len(metric_names)
-        n_cols = 2
-        n_rows = (n_metrics + 2) // 2  # +2 to account for the combined restoration plot
-        
-        fig = plt.figure(figsize=(15, 5 * n_rows))
-        
-        # Extract steps and values for each metric
-        steps = []
-        values = {name: [] for name in metric_names}
-        restoration_values = {name: [] for name in metric_names}
-        
-        for step_data in sorted(metrics_data["step_metrics"].values(), key=lambda x: x["step"]):
-            steps.append(step_data["step"])
-            for name in metric_names:
-                # Get original metric
-                values[name].append(step_data["metrics"][name])
-                # Get restoration success metric
-                restoration_name = f'restoration_success_{name}'
-                if restoration_name in step_data["metrics"]:
-                    restoration_values[name].append(step_data["metrics"][restoration_name])
-        # Add final step with demo metrics if available
-        final_step = metrics_data["steps"]
-        steps.append(final_step)
-        
-        # Original metrics
-        demo_metrics = {
-            'lsd': metrics_data['demo_lsd'],
-            'ltas': metrics_data['demo_ltas'],
-            'sisdr': metrics_data['demo_sisdr'],
-            'snr': metrics_data['demo_snr'],
-            'stft': metrics_data['demo_stft'],
-            'mel': metrics_data['demo_mel'],
-            'latent_mse_loss': metrics_data['latent_mse_loss'],
-            'latent_l1_loss': metrics_data['latent_l1_loss'],
-            'waveform_mse_loss': metrics_data['waveform_mse_loss'],
-            'waveform_l1_loss': metrics_data['waveform_l1_loss']
-        }
-        
-        # Restoration success metrics
-        restoration_metrics = {
-            'lsd': metrics_data['restoration_success_lsd'],
-            'ltas': metrics_data['restoration_success_ltas'],
-            'sisdr': metrics_data['restoration_success_sisdr'],
-            'snr': metrics_data['restoration_success_snr'],
-            'stft': metrics_data['restoration_success_stft'],
-            'mel': metrics_data['restoration_success_mel'],
-            'latent_mse_loss': metrics_data['restoration_success_latent_mse_loss'],
-            'latent_l1_loss': metrics_data['restoration_success_latent_l1_loss'],
-            'waveform_mse_loss': metrics_data['restoration_success_waveform_mse_loss'],
-            'waveform_l1_loss': metrics_data['restoration_success_waveform_l1_loss']
-        }
-        
-        # Add final values for both original and restoration metrics
-        for name in metric_names:
-            values[name].append(demo_metrics[name])
-            restoration_name = f'restoration_success_{name}'
-            restoration_values[name].append(restoration_metrics[name])
-    
-        # Create subplots for individual metrics
-        for i, name in enumerate(metric_names, 1):
-            plt.subplot(n_rows, n_cols, i)
-            plt.plot(steps, values[name], 'b-', label=f'{name} (raw)')
-            plt.xlabel('Step')
-            plt.ylabel('Value')
-            plt.title(f'{name} over steps')
-            plt.grid(True)
 
-            # Add a marker for the final demo metric if available
-            plt.plot(final_step, demo_metrics[name], 'ro', label='Final step')
-            plt.legend()
+        # Determine the set of all metric keys across all files
+        all_metric_keys = set()
+        for metrics_data in metrics_data_list:
+            if metrics_data:
+                all_metric_keys.update(k for k in metrics_data.keys() if k not in ["steps", "timestamp", "sample_rate", "sample_size", "generation_params"])
+
+        restoration_metrics_keys = sorted([k for k in all_metric_keys if k.startswith('restoration_success_')])
+        main_metrics_keys = sorted([k for k in all_metric_keys if k not in restoration_metrics_keys])
+
+        if not main_metrics_keys and not restoration_metrics_keys:
+            LOG.warning("No metrics found to plot.")
+            return None
+
+        n_plots = len(main_metrics_keys)
+        num_restoration_plots = 0
+        if restoration_metrics_keys:
+            for metrics_data in metrics_data_list:
+                if metrics_data and any(k in metrics_data for k in restoration_metrics_keys):
+                    num_restoration_plots += 1
         
-        # Create combined restoration success plot
-        plt.subplot(n_rows, n_cols, n_metrics + 1)
-        for name in metric_names:
-            plt.plot(steps, restoration_values[name], label=f'{name}')
+        n_plots += num_restoration_plots
+
+        if n_plots == 0:
+            return None
         
-        plt.xlabel('Step')
-        plt.ylabel('Restoration Success')
-        plt.title('Combined Restoration Success Metrics')
-        plt.grid(True)
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        n_cols = 3
+        n_rows = (n_plots + n_cols - 1) // n_cols
+
+        # Create figure with extra space for legend
+        fig = plt.figure(figsize=(15, 4 * n_rows + 1))
+        gs = plt.GridSpec(n_rows + 1, n_cols, height_ratios=[1] * n_rows + [0.2])
+        axes = [fig.add_subplot(gs[i // n_cols, i % n_cols]) for i in range(n_plots)]
+
+        plot_idx = 0
+
+        # Plot main metrics
+        for metric_name in main_metrics_keys:
+            ax = axes[plot_idx]
+            for i, metrics_data in enumerate(metrics_data_list):
+                if metrics_data and metric_name in metrics_data and "steps" in metrics_data and metrics_data["steps"]:
+                    steps = metrics_data["steps"]
+                    ax.plot(steps, metrics_data[metric_name], '-o', label=f'{labels[i]}', markersize=4)
+            ax.set_xlabel('Step')
+            ax.set_ylabel('Value')
+            ax.set_title(f'{metric_name} over steps')
+            ax.grid(True)
+            ax.legend(loc='best')
+            plot_idx += 1
         
-        plt.tight_layout()
+        # Plot restoration success metrics, one plot per file
+        if restoration_metrics_keys:
+            # Create a single legend for all restoration plots
+            legend_handles = []
+            legend_labels = []
+            
+            for i, metrics_data in enumerate(metrics_data_list):
+                file_restoration_metrics = [k for k in restoration_metrics_keys if k in metrics_data] if metrics_data else []
+
+                if file_restoration_metrics and "steps" in metrics_data and metrics_data["steps"]:
+                    ax = axes[plot_idx]
+                    steps = metrics_data["steps"]
+                    for metric_name in file_restoration_metrics:
+                        label = metric_name.replace('restoration_success_', '')
+                        line = ax.plot(steps, metrics_data[metric_name], '-o', label=label, markersize=4)[0]
+                        if i == 0:  # Only collect handles and labels from first plot
+                            legend_handles.append(line)
+                            legend_labels.append(label)
+                    
+                    ax.set_xlabel('Step')
+                    ax.set_ylabel('Value')
+                    ax.set_title(f'NRS for {labels[i]}')
+                    ax.grid(True)
+                    plot_idx += 1
+
+            # Add single legend at the bottom
+            if legend_handles:
+                legend_ax = fig.add_subplot(gs[-1, :])
+                legend_ax.axis('off')
+                legend_ax.set_title('Legend for Normalized Restoration Success (NRS)')
+                legend_ax.legend(legend_handles, legend_labels, loc='center', ncol=len(legend_handles))
+
+        # Hide unused subplots
+        for i in range(plot_idx, len(axes)):
+            fig.delaxes(axes[i])
+
+        plt.tight_layout(pad=3.0)
         
-        # Convert plot to image and return as numpy array
         buf = BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+        plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
         plt.close(fig)
         buf.seek(0)
         
-        # Convert to numpy array for Gradio
         from PIL import Image
         img = Image.open(buf)
         return np.array(img)
     except Exception as e:
-        LOG.error(f"Error creating metric plots: {str(e)}")
+        LOG.error(f"Error creating metric plots: {str(e)}", exc_info=True)
         return None
 
 def create_sampling_ui(model_config):
@@ -967,10 +1013,8 @@ def create_sampling_ui(model_config):
 
     is_rf = diffusion_objective == "rectified_flow"
     
-    # Interface adaptée au type de modèle
     with gr.Row():
         with gr.Column(scale=6):
-            # L'entrée texte n'est visible que si le modèle n'est pas de type restauration audio
             prompt_visible = not is_audio_restoration
             prompt = gr.Textbox(show_label=False, placeholder="Prompt", visible=prompt_visible)
             negative_prompt = gr.Textbox(
@@ -981,11 +1025,10 @@ def create_sampling_ui(model_config):
             if is_audio_restoration:
                 gr.Markdown("### Audio Restoration Model\nUpload an audio file to restore below")
                 
-        generate_button = gr.Button("Restore", variant="primary", scale=1)
+        generate_button = gr.Button("Generate", variant="primary", scale=1)
         
     with gr.Row(equal_height=False):
         with gr.Column():
-            # Variables pour suivre si ces conditionnements sont nécessaires
             has_seconds_start = False
             has_seconds_total = False
             
@@ -996,7 +1039,6 @@ def create_sampling_ui(model_config):
                     if config.get("id") == "seconds_total":
                         has_seconds_total = True
             
-            # N'afficher les contrôles de timing que si nécessaire et pas pour la restauration audio
             timing_visible = (has_seconds_start or has_seconds_total) and not is_audio_restoration
             with gr.Row(visible=timing_visible):
                 # Timing controls
@@ -1024,7 +1066,7 @@ def create_sampling_ui(model_config):
                     gr.Markdown("The uploaded audio will be used as conditioning input for the model")
                 
                 # Steps slider
-                default_steps = 25 if is_audio_restoration else (50 if is_rf else 100)
+                default_steps = 30 if is_audio_restoration else (50 if is_rf else 100)
                 steps_slider = gr.Slider(
                     minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
                 )
@@ -1109,7 +1151,6 @@ def create_sampling_ui(model_config):
                     )
 
             with gr.Accordion("Output params", open=False):
-                # Output params
                 with gr.Row():
                     file_format_dropdown = gr.Dropdown(
                         [
@@ -1143,14 +1184,16 @@ def create_sampling_ui(model_config):
                         minimum=0,
                         maximum=100,
                         step=1,
-                        value=0,
+                        value=30,
                         label="Compute Metrics Every N Steps",
                         visible=is_audio_restoration,
                     )
             if is_audio_restoration:
                 with gr.Accordion("Audio Inputs", open=True):
-                    degraded_audio = gr.Audio(label="Degraded audio")
-                    clean_audio = gr.Audio(label="Clean reference audio (optional)")
+                    degraded_audio_files = gr.File(label="Degraded audio files", file_count="multiple")
+                    degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play")
+                    degraded_audio_player = gr.Audio(label="Degraded audio player")
+                    clean_audio = gr.Audio(label="Clean reference audio")
             else:
                 # Default generation tab
                 with gr.Accordion("Init audio", open=False):
@@ -1196,7 +1239,7 @@ def create_sampling_ui(model_config):
                         cfg_rescale_slider,
                         file_format_dropdown,
                         file_naming_dropdown,
-                        degraded_audio,
+                        degraded_audio_files,
                         clean_audio,
                     ]
             else:
@@ -1228,13 +1271,9 @@ def create_sampling_ui(model_config):
             
 
         with gr.Column():
-            audio_output = gr.Audio(label="Output audio", interactive=False)
-            audio_spectrogram_output = gr.Gallery(
-                label="Output spectrograms", show_label=True,
-                elem_id="spectrogram_gallery",
-                columns=2,
-                height=400
-            )
+            output_audio_dropdown = gr.Dropdown(label="Select generated audio")
+            output_audio_player = gr.Audio(label="Audio player")
+            audio_spectrogram_output = gr.Gallery(label="Output spectrograms", show_label=True, elem_id="spectrogram_gallery", columns=2, height=400)
             
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True, visible=is_audio_restoration):
@@ -1244,15 +1283,15 @@ def create_sampling_ui(model_config):
             if is_audio_restoration:
                 send_to_init_button = gr.Button("Send to degraded audio", scale=1)
                 send_to_init_button.click(
-                    fn=lambda audio: audio,
-                    inputs=[audio_output],
-                    outputs=[degraded_audio],
-                )
+                    fn=lambda audio: [audio] if audio else None,
+                    inputs=[output_audio_player],
+                    outputs=[degraded_audio_files]
+                    )
             else:
                 send_to_init_button = gr.Button("Send to init audio", scale=1)
                 send_to_init_button.click(
                     fn=lambda audio: audio,
-                    inputs=[audio_output],
+                    inputs=[output_audio_player],
                     outputs=[init_audio_input],
                 )
 
@@ -1260,26 +1299,127 @@ def create_sampling_ui(model_config):
                 send_to_inpaint_button = gr.Button("Send to inpaint audio", scale=1)
                 send_to_inpaint_button.click(
                     fn=lambda audio: audio,
-                    inputs=[audio_output],
+                    inputs=[output_audio_player],
                     outputs=[inpaint_audio_input],
                 )
 
+    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, file_naming, degraded_audio_files, clean_audio):
+        if not is_audio_restoration:
+            return [], [], None
+
+        if not degraded_audio_files:
+            raise gr.Error("No degraded audio files provided.")
+
+        labels = []
+        for f in degraded_audio_files:
+            filename = os.path.basename(f.name)
+            filename_no_ext = os.path.splitext(filename)[0]
+            
+            # Remove time suffix like _5s
+            base_name = re.sub(r'_\d+s$', '', filename_no_ext)
+            
+            parts = base_name.split('_')
+            
+            # Check for known modifiers
+            modifiers = ["light", "strong"]
+            
+            if len(parts) > 1 and parts[-1] in modifiers:
+                labels.append(parts[-1])
+            else:
+                labels.append("base")
+
+        all_metrics = []
+        output_audios_list = []
+        output_spectrograms_list = []
+
+        for i, degraded_audio_file in enumerate(degraded_audio_files):
+            
+            audio_data, sr = torchaudio.load(degraded_audio_file.name)
+            if audio_data.shape[0] == 1:
+                audio_data = audio_data.repeat(2,1)
+            degraded_audio_input = (sr, audio_data.numpy())
+
+            audio, spectrograms, metrics = generate_cond_restoration(
+                steps=steps,
+                preview_every=preview_every,
+                metrics_every=metrics_every,
+                seed=seed,
+                sampler_type=sampler_type,
+                sigma_min=sigma_min,
+                sigma_max=sigma_max,
+                rho=rho,
+                cfg_rescale=cfg_rescale,
+                file_format=file_format,
+                file_naming=file_naming,
+                degraded_audio=degraded_audio_input,
+                clean_audio=clean_audio,
+                batch_size=1
+            )
+            
+            # Rename file based on original filename
+            original_filename = os.path.basename(degraded_audio_file.name)
+            original_filename_without_ext = os.path.splitext(original_filename)[0]
+            ext = os.path.splitext(audio)[1]
+            restored_filename = f"{original_filename_without_ext}_restored{ext}"
+            
+            output_dir = os.path.dirname(audio)
+            new_filepath = os.path.join(output_dir, restored_filename)
+            
+            os.rename(audio, new_filepath)
+            
+            all_metrics.append(metrics)
+            output_audios_list.append(new_filepath)
+            output_spectrograms_list.extend(spectrograms)
+        
+        if clean_audio is not None:
+            plots = create_metric_plots(all_metrics, labels) if all_metrics else None
+        else:
+            plots = None
+        
+        return output_audios_list, output_spectrograms_list, plots
+
     def generate_with_plots(*args):
         if is_audio_restoration:
-            audio, spectrograms, metrics = generate_cond_restoration(*args)
-            plots = create_metric_plots(metrics) if metrics else None
-            return audio, spectrograms, plots
+            audios, spectrograms, plots = generate_multiple_with_plots(*args)
+            first_audio = audios[0] if audios else None
+            return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots
         else:
             audio, spectrograms = generate_cond(*args)
-            return audio, spectrograms, None
+            return gr.update(choices=[audio], value=audio), audio, spectrograms, gr.update(value=None, visible=False)
 
     generate_button.click(
         fn=generate_with_plots,
         inputs=inputs,
-        outputs=[audio_output, audio_spectrogram_output, metrics_plots] if is_audio_restoration else [audio_output, audio_spectrogram_output, None],
+        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots],
         api_name="generate",
     )
 
+    def select_audio(audio_file):
+        return audio_file
+    
+    output_audio_dropdown.change(fn=select_audio, inputs=output_audio_dropdown, outputs=output_audio_player)
+
+    if is_audio_restoration:
+        def update_degraded_dropdown(files):
+            if not files:
+                return gr.update(choices=[], value=None), None
+            
+            choices = [(os.path.basename(f.name), f.name) for f in files]
+            first_filepath = choices[0][1] if choices else None
+
+            return gr.update(choices=choices, value=first_filepath), first_filepath
+
+        degraded_audio_files.upload(
+            fn=update_degraded_dropdown,
+            inputs=[degraded_audio_files],
+            outputs=[degraded_audio_dropdown, degraded_audio_player]
+        )
+        
+        degraded_audio_dropdown.change(
+            fn=lambda x: x, 
+            inputs=[degraded_audio_dropdown], 
+            outputs=[degraded_audio_player]
+        )
 
 def create_diffusion_cond_ui(model_config, in_model, in_model_half=True):
     global model, sample_size, sample_rate, model_type, model_half
