@@ -528,6 +528,7 @@ def generate_cond_restoration(
     degraded_audio=None,
     clean_audio=None,
     batch_size=1,
+    degraded_audio_filename=None,  # New parameter to pass the original filename
 ):
     LOG.info("Starting audio restoration")
     
@@ -710,7 +711,16 @@ def generate_cond_restoration(
                     return super(NumpyEncoder, self).default(obj)
             
             metrics_file = os.path.join(generation_dir, "metrics.json")
-            detailed_metrics_file = os.path.join(generation_dir, "detailed_metrics.json")
+            # Use the provided filename if available
+            if degraded_audio_filename is not None:
+                # Use the filename that was passed as a parameter
+                metrics_filename = f"{os.path.splitext(os.path.basename(degraded_audio_filename))[0]}_metrics.json"
+                LOG.info(f"Using provided filename for metrics: {metrics_filename}")
+            else:
+                metrics_filename = "detailed_metrics.json"
+                LOG.info("No filename provided for metrics, using default: detailed_metrics.json")
+            
+            detailed_metrics_file = os.path.join(generation_dir, metrics_filename)
             with open(metrics_file, 'w') as f:
                 json.dump(final_metrics, f, indent=4, cls=NumpyEncoder)
             LOG.info(f"Metrics saved to {metrics_file}")
@@ -1409,7 +1419,8 @@ def create_sampling_ui(model_config):
                 file_naming=file_naming,
                 degraded_audio=degraded_audio_input,
                 clean_audio=clean_audio,
-                batch_size=1
+                batch_size=1,
+                degraded_audio_filename=degraded_audio_path  # Pass the filename here
             )
             
             # Rename file based on original filename
@@ -1418,16 +1429,7 @@ def create_sampling_ui(model_config):
             ext = os.path.splitext(audio)[1]
             restored_filename = f"{original_filename_without_ext}_restored{ext}"
             
-            # Also save detailed metrics with filename for each processed file
-            if metrics is not None:
-                metrics_filename = f"{original_filename_without_ext}_metrics.json"
-                metrics_path = os.path.join(os.path.dirname(audio), metrics_filename)
-                try:
-                    with open(metrics_path, 'w') as f:
-                        json.dump(metrics, f, indent=2)
-                    LOG.info(f"Saved detailed metrics to {metrics_filename}")
-                except Exception as e:
-                    LOG.error(f"Error saving metrics to {metrics_filename}: {str(e)}")
+            # Metrics are already saved with the filename in generate_cond_restoration
             
             output_dir = os.path.dirname(audio)
             new_filepath = os.path.join(output_dir, restored_filename)
