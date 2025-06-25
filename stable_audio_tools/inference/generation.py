@@ -69,6 +69,8 @@ def _calculate_metrics(
         
         # Calculate degraded metric (degraded vs clean)
         degraded_metric = metric(degraded_audio_tensor_rearranged, clean_audio_tensor_rearranged).item()
+        # Store degraded metrics explicitly so they can be saved separately
+        metrics_dict[f'degraded_{name}'] = degraded_metric
         
         # Calculate clean metric (clean vs clean)
         clean_metric = metric(clean_audio_tensor_rearranged, model.pretransform.decode(model.pretransform.encode(clean_audio_tensor)).squeeze()).item()
@@ -86,6 +88,7 @@ def _calculate_metrics(
         degraded_mse = F.mse_loss(degraded_audio_latent, clean_audio_latent)
         clean_mse = F.mse_loss(clean_audio_latent, clean_audio_latent)
         metrics_dict['latent_mse_loss'] = demo_mse.item()
+        metrics_dict['degraded_latent_mse_loss'] = degraded_mse.item()
         
         # Calculate restoration success for latent MSE
         numerator = degraded_mse.item() - demo_mse.item()
@@ -98,6 +101,7 @@ def _calculate_metrics(
         degraded_l1 = F.l1_loss(degraded_audio_latent, clean_audio_latent)
         clean_l1 = F.l1_loss(clean_audio_latent, clean_audio_latent)
         metrics_dict['latent_l1_loss'] = demo_l1.item()
+        metrics_dict['degraded_latent_l1_loss'] = degraded_l1.item()
         
         # Calculate restoration success for latent L1
         numerator = degraded_l1.item() - demo_l1.item()
@@ -111,6 +115,7 @@ def _calculate_metrics(
     degraded_waveform_mse = F.mse_loss(degraded_audio_tensor_rearranged, clean_audio_tensor_rearranged)
     clean_waveform_mse = F.mse_loss(clean_audio_tensor_rearranged, clean_audio_tensor_rearranged)
     metrics_dict['waveform_mse_loss'] = demo_waveform_mse.item()
+    metrics_dict['degraded_waveform_mse_loss'] = degraded_waveform_mse.item()
     
     # Calculate restoration success for waveform MSE
     numerator = degraded_waveform_mse.item() - demo_waveform_mse.item()
@@ -123,6 +128,7 @@ def _calculate_metrics(
     degraded_waveform_l1 = F.l1_loss(degraded_audio_tensor_rearranged, clean_audio_tensor_rearranged)
     clean_waveform_l1 = F.l1_loss(clean_audio_tensor_rearranged, clean_audio_tensor_rearranged)
     metrics_dict['waveform_l1_loss'] = demo_waveform_l1.item()
+    metrics_dict['degraded_waveform_l1_loss'] = degraded_waveform_l1.item()
     
     # Calculate restoration success for waveform L1
     numerator = degraded_waveform_l1.item() - demo_waveform_l1.item()
