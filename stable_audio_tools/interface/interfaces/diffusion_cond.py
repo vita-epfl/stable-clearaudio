@@ -102,13 +102,13 @@ def generate_cond(
 
     # Create date-based directory structure
     current_date = time.strftime("%Y-%m-%d")
-    current_time = time.strftime("%H-%M-%S")
     output_dir = os.path.join("output", current_date)
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create a subdirectory for this specific generation
-    generation_dir = os.path.join(output_dir, f"generation_{current_time}")
+    # Use a dedicated folder for all degradation processing
+    generation_dir = os.path.join(output_dir, "degradation_processing")
     os.makedirs(generation_dir, exist_ok=True)
+    LOG.info(f"Files will be saved in directory: {generation_dir}")
 
     # Return fake stereo audio
     conditioning_dict = {
@@ -656,13 +656,13 @@ def generate_cond_restoration(
             )
 
     current_date = time.strftime("%Y-%m-%d")
-    current_time = time.strftime("%H-%M-%S")
     output_dir = os.path.join("output", current_date)
     os.makedirs(output_dir, exist_ok=True)
     
-    # Create a subdirectory for this specific generation
-    generation_dir = os.path.join(output_dir, f"generation_{current_time}")
+    # Use a dedicated folder for all degradation processing
+    generation_dir = os.path.join(output_dir, "degradation_processing")
     os.makedirs(generation_dir, exist_ok=True)
+    LOG.info(f"Files will be saved in directory: {generation_dir}")
 
     generate_args = {
         "model": model,
@@ -710,7 +710,6 @@ def generate_cond_restoration(
                     if isinstance(obj, np.floating): return float(obj)
                     return super(NumpyEncoder, self).default(obj)
             
-            metrics_file = os.path.join(generation_dir, "metrics.json")
             # Use the provided filename if available
             if degraded_audio_filename is not None:
                 # Use the filename that was passed as a parameter
@@ -720,10 +719,8 @@ def generate_cond_restoration(
                 metrics_filename = "detailed_metrics.json"
                 LOG.info("No filename provided for metrics, using default: detailed_metrics.json")
             
+            # Save detailed metrics file only
             detailed_metrics_file = os.path.join(generation_dir, metrics_filename)
-            with open(metrics_file, 'w') as f:
-                json.dump(final_metrics, f, indent=4, cls=NumpyEncoder)
-            LOG.info(f"Metrics saved to {metrics_file}")
             
             # Create a new detailed metrics file with degraded and restored metrics
             detailed_metrics = {}
