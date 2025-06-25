@@ -1083,7 +1083,7 @@ def create_sampling_ui(model_config):
                         minimum=0,
                         maximum=100,
                         step=1,
-                        value=2,
+                        value=30,
                         label="Compute Metrics Every N Steps",
                         visible=is_audio_restoration,
                     )
