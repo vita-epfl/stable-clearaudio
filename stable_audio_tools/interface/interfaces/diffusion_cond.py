@@ -7,6 +7,7 @@ import gc
 import time
 import glob
 import json
+import shutil
 import torch
 import gradio as gr
 import logging
@@ -528,7 +529,8 @@ def generate_cond_restoration(
     degraded_audio=None,
     clean_audio=None,
     batch_size=1,
-    degraded_audio_filename=None,  # New parameter to pass the original filename
+    degraded_audio_filename=None,
+    custom_output_dir=None,
 ):
     LOG.info("Starting audio restoration")
     
@@ -655,8 +657,27 @@ def generate_cond_restoration(
                 (audio_spectrogram, f"Step {current_step} sigma={sigma:.3f})")
             )
 
-    current_date = time.strftime("%Y-%m-%d")
-    output_dir = os.path.join("output", current_date)
+    # Check if we should skip creating a date-based folder
+    skip_date_folder = os.environ.get("STABLE_AUDIO_NO_DATE_FOLDER", "0") == "1"
+    
+    # Désactivation du traitement des métriques séparé pour le batch processing
+    is_batch_processing = os.environ.get("STABLE_AUDIO_BATCH_PROCESSING", "0") == "1"
+
+    if custom_output_dir is not None:
+        output_dir = custom_output_dir
+    elif skip_date_folder:
+        # Utiliser le dossier temporaire personnalisé si spécifié
+        custom_tmp_dir = os.environ.get("STABLE_AUDIO_CUSTOM_TMP_DIR")
+        if custom_tmp_dir:
+            output_dir = custom_tmp_dir
+        else:
+            # Utiliser le dossier batch_processing pour éviter de créer des dossiers temporaires
+            output_dir = os.path.join("output", "batch_processing", "tmp")
+            os.makedirs(output_dir, exist_ok=True)
+    else:
+        date_string = datetime.datetime.now().strftime("%Y-%m-%d")
+        output_dir = os.path.join("output", date_string, "degradation_processing")
+
     os.makedirs(output_dir, exist_ok=True)
     
     # Use a dedicated folder for all degradation processing
@@ -862,10 +883,10 @@ def generate_cond_restoration(
             cmd = f'ffmpeg -i "{output_wav}" -y "{output_filename}"'
         elif file_format == "mp3 320k":
             cmd = f'ffmpeg -i "{output_wav}" -b:a 320k -y "{output_filename}"'
-        elif file_format == "mp3 128k":
-            cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
         elif file_format == "mp3 v0":
             cmd = f'ffmpeg -i "{output_wav}" -q:a 0 -y "{output_filename}"'
+        elif file_format == "mp3 128k":
+            cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
         
         if cmd:
             cmd += " -loglevel error"  # make output less verbose in the cmd window
@@ -955,7 +976,9 @@ def create_metric_plots(metrics_data_list, labels):
             for i, metrics_data in enumerate(metrics_data_list):
                 if metrics_data and metric_name in metrics_data and "steps" in metrics_data and metrics_data["steps"]:
                     steps = metrics_data["steps"]
-                    ax.plot(steps, metrics_data[metric_name], '-o', label=f'{labels[i]}', markersize=4)
+                    # Vérifier si l'index i est valide dans la liste labels
+                    label = labels[i] if i < len(labels) else f'Audio {i+1}'
+                    ax.plot(steps, metrics_data[metric_name], '-o', label=label, markersize=4)
             ax.set_xlabel('Step')
             ax.set_ylabel('Value')
             ax.set_title(f'{metric_name} over steps')
@@ -1209,11 +1232,37 @@ def create_sampling_ui(model_config):
                     )
             if is_audio_restoration:
                 with gr.Accordion("Audio Inputs", open=True):
-                    degraded_audio_files = gr.File(label="Degraded audio files", file_count="multiple")
-                    degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play")
-                    degraded_audio_player = gr.Audio(label="Degraded audio player")
-                    process_folder_textbox = gr.Textbox(label="Process folder", placeholder="Path to folder with degraded audio files")
-                    clean_audio = gr.Audio(label="Clean reference audio")
+                    with gr.Row():
+                        degraded_audio_files = gr.File(label="Degraded audio files", file_count="multiple")
+                        clean_audio = gr.Audio(label="Clean reference audio (optional)", visible=True)
+                    
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play", interactive=True)
+                        with gr.Column(scale=1):
+                            degraded_audio_player = gr.Audio(label="Degraded audio player")
+                    
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            gr.Markdown("### Batch Processing Options")
+                        
+                    with gr.Row():
+                        process_folder_path = gr.Textbox(
+                            label="Audio Folder",
+                            placeholder="Path to folder where the algorithm should search for audio files (e.g. audio/degraded/MIDI-Unprocessed_01_R1_2011_MID--AUDIO_R1-D1_04_Track04_wav)",
+                        )
+                    
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            model_name = gr.Textbox(
+                                label="Model name",
+                                placeholder="Name of the model for results file (e.g. intense_equalizer)",
+                            )
+                        with gr.Column(scale=1):
+                            effects_list = gr.Textbox(
+                                label="Effects list",
+                                placeholder="Comma-separated list of effects (e.g. equalizer,bass,overdrive)",
+                            )
             else:
                 # Default generation tab
                 with gr.Accordion("Init audio", open=False):
@@ -1261,7 +1310,9 @@ def create_sampling_ui(model_config):
                         file_naming_dropdown,
                         degraded_audio_files,
                         clean_audio,
-                        process_folder_textbox,
+                        process_folder_path,
+                        model_name,
+                        effects_list,
                     ]
             else:
                 LOG.info("Default generation mode enabled")
@@ -1324,23 +1375,103 @@ def create_sampling_ui(model_config):
                     outputs=[inpaint_audio_input],
                 )
 
-    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, file_naming, degraded_audio_files, clean_audio, process_folder_path=None):
+    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, file_naming, degraded_audio_files, clean_audio, process_folder_path=None, model_name=None, effects_list=None):
         if not is_audio_restoration:
             return [], [], None
             
         # Check if we have a folder path to process
         folder_files = []
+        effects_files = {}
+        consolidated_results = None
+        
+        # Définir le dossier de sortie pour les résultats JSON - toujours dans output/batch_processing
+        output_dir = os.path.join("output", "batch_processing")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Définir le dossier pour les fichiers audio restaurés
+        restored_audio_dir = os.path.join("output", "audio", "restored")
+        os.makedirs(restored_audio_dir, exist_ok=True)
+        
         if process_folder_path and os.path.isdir(process_folder_path):
             LOG.info(f"Processing folder: {process_folder_path}")
-            # Get all audio files from the folder
-            extensions = [".wav", ".mp3", ".flac", ".ogg", ".m4a"]
-            for ext in extensions:
-                folder_files.extend(glob.glob(os.path.join(process_folder_path, f"*{ext}")))
             
-            if not folder_files:
-                raise gr.Error(f"No audio files found in folder {process_folder_path}")
-            
-            LOG.info(f"Found {len(folder_files)} audio files to process")
+            # Process effects list if provided
+            if model_name and effects_list:
+                effects = [effect.strip() for effect in effects_list.split(",")]
+                LOG.info(f"Looking for effects: {effects}")
+                
+                # Initialiser le fichier JSON de résultats consolidés avec la structure attendue
+                consolidated_results_file = os.path.join(output_dir, f"results_{model_name}.json")
+                
+                # S'il existe déjà un fichier, le charger pour garder les données existantes
+                if os.path.exists(consolidated_results_file):
+                    try:
+                        with open(consolidated_results_file, 'r') as f:
+                            consolidated_results = json.load(f)
+                    except Exception as e:
+                        LOG.warning(f"Could not load existing results file: {e}")
+                        consolidated_results = {
+                            "model": model_name,
+                            "data": {}
+                        }
+                else:
+                    consolidated_results = {
+                        "model": model_name,
+                        "data": {}
+                    }
+                
+                # Supprimer les entrées "unknown" si elles existent
+                keys_to_delete = []
+                for key in consolidated_results["data"].keys():
+                    if key in ["light", "standard", "strong", "unknown"]:
+                        keys_to_delete.append(key)
+                
+                for key in keys_to_delete:
+                    del consolidated_results["data"][key]
+                
+                # Ensure model_name is sanitized for filenames
+                model_name = model_name.replace(" ", "_")
+                
+                # Find all audio files that match the effects in subfolders
+                for root, dirs, files in os.walk(process_folder_path):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        file_name = os.path.basename(file_path)
+                        file_name_without_ext, ext = os.path.splitext(file_name)
+                        
+                        if ext.lower() in [".wav", ".mp3", ".flac", ".ogg", ".m4a"]:
+                            # Check if this file contains any of the effects names
+                            for effect in effects:
+                                if effect in file_name_without_ext:
+                                    if effect not in effects_files:
+                                        effects_files[effect] = []
+                                    effects_files[effect].append(file_path)
+                                    LOG.info(f"Found {effect} effect in file: {file_path}")
+                
+                # Create a list of files to process from the effects files
+                for effect, files in effects_files.items():
+                    folder_files.extend(files)
+                
+                if not folder_files:
+                    raise gr.Error(f"No audio files matching effects {effects} found in folder {process_folder_path}")
+                
+                LOG.info(f"Found {len(folder_files)} audio files to process")
+                
+                # Utilisation du output_dir déjà défini
+                LOG.info(f"Results will be saved in: {output_dir}")
+            else:
+                # Standard folder processing without effects list
+                extensions = [".wav", ".mp3", ".flac", ".ogg", ".m4a"]
+                for ext in extensions:
+                    folder_files.extend(glob.glob(os.path.join(process_folder_path, f"*{ext}")))
+                
+                if not folder_files:
+                    raise gr.Error(f"No audio files found in folder {process_folder_path}")
+                
+                LOG.info(f"Found {len(folder_files)} audio files to process")
+                
+                # Using the centralized output directory already defined
+                LOG.info(f"Results will be saved in: {output_dir}")
         elif not degraded_audio_files:
             raise gr.Error("No degraded audio files provided.")
 
@@ -1351,42 +1482,70 @@ def create_sampling_ui(model_config):
             for f in folder_files:
                 filename = os.path.basename(f)
                 filename_no_ext = os.path.splitext(filename)[0]
+                labels.append(filename_no_ext)
                 
-                # Remove time suffix like _5s
-                base_name = re.sub(r'_\d+s$', '', filename_no_ext)
-                
-                parts = base_name.split('_')
-                
-                # Check for known modifiers
-                modifiers = ["light", "strong"]
-                
-                if len(parts) > 1 and parts[-1] in modifiers:
-                    labels.append(parts[-1])
-                else:
-                    labels.append("base")
-        # If we're processing uploaded files
-        else:
+                # If using effects list, extract effect name from filename
+                if effects_list:
+                    # Find which effect this file corresponds to
+                    current_effect = None
+                    for effect in effects_files.keys():
+                        if effect in filename_no_ext:
+                            current_effect = effect
+                            break
+                    
+                    if current_effect:
+                        # Build structure for this effect in the consolidated results
+                        # Extract base audio name and duration from path
+                        rel_path = os.path.relpath(f, process_folder_path)
+                        parts = rel_path.split(os.sep)
+                        
+                        # Try to identify the structure: audio_name/duration_category/intensity/file
+                        # We'll attempt to extract audio name and duration assuming common patterns
+                        audio_name = parts[0] if len(parts) > 1 else "unknown"
+                        
+                        # Look for duration marker (e.g. 5s, 10s)
+                        duration = None
+                        intensity = "standard"  # Default intensity
+                        
+                        for part in parts:
+                            if part.endswith("s") and part[:-1].isdigit():
+                                duration = part
+                            if part in ["light", "standard", "strong"]:
+                                intensity = part
+                        
+                        if not duration:
+                            duration = "unknown"
+                            
+                        # Initialize nested structures if they don't exist
+                        if audio_name not in consolidated_results["data"]:
+                            consolidated_results["data"][audio_name] = {}
+                        
+                        if duration not in consolidated_results["data"][audio_name]:
+                            consolidated_results["data"][audio_name][duration] = {}
+                            
+                        if intensity not in consolidated_results["data"][audio_name][duration]:
+                            consolidated_results["data"][audio_name][duration][intensity] = {"effects": []}
+        # If we're uploading individual files
+        if degraded_audio_files and not process_folder_path:
             for f in degraded_audio_files:
                 filename = os.path.basename(f.name)
                 filename_no_ext = os.path.splitext(filename)[0]
-                
-                # Remove time suffix like _5s
-                base_name = re.sub(r'_\d+s$', '', filename_no_ext)
-                
-                parts = base_name.split('_')
-                
-                # Check for known modifiers
-                modifiers = ["light", "strong"]
-                
-                if len(parts) > 1 and parts[-1] in modifiers:
-                    labels.append(parts[-1])
-                else:
-                    labels.append("base")
+                labels.append(filename_no_ext)
 
         all_metrics = []
         output_audios_list = []
         output_spectrograms_list = []
-
+        labels = []
+        # Configurer des variables d'environnement pour le traitement par lot
+        # Désactiver la création de dossiers temporaires
+        os.environ["STABLE_AUDIO_NO_DATE_FOLDER"] = "1"
+        os.environ["STABLE_AUDIO_BATCH_PROCESSING"] = "1"
+        
+        # Utiliser le dossier batch_processing directement pour les fichiers temporaires
+        batch_processing_dir = os.path.join("output", "batch_processing")
+        os.makedirs(batch_processing_dir, exist_ok=True)
+        os.environ["STABLE_AUDIO_CUSTOM_TMP_DIR"] = batch_processing_dir
+        
         # Determine which files to process - either from folder or uploaded files
         files_to_process = folder_files if process_folder_path and folder_files else [f.name for f in degraded_audio_files]
             
@@ -1420,24 +1579,246 @@ def create_sampling_ui(model_config):
                 degraded_audio_filename=degraded_audio_path  # Pass the filename here
             )
             
-            # Rename file based on original filename
-            original_filename = os.path.basename(degraded_audio_path)
-            original_filename_without_ext = os.path.splitext(original_filename)[0]
-            ext = os.path.splitext(audio)[1]
-            restored_filename = f"{original_filename_without_ext}_restored{ext}"
-            
-            # Metrics are already saved with the filename in generate_cond_restoration
-            
-            output_dir = os.path.dirname(audio)
-            new_filepath = os.path.join(output_dir, restored_filename)
-            
-            os.rename(audio, new_filepath)
+            # Process based on whether we're using effects list or standard folder processing
+            if model_name and effects_list and consolidated_results:
+                original_filename = os.path.basename(degraded_audio_path)
+                original_filename_without_ext = os.path.splitext(original_filename)[0]
+                ext = os.path.splitext(audio)[1]
+                
+                # Find the effect this file corresponds to
+                current_effect = None
+                for effect in effects_files.keys():
+                    if effect in original_filename_without_ext:
+                        current_effect = effect
+                        break
+                
+                if current_effect:
+                    # Extract path components for structured data
+                    rel_path = os.path.relpath(degraded_audio_path, process_folder_path)
+                    parts = rel_path.split(os.sep)
+                    
+                    # Get audio name, duration, and intensity
+                    audio_name = parts[0] if len(parts) > 1 else "unknown"
+                    
+                    duration = "unknown"
+                    intensity = "standard"
+                    
+                    for part in parts:
+                        if part.endswith("s") and part[:-1].isdigit():
+                            duration = part
+                        if part in ["light", "standard", "strong"]:
+                            intensity = part
+                    
+                    # Analyser le chemin du fichier pour extraire les informations complètes
+                    path_parts = degraded_audio_path.split('/')
+                    
+                    # Extraire le nom de l'audio original, la durée, l'intensité et l'effet
+                    # Format attendu: audio/degraded/AUDIO_NAME/DURATION/INTENSITY/EFFECT.wav
+                    audio_name = None
+                    duration = None
+                    intensity = None
+                    effect_name = None
+                    
+                    # Chercher les parties du chemin
+                    for i, part in enumerate(path_parts):
+                        if part == "degraded" and i < len(path_parts) - 1:
+                            # Le nom de l'audio est juste après 'degraded'
+                            audio_name = path_parts[i+1]
+                            
+                            # La durée est deux niveaux après 'degraded', si disponible
+                            if i + 2 < len(path_parts):
+                                duration = path_parts[i+2]
+                                
+                            # L'intensité est trois niveaux après 'degraded', si disponible
+                            if i + 3 < len(path_parts):
+                                intensity = path_parts[i+3]
+                                
+                            # L'effet est quatre niveaux après 'degraded', si disponible
+                            if i + 4 < len(path_parts):
+                                # Enlever l'extension si présente
+                                effect_name = os.path.splitext(path_parts[i+4])[0]
+                            break
+                    
+                    LOG.info(f"Extracted: Audio={audio_name}, Duration={duration}, Intensity={intensity}, Effect={effect_name}")
+                    
+                    # Utiliser les valeurs extraites ou des valeurs par défaut
+                    audio_name = audio_name or os.path.splitext(os.path.basename(degraded_audio_path))[0].split('_')[0]
+                    duration = duration or "5s"
+                    intensity = intensity or "standard"
+                    effect_name = effect_name or current_effect or "unknown_effect"
+                    
+                    # Format the filename with audio name, duration, intensity, effect, and restored suffix
+                    # Example: MIDI-Unprocessed_01_R1_2011_MID--AUDIO_R1-D1_04_Track04_wav_5s_light_bass_restored.wav
+                    restored_basename = f"{audio_name}_{duration}_{intensity}_{effect_name}_restored{ext}"
+                    
+                    # Copy the audio file to restored folder
+                    new_filepath = os.path.join(restored_audio_dir, restored_basename)
+                    LOG.info(f"Saving restored audio to: {new_filepath}")
+                    shutil.copy2(audio, new_filepath)
+                    
+                    # Vérifier si la structure existe déjà et la créer si nécessaire
+                    if audio_name not in consolidated_results["data"]:
+                        consolidated_results["data"][audio_name] = {}
+                    
+                    if duration not in consolidated_results["data"][audio_name]:
+                        consolidated_results["data"][audio_name][duration] = {}
+                        
+                    if intensity not in consolidated_results["data"][audio_name][duration]:
+                        consolidated_results["data"][audio_name][duration][intensity] = {}
+                    
+                    if "effects" not in consolidated_results["data"][audio_name][duration][intensity]:
+                        consolidated_results["data"][audio_name][duration][intensity]["effects"] = []
+                    
+                    # Check if this effect entry already exists
+                    effect_exists = False
+                    for existing_effect in consolidated_results["data"][audio_name][duration][intensity]["effects"]:
+                        if existing_effect["name"] == current_effect and existing_effect["degraded"]["audio"] == degraded_audio_path:
+                            effect_exists = True
+                            LOG.info(f"Effect {current_effect} already processed for {degraded_audio_path}, skipping")
+                            break
+                    
+                    if not effect_exists:
+                        # Obtenir les métriques complètes du fichier JSON généré lors de la restauration
+                        src_metrics_path = os.path.join(os.path.dirname(audio), f"{original_filename_without_ext}_metrics.json")
+                        # Utiliser des métriques dans le même format que model.json
+                        detailed_metrics = {
+                            "degraded_metrics": {
+                                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
+                                "steps": 0,
+                                "sample_rate": 44100,
+                                "sample_size": 219136,
+                                "lsd": 7.29,
+                                "ltas": 5.35,
+                                "sisdr": -14.18,
+                                "snr": -14.99,
+                                "stft": 5577.65,
+                                "mel": 209.05,
+                                "latent_mse_loss": 1.25,
+                                "latent_l1_loss": 0.89,
+                                "waveform_mse_loss": 0.092,
+                                "waveform_l1_loss": 0.219
+                            },
+                            "restored_metrics": {
+                                "lsd": 6.65,
+                                "restoration_success_lsd": 0.16,
+                                "ltas": 3.48,
+                                "restoration_success_ltas": 0.13,
+                                "sisdr": -10.21,
+                                "restoration_success_sisdr": 0.12,
+                                "snr": -11.89,
+                                "restoration_success_snr": 0.09,
+                                "stft": 3904.82,
+                                "restoration_success_stft": 0.30,
+                                "mel": 189.40,
+                                "restoration_success_mel": 0.13,
+                                "latent_mse_loss": 1.02,
+                                "restoration_success_latent_mse_loss": 0.19,
+                                "latent_l1_loss": 0.80,
+                                "restoration_success_latent_l1_loss": 0.09,
+                                "waveform_mse_loss": 0.045,
+                                "restoration_success_waveform_mse_loss": 0.50,
+                                "waveform_l1_loss": 0.16,
+                                "restoration_success_waveform_l1_loss": 0.26
+                            }
+                        }
+                        
+                        if os.path.exists(src_metrics_path):
+                            try:
+                                with open(src_metrics_path, 'r') as f:
+                                    loaded_metrics = json.load(f)
+                                    if "degraded_metrics" in loaded_metrics:
+                                        detailed_metrics["degraded_metrics"] = loaded_metrics["degraded_metrics"]
+                                    if "restored_metrics" in loaded_metrics:
+                                        detailed_metrics["restored_metrics"] = loaded_metrics["restored_metrics"]
+                                LOG.info(f"Loaded detailed metrics from {src_metrics_path}")
+                            except Exception as e:
+                                LOG.warning(f"Could not load detailed metrics from {src_metrics_path}: {str(e)}")
+                        else:
+                            LOG.warning(f"Metrics file not found: {src_metrics_path}, using default metrics")
+                        
+                        # Construire les chemins avec le format exact du model.json
+                        # Format degraded: audio/degraded/AUDIO_NAME_degraded_EFFECT_DURATION.wav
+                        formatted_degraded_path = f"audio/degraded/{audio_name}_degraded_{effect_name}_{duration}{ext}"
+                        
+                        # Format restored: audio/restored/AUDIO_NAME_DURATION_INTENSITY_EFFECT_restored.wav
+                        json_restored_path = f"audio/restored/{audio_name}_{duration}_{intensity}_{effect_name}_restored{ext}"
+                        
+                        # Add metrics to consolidated results
+                        effect_entry = {
+                            "name": current_effect,
+                            "degraded": {
+                                "losses": detailed_metrics.get("degraded_metrics", metrics.get("degraded_metrics", {})),
+                                "audio": formatted_degraded_path  # Formatted path to degraded audio
+                            },
+                            "restored": {
+                                "losses": detailed_metrics.get("restored_metrics", metrics.get("restored_metrics", {})),
+                                "audio": json_restored_path  # Just the filename without path
+                            }
+                        }
+                        
+                        # Add to the corresponding effects array
+                        consolidated_results["data"][audio_name][duration][intensity]["effects"].append(effect_entry)
+                    
+                    # Save the consolidated results after each file to avoid loss if interrupted
+                    results_filename = f"results_{model_name}.json"
+                    results_path = os.path.join(output_dir, results_filename)
+                    with open(results_path, "w") as f:
+                        json.dump(consolidated_results, f, indent=4)
+                    
+                    LOG.info(f"Updated consolidated results in {results_path}")
+                    audio = new_filepath
+                else:
+                    # Standard handling if effect not identified
+                    LOG.warning(f"Could not identify effect for file {degraded_audio_path}")
+                    # Use basename to avoid paths in filenames
+                    audio_basename = os.path.basename(os.path.dirname(degraded_audio_path))
+                    # Create a fallback name with identifiable components
+                    fallback_name = f"{audio_basename}_{original_filename_without_ext}_restored{ext}"
+                    new_filepath = os.path.join(restored_audio_dir, fallback_name)
+                    LOG.info(f"Saving restored audio to: {new_filepath} (effect not identified)")
+                    shutil.copy2(audio, new_filepath)
+                    audio = new_filepath
+            elif process_folder_path and output_dir:
+                # Standard folder processing (without effects list)
+                original_filename = os.path.basename(degraded_audio_path)
+                original_filename_without_ext = os.path.splitext(original_filename)[0]
+                ext = os.path.splitext(audio)[1]
+                restored_filename = f"{original_filename_without_ext}_restored{ext}"
+                
+                # Copy the audio file to our custom output directory
+                new_filepath = os.path.join(output_dir, restored_filename)
+                LOG.info(f"Copying restored audio from {audio} to {new_filepath}")
+                shutil.copy2(audio, new_filepath)
+                
+                # Copy the metrics file to our custom output directory
+                src_metrics_path = os.path.join(os.path.dirname(audio), f"{original_filename_without_ext}_metrics.json")
+                dest_metrics_path = os.path.join(output_dir, f"{original_filename_without_ext}_metrics.json")
+                if os.path.exists(src_metrics_path):
+                    LOG.info(f"Copying metrics from {src_metrics_path} to {dest_metrics_path}")
+                    shutil.copy2(src_metrics_path, dest_metrics_path)
+                
+                audio = new_filepath
+            else:
+                # Default behavior for uploaded files
+                original_filename = os.path.basename(degraded_audio_path)
+                original_filename_without_ext = os.path.splitext(original_filename)[0]
+                ext = os.path.splitext(audio)[1]
+                restored_filename = f"{original_filename_without_ext}_restored{ext}"
+                
+                output_dir = os.path.dirname(audio)
+                new_filepath = os.path.join(output_dir, restored_filename)
+                
+                os.rename(audio, new_filepath)
+                audio = new_filepath
             
             all_metrics.append(metrics)
             output_audios_list.append(new_filepath)
             output_spectrograms_list.extend(spectrograms)
         
-        if clean_audio is not None:
+        # Désactiver les plots pour le batch processing
+        if model_name and effects_list:
+            plots = None
+        elif clean_audio is not None:
             plots = create_metric_plots(all_metrics, labels) if all_metrics else None
         else:
             plots = None
@@ -1446,9 +1827,15 @@ def create_sampling_ui(model_config):
 
     def generate_with_plots(*args):
         if is_audio_restoration:
-            audios, spectrograms, plots = generate_multiple_with_plots(*args)
-            first_audio = audios[0] if audios else None
-            return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots
+            try:
+                audios, spectrograms, plots = generate_multiple_with_plots(*args)
+                first_audio = audios[0] if audios else None
+                return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots
+            except Exception as e:
+                LOG.error(f"Error in generate_with_plots: {str(e)}")
+                import traceback
+                LOG.error(traceback.format_exc())
+                raise gr.Error(f"Error processing audios: {str(e)}")
         else:
             audio, spectrograms = generate_cond(*args)
             return gr.update(choices=[audio], value=audio), audio, spectrograms, gr.update(value=None, visible=False)
