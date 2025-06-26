@@ -1341,12 +1341,36 @@ def create_sampling_ui(model_config):
                         "data": {}
                     }
                 
-                # Delete the "unknown" entries if they exist
+                # Delete any intensity entries that might be at the wrong level
+                # Also delete any entries with empty or 'unknown' durations
                 keys_to_delete = []
                 for key in consolidated_results["data"].keys():
+                    # Remove intensity keys at top level (they should be deeper in the hierarchy)
                     if key in ["light", "standard", "strong", "unknown"]:
                         keys_to_delete.append(key)
+                    # Remove any audio_name entries that contain "unknown" duration key
+                    elif isinstance(consolidated_results["data"][key], dict):
+                        duration_keys_to_delete = []
+                        for duration_key in consolidated_results["data"][key].keys():
+                            if duration_key == "unknown":
+                                duration_keys_to_delete.append(duration_key)
+                            # Also check for empty intensity structures
+                            elif duration_key in consolidated_results["data"][key]:
+                                intensity_keys_to_delete = []
+                                for intensity_key in consolidated_results["data"][key][duration_key].keys():
+                                    if intensity_key in ["light", "standard", "strong"]:
+                                        intensity_struct = consolidated_results["data"][key][duration_key][intensity_key]
+                                        # Delete empty intensity structures (only containing empty effects list)
+                                        if isinstance(intensity_struct, dict) and "effects" in intensity_struct and len(intensity_struct["effects"]) == 0:
+                                            intensity_keys_to_delete.append(intensity_key)
+                                # Delete empty intensity structures
+                                for intensity_key in intensity_keys_to_delete:
+                                    del consolidated_results["data"][key][duration_key][intensity_key]
+                        # Delete empty duration structures
+                        for duration_key in duration_keys_to_delete:
+                            del consolidated_results["data"][key][duration_key]
                 
+                # Delete top-level invalid entries
                 for key in keys_to_delete:
                     del consolidated_results["data"][key]
                 
@@ -1431,37 +1455,10 @@ def create_sampling_ui(model_config):
                             LOG.info(f"Skipping non-exact match for {effect} in {f}")
                     
                     if current_effect:
-                        # Build structure for this effect in the consolidated results
-                        # Extract base audio name and duration from path
-                        rel_path = os.path.relpath(f, process_folder_path)
-                        parts = rel_path.split(os.sep)
-                        
-                        # Try to identify the structure: audio_name/duration_category/intensity/file
-                        # We'll attempt to extract audio name and duration assuming common patterns
-                        audio_name = parts[0] if len(parts) > 1 else "unknown"
-                        
-                        # Look for duration marker (e.g. 5s, 10s)
-                        duration = None
-                        intensity = "standard"  # Default intensity
-                        
-                        for part in parts:
-                            if part.endswith("s") and part[:-1].isdigit():
-                                duration = part
-                            if part in ["light", "standard", "strong"]:
-                                intensity = part
-                        
-                        if not duration:
-                            duration = "unknown"
-                            
-                        # Initialize nested structures if they don't exist
-                        if audio_name not in consolidated_results["data"]:
-                            consolidated_results["data"][audio_name] = {}
-                        
-                        if duration not in consolidated_results["data"][audio_name]:
-                            consolidated_results["data"][audio_name][duration] = {}
-                            
-                        if intensity not in consolidated_results["data"][audio_name][duration]:
-                            consolidated_results["data"][audio_name][duration][intensity] = {"effects": []}
+                        # This pre-initialization logic is faulty and creates unwanted JSON structures.
+                        # The main processing loop handles the JSON creation correctly.
+                        # Therefore, this block is being removed.
+                        pass
         # If we're uploading individual files
         if degraded_audio_files and not process_folder_path:
             for f in degraded_audio_files:
@@ -1935,6 +1932,31 @@ def create_sampling_ui(model_config):
                         # Add to the corresponding effects array
                         consolidated_results["data"][audio_name][duration][intensity]["effects"].append(effect_entry)
                     
+                    # Clean up the JSON structure before saving
+                    def remove_empty_structures(data):
+                        if not isinstance(data, dict):
+                            return data
+                        
+                        # First clean up any nested dictionaries
+                        for key in list(data.keys()):
+                            if isinstance(data[key], dict):
+                                # Clean up nested dict
+                                data[key] = remove_empty_structures(data[key])
+                                # If it became empty after cleanup, remove it
+                                if not data[key]:
+                                    del data[key]
+                            elif isinstance(data[key], list) and key == "effects":
+                                # Don't delete empty effects lists, they're valid
+                                pass
+                            elif data[key] == {}:
+                                # Remove empty dictionaries
+                                del data[key]
+                        return data
+                    
+                    # Clean up the consolidated_results structure
+                    if "data" in consolidated_results:
+                        consolidated_results["data"] = remove_empty_structures(consolidated_results["data"])
+                        
                     # Save the consolidated results after each file to avoid loss if interrupted
                     results_filename = f"results_{model_name}.json"
                     results_path = os.path.join(output_dir, results_filename)
