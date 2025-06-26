@@ -660,7 +660,7 @@ def generate_cond_restoration(
     # Check if we should skip creating a date-based folder
     skip_date_folder = os.environ.get("STABLE_AUDIO_NO_DATE_FOLDER", "0") == "1"
     
-    # Désactivation du traitement des métriques séparé pour le batch processing
+    # Disable separate metrics processing for batch processing
     is_batch_processing = os.environ.get("STABLE_AUDIO_BATCH_PROCESSING", "0") == "1"
 
     if custom_output_dir is not None:
@@ -1384,13 +1384,15 @@ def create_sampling_ui(model_config):
         effects_files = {}
         consolidated_results = None
         
-        # Définir le dossier de sortie pour les résultats JSON - toujours dans output/batch_processing
+        # Define output directory for JSON results - always in output/batch_processing
         output_dir = os.path.join("output", "batch_processing")
         os.makedirs(output_dir, exist_ok=True)
         
-        # Définir le dossier pour les fichiers audio restaurés
+        # Define directories for restored and degraded audio files
         restored_audio_dir = os.path.join("output", "audio", "restored")
+        degraded_audio_dir = os.path.join("output", "audio", "degraded")
         os.makedirs(restored_audio_dir, exist_ok=True)
+        os.makedirs(degraded_audio_dir, exist_ok=True)
         
         if process_folder_path and os.path.isdir(process_folder_path):
             LOG.info(f"Processing folder: {process_folder_path}")
@@ -1400,14 +1402,63 @@ def create_sampling_ui(model_config):
                 effects = [effect.strip() for effect in effects_list.split(",")]
                 LOG.info(f"Looking for effects: {effects}")
                 
-                # Initialiser le fichier JSON de résultats consolidés avec la structure attendue
+                # Initialize the consolidated results JSON file with the expected structure
                 consolidated_results_file = os.path.join(output_dir, f"results_{model_name}.json")
                 
-                # S'il existe déjà un fichier, le charger pour garder les données existantes
+                # If the file already exists, load it to keep existing data
                 if os.path.exists(consolidated_results_file):
                     try:
                         with open(consolidated_results_file, 'r') as f:
                             consolidated_results = json.load(f)
+                            
+                            # Reformat existing data to ensure correct structure
+                            # Fix audio paths and losses format for all existing entries
+                            if "data" in consolidated_results:
+                                for audio_name, audio_data in list(consolidated_results["data"].items()):
+                                    if audio_name not in ["light", "standard", "strong", "unknown"]:
+                                        for duration, duration_data in list(audio_data.items()):
+                                            for intensity, intensity_data in list(duration_data.items()):
+                                                if "effects" in intensity_data:
+                                                    for i, effect in enumerate(intensity_data["effects"]):
+                                                        # Fix degraded audio path
+                                                        if "degraded" in effect and "audio" in effect["degraded"]:
+                                                            old_path = effect["degraded"]["audio"]
+                                                            if "/" in old_path.replace("audio/degraded/", ""):
+                                                                # Extract parts from path
+                                                                parts = old_path.split("/")
+                                                                audio_base = parts[2]  # After audio/degraded/
+                                                                
+                                                                # Find effect name (last part of path without extension)
+                                                                effect_name = os.path.splitext(parts[-1])[0]
+                                                                
+                                                                # Get duration and intensity from middle parts
+                                                                dur_part = next((p for p in parts[3:-1] if p.endswith('s') and p[:-1].isdigit()), "5s")
+                                                                int_part = next((p for p in parts[3:-1] if p in ["light", "standard", "strong"]), "standard")
+                                                                
+                                                                # Create new path format
+                                                                new_path = f"audio/degraded/{audio_base}_{dur_part}_{int_part}_{effect_name}.wav"
+                                                                effect["degraded"]["audio"] = new_path
+                                                                LOG.info(f"Fixed degraded audio path: {old_path} -> {new_path}")
+                                                        
+                                                        # Fix losses format for degraded
+                                                        if "degraded" in effect and "losses" in effect["degraded"] and isinstance(effect["degraded"]["losses"], dict):
+                                                            for loss_type in ["l1", "l2", "snr"]:
+                                                                if loss_type in effect["degraded"]["losses"] and isinstance(effect["degraded"]["losses"][loss_type], list):
+                                                                    # Convert array to single value (use first value or average)
+                                                                    values = effect["degraded"]["losses"][loss_type]
+                                                                    if values:
+                                                                        effect["degraded"]["losses"][loss_type] = values[0] if len(values) > 0 else 0
+                                                        
+                                                        # Fix losses format for restored
+                                                        if "restored" in effect and "losses" in effect["restored"] and isinstance(effect["restored"]["losses"], dict):
+                                                            for loss_type in ["l1", "l2", "snr"]:
+                                                                if loss_type in effect["restored"]["losses"] and isinstance(effect["restored"]["losses"][loss_type], list):
+                                                                    # Convert array to single value (use first value or average)
+                                                                    values = effect["restored"]["losses"][loss_type]
+                                                                    if values:
+                                                                        effect["restored"]["losses"][loss_type] = values[0] if len(values) > 0 else 0
+                            
+                            LOG.info("Restructured existing results JSON to fix formats")
                     except Exception as e:
                         LOG.warning(f"Could not load existing results file: {e}")
                         consolidated_results = {
@@ -1536,8 +1587,8 @@ def create_sampling_ui(model_config):
         output_audios_list = []
         output_spectrograms_list = []
         labels = []
-        # Configurer des variables d'environnement pour le traitement par lot
-        # Désactiver la création de dossiers temporaires
+        # Configure environment variables for batch processing
+        # Disable creation of temporary directories
         os.environ["STABLE_AUDIO_NO_DATE_FOLDER"] = "1"
         os.environ["STABLE_AUDIO_BATCH_PROCESSING"] = "1"
         
@@ -1587,9 +1638,18 @@ def create_sampling_ui(model_config):
                 
                 # Find the effect this file corresponds to
                 current_effect = None
-                for effect in effects_files.keys():
-                    if effect in original_filename_without_ext:
+                
+                # Sort effects by length (descending) to avoid partial matches
+                # This ensures 'intense_equalizer' is checked before 'equalizer'
+                sorted_effects = sorted(effects_files.keys(), key=len, reverse=True)
+                
+                for effect in sorted_effects:
+                    # Use a more precise matching to avoid 'equalizer' matching in 'intense_equalizer'
+                    # Check for exact matches or effect name with underscore/hyphen boundaries
+                    parts = original_filename_without_ext.split('_')
+                    if effect == original_filename_without_ext or effect in parts:
                         current_effect = effect
+                        LOG.info(f"Matched effect '{effect}' for file '{original_filename_without_ext}'")
                         break
                 
                 if current_effect:
@@ -1609,39 +1669,39 @@ def create_sampling_ui(model_config):
                         if part in ["light", "standard", "strong"]:
                             intensity = part
                     
-                    # Analyser le chemin du fichier pour extraire les informations complètes
+                    # Analyse the file path to extract complete information
                     path_parts = degraded_audio_path.split('/')
                     
-                    # Extraire le nom de l'audio original, la durée, l'intensité et l'effet
-                    # Format attendu: audio/degraded/AUDIO_NAME/DURATION/INTENSITY/EFFECT.wav
+                    # Extract the original audio name, duration, intensity, and effect
+                    # Expected format: audio/degraded/AUDIO_NAME/DURATION/INTENSITY/EFFECT.wav
                     audio_name = None
                     duration = None
                     intensity = None
                     effect_name = None
                     
-                    # Chercher les parties du chemin
+                    # Search for path parts
                     for i, part in enumerate(path_parts):
                         if part == "degraded" and i < len(path_parts) - 1:
-                            # Le nom de l'audio est juste après 'degraded'
+                            # The audio name is just after 'degraded'
                             audio_name = path_parts[i+1]
                             
-                            # La durée est deux niveaux après 'degraded', si disponible
+                            # The duration is two levels after 'degraded', if available
                             if i + 2 < len(path_parts):
                                 duration = path_parts[i+2]
                                 
-                            # L'intensité est trois niveaux après 'degraded', si disponible
+                            # The intensity is three levels after 'degraded', if available
                             if i + 3 < len(path_parts):
                                 intensity = path_parts[i+3]
                                 
-                            # L'effet est quatre niveaux après 'degraded', si disponible
+                            # The effect is four levels after 'degraded', if available
                             if i + 4 < len(path_parts):
-                                # Enlever l'extension si présente
+                                # Remove extension if present
                                 effect_name = os.path.splitext(path_parts[i+4])[0]
                             break
                     
                     LOG.info(f"Extracted: Audio={audio_name}, Duration={duration}, Intensity={intensity}, Effect={effect_name}")
                     
-                    # Utiliser les valeurs extraites ou des valeurs par défaut
+                    # Use extracted values or default values
                     audio_name = audio_name or os.path.splitext(os.path.basename(degraded_audio_path))[0].split('_')[0]
                     duration = duration or "5s"
                     intensity = intensity or "standard"
@@ -1672,55 +1732,142 @@ def create_sampling_ui(model_config):
                     # Check if this effect entry already exists
                     effect_exists = False
                     for existing_effect in consolidated_results["data"][audio_name][duration][intensity]["effects"]:
-                        if existing_effect["name"] == current_effect and existing_effect["degraded"]["audio"] == degraded_audio_path:
+                        # Update comparison to check just the effect name, not the full path
+                        if existing_effect["name"] == current_effect:
                             effect_exists = True
-                            LOG.info(f"Effect {current_effect} already processed for {degraded_audio_path}, skipping")
+                            LOG.info(f"Effect {current_effect} already processed for this audio, updating it instead")
+                            
+                            # We already have metrics from generate_cond_restoration call at line 1615
+                            # No need to reload them from file - just use what we have
+                            LOG.info(f"Using metrics from generate_cond_restoration for effect {current_effect}")
+                            # Log available metrics types
+                            if metrics and isinstance(metrics, dict):
+                                LOG.info(f"Available metrics keys: {list(metrics.keys())}")
+                                if "degraded_metrics" in metrics and isinstance(metrics["degraded_metrics"], dict):
+                                    LOG.info(f"Degraded metrics: {list(metrics['degraded_metrics'].keys())}")
+                                if "restored_metrics" in metrics and isinstance(metrics["restored_metrics"], dict):
+                                    LOG.info(f"Restored metrics: {list(metrics['restored_metrics'].keys())}")
+                            else:
+                                LOG.warning(f"No metrics available from generate_cond_restoration for effect {current_effect}")
+                            
+                            # Restructure metrics if needed - the metrics from generate_cond_restoration may be flat, not nested
+                            degraded_metrics = {}
+                            restored_metrics = {}
+                            
+                            # Check if metrics come in the expected nested format
+                            if "degraded_metrics" in metrics and isinstance(metrics["degraded_metrics"], dict):
+                                # Already in expected format
+                                degraded_metrics = metrics["degraded_metrics"]
+                                LOG.info("Using nested degraded_metrics structure")
+                            elif isinstance(metrics, dict):
+                                # Metrics are in a flat structure, need to sort them into degraded and restored
+                                LOG.info("Restructuring flat metrics into degraded/restored categories")
+                                
+                                # Process metrics with 'degraded_' prefix or other indicators that they are degraded
+                                for key, value in metrics.items():
+                                    # Skip generation_params and timestamp
+                                    if key in ['generation_params', 'timestamp', 'steps', 'sample_rate', 'sample_size']:
+                                        continue
+                                        
+                                    # Put degraded_ prefixed metrics into degraded_metrics
+                                    if key.startswith('degraded_'):
+                                        # Remove the "degraded_" prefix for cleaner naming
+                                        clean_key = key.replace('degraded_', '')
+                                        degraded_metrics[clean_key] = value
+                                    # Put restoration success metrics into restored metrics
+                                    elif key.startswith('restoration_success_'):
+                                        restored_metrics[key] = value
+                                    # Any demo_ metrics go to restored (these are the model outputs)
+                                    elif key.startswith('demo_'):
+                                        # Remove the "demo_" prefix for cleaner naming
+                                        clean_key = key.replace('demo_', '')
+                                        restored_metrics[clean_key] = value
+                                    # Handle losses
+                                    elif key.endswith('_loss'):
+                                        if 'degraded_' + key in metrics:
+                                            restored_metrics[key] = value
+                                        else:
+                                            # If we don't have a degraded version, this might be a shared metric
+                                            degraded_metrics[key] = value
+                                            restored_metrics[key] = value
+                                            
+                                # Copy basic parameters to both metrics
+                                for key in ['timestamp', 'steps', 'sample_rate', 'sample_size']:
+                                    if key in metrics:
+                                        degraded_metrics[key] = metrics[key]
+                                        restored_metrics[key] = metrics[key]
+                                        
+                            LOG.info(f"Restructured metrics - degraded: {len(degraded_metrics)} keys, restored: {len(restored_metrics)} keys")
+                            if len(degraded_metrics) > 0:
+                                LOG.info(f"Degraded metrics keys: {list(degraded_metrics.keys())[:5]}...")
+                            if len(restored_metrics) > 0:
+                                LOG.info(f"Restored metrics keys: {list(restored_metrics.keys())[:5]}...")
+                            
+                            # Update degraded path and losses
+                            degraded_basename = f"{audio_name}_{duration}_{intensity}_{effect_name}{ext}"
+                            formatted_degraded_path = f"audio/degraded/{degraded_basename}"
+                            
+                            # Update the existing entry with correct format
+                            existing_effect["degraded"]["audio"] = formatted_degraded_path
+                            
+                            # Preserve all metrics from _calculate_metrics and ensure they are scalars, not arrays
+                            degraded_losses = {}
+                            for metric_key, metric_value in degraded_metrics.items():
+                                # Convert array values to scalars
+                                if isinstance(metric_value, list) and len(metric_value) > 0:
+                                    degraded_losses[metric_key] = metric_value[0]
+                                else:
+                                    degraded_losses[metric_key] = metric_value
+                            
+                            existing_effect["degraded"]["losses"] = degraded_losses
+                            
+                            # Copy the degraded audio file to the degraded folder
+                            degraded_filepath = os.path.join(degraded_audio_dir, degraded_basename)
+                            LOG.info(f"Saving degraded audio to: {degraded_filepath}")
+                            try:
+                                if os.path.exists(degraded_audio_path):
+                                    shutil.copy2(degraded_audio_path, degraded_filepath)
+                                else:
+                                    LOG.warning(f"Source degraded audio not found: {degraded_audio_path}")
+                            except Exception as e:
+                                LOG.error(f"Error copying degraded audio file: {str(e)}")
+                            
+                            # Update restored entry too
+                            json_restored_path = f"audio/restored/{audio_name}_{duration}_{intensity}_{effect_name}_restored{ext}"
+                            existing_effect["restored"]["audio"] = json_restored_path
+                            
+                            # Preserve all metrics from _calculate_metrics and ensure they are scalars, not arrays
+                            restored_losses = {}
+                            for metric_key, metric_value in restored_metrics.items():
+                                # Convert array values to scalars
+                                if isinstance(metric_value, list) and len(metric_value) > 0:
+                                    restored_losses[metric_key] = metric_value[0]
+                                else:
+                                    restored_losses[metric_key] = metric_value
+                                    
+                            existing_effect["restored"]["losses"] = restored_losses
                             break
                     
                     if not effect_exists:
-                        # Obtenir les métriques complètes du fichier JSON généré lors de la restauration
+                        # Get complete metrics from the JSON file generated during restoration
                         src_metrics_path = os.path.join(os.path.dirname(audio), f"{original_filename_without_ext}_metrics.json")
-                        # Utiliser des métriques dans le même format que model.json
+                        # Use metrics in the same format as model.json
+                        # Initialize with empty structure
                         detailed_metrics = {
-                            "degraded_metrics": {
-                                "timestamp": datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"),
-                                "steps": 0,
-                                "sample_rate": 44100,
-                                "sample_size": 219136,
-                                "lsd": 7.29,
-                                "ltas": 5.35,
-                                "sisdr": -14.18,
-                                "snr": -14.99,
-                                "stft": 5577.65,
-                                "mel": 209.05,
-                                "latent_mse_loss": 1.25,
-                                "latent_l1_loss": 0.89,
-                                "waveform_mse_loss": 0.092,
-                                "waveform_l1_loss": 0.219
-                            },
-                            "restored_metrics": {
-                                "lsd": 6.65,
-                                "restoration_success_lsd": 0.16,
-                                "ltas": 3.48,
-                                "restoration_success_ltas": 0.13,
-                                "sisdr": -10.21,
-                                "restoration_success_sisdr": 0.12,
-                                "snr": -11.89,
-                                "restoration_success_snr": 0.09,
-                                "stft": 3904.82,
-                                "restoration_success_stft": 0.30,
-                                "mel": 189.40,
-                                "restoration_success_mel": 0.13,
-                                "latent_mse_loss": 1.02,
-                                "restoration_success_latent_mse_loss": 0.19,
-                                "latent_l1_loss": 0.80,
-                                "restoration_success_latent_l1_loss": 0.09,
-                                "waveform_mse_loss": 0.045,
-                                "restoration_success_waveform_mse_loss": 0.50,
-                                "waveform_l1_loss": 0.16,
-                                "restoration_success_waveform_l1_loss": 0.26
-                            }
+                            "degraded_metrics": {},
+                            "restored_metrics": {}
                         }
+                        
+                        # Get metrics from the model via metrics (from final_metrics)
+                        if metrics and isinstance(metrics, dict):
+                            if "degraded_metrics" in metrics:
+                                detailed_metrics["degraded_metrics"] = metrics["degraded_metrics"]
+                                LOG.info(f"Retrieved {len(metrics['degraded_metrics'])} degraded metrics from final_metrics")
+                            if "restored_metrics" in metrics:
+                                detailed_metrics["restored_metrics"] = metrics["restored_metrics"]
+                                LOG.info(f"Retrieved {len(metrics['restored_metrics'])} restored metrics from final_metrics")
+                        else:
+                            LOG.warning("No metrics available in final_metrics!")
                         
                         if os.path.exists(src_metrics_path):
                             try:
@@ -1736,25 +1883,116 @@ def create_sampling_ui(model_config):
                         else:
                             LOG.warning(f"Metrics file not found: {src_metrics_path}, using default metrics")
                         
-                        # Construire les chemins avec le format exact du model.json
-                        # Format degraded: audio/degraded/AUDIO_NAME_degraded_EFFECT_DURATION.wav
-                        formatted_degraded_path = f"audio/degraded/{audio_name}_degraded_{effect_name}_{duration}{ext}"
+                        # Build paths with the exact format from model.json
+                        # Format degraded: audio/degraded/AUDIO_NAME_DURATION_INTENSITY_EFFECT.wav
+                        degraded_basename = f"{audio_name}_{duration}_{intensity}_{effect_name}{ext}"
+                        formatted_degraded_path = f"audio/degraded/{degraded_basename}"
                         
                         # Format restored: audio/restored/AUDIO_NAME_DURATION_INTENSITY_EFFECT_restored.wav
                         json_restored_path = f"audio/restored/{audio_name}_{duration}_{intensity}_{effect_name}_restored{ext}"
                         
-                        # Add metrics to consolidated results
+                        # Copy the degraded audio file to the degraded folder
+                        degraded_filepath = os.path.join(degraded_audio_dir, degraded_basename)
+                        LOG.info(f"Saving degraded audio to: {degraded_filepath}")
+                        try:
+                            if os.path.exists(degraded_audio_path):
+                                shutil.copy2(degraded_audio_path, degraded_filepath)
+                            else:
+                                LOG.warning(f"Source degraded audio not found: {degraded_audio_path}")
+                        except Exception as e:
+                            LOG.error(f"Error copying degraded audio file: {str(e)}")
+                        
+                        # Apply the same metrics restructuring logic for new entries
+                        degraded_metrics = {}
+                        restored_metrics = {}
+                        
+                        # First check if we have nested metrics structure from detailed_metrics
+                        if "degraded_metrics" in detailed_metrics and isinstance(detailed_metrics["degraded_metrics"], dict):
+                            degraded_metrics = detailed_metrics["degraded_metrics"]
+                            if "restored_metrics" in detailed_metrics and isinstance(detailed_metrics["restored_metrics"], dict):
+                                restored_metrics = detailed_metrics["restored_metrics"]
+                            LOG.info("Using nested metrics structure from detailed_metrics")
+                            
+                        # If not, check if metrics has the nested structure
+                        elif "degraded_metrics" in metrics and isinstance(metrics["degraded_metrics"], dict):
+                            degraded_metrics = metrics["degraded_metrics"]
+                            if "restored_metrics" in metrics and isinstance(metrics["restored_metrics"], dict):
+                                restored_metrics = metrics["restored_metrics"]
+                            LOG.info("Using nested metrics structure from metrics")
+                            
+                        # If we still don't have metrics, try to restructure flat metrics
+                        elif isinstance(metrics, dict):
+                            # Metrics are in a flat structure, need to sort them into degraded and restored
+                            LOG.info("Restructuring flat metrics into degraded/restored categories for new entry")
+                            
+                            # Process metrics with 'degraded_' prefix or other indicators that they are degraded
+                            for key, value in metrics.items():
+                                # Skip generation_params and timestamp
+                                if key in ['generation_params', 'timestamp', 'steps', 'sample_rate', 'sample_size']:
+                                    continue
+                                    
+                                # Put degraded_ prefixed metrics into degraded_metrics
+                                if key.startswith('degraded_'):
+                                    # Remove the "degraded_" prefix for cleaner naming
+                                    clean_key = key.replace('degraded_', '')
+                                    degraded_metrics[clean_key] = value
+                                # Put restoration success metrics into restored metrics
+                                elif key.startswith('restoration_success_'):
+                                    restored_metrics[key] = value
+                                # Any demo_ metrics go to restored (these are the model outputs)
+                                elif key.startswith('demo_'):
+                                    # Remove the "demo_" prefix for cleaner naming
+                                    clean_key = key.replace('demo_', '')
+                                    restored_metrics[clean_key] = value
+                                # Handle losses
+                                elif key.endswith('_loss'):
+                                    if 'degraded_' + key in metrics:
+                                        restored_metrics[key] = value
+                                    else:
+                                        # If we don't have a degraded version, this might be a shared metric
+                                        degraded_metrics[key] = value
+                                        restored_metrics[key] = value
+                                        
+                            # Copy basic parameters to both metrics
+                            for key in ['timestamp', 'steps', 'sample_rate', 'sample_size']:
+                                if key in metrics:
+                                    degraded_metrics[key] = metrics[key]
+                                    restored_metrics[key] = metrics[key]
+                        
+                        LOG.info(f"Final metrics for new entry - degraded: {len(degraded_metrics)} keys, restored: {len(restored_metrics)} keys")
+                        
+                        # Format losses in the correct structure - all metrics, ensuring they are single values
+                        # Process degraded metrics - preserve all metrics but ensure they are scalar values
+                        degraded_losses = {}
+                        for metric_key, metric_value in degraded_metrics.items():
+                            # Convert array values to scalars
+                            if isinstance(metric_value, list) and len(metric_value) > 0:
+                                degraded_losses[metric_key] = metric_value[0]
+                            else:
+                                degraded_losses[metric_key] = metric_value
+                        
+                        # Process restored metrics - preserve all metrics but ensure they are scalar values
+                        restored_losses = {}
+                        for metric_key, metric_value in restored_metrics.items():
+                            # Convert array values to scalars
+                            if isinstance(metric_value, list) and len(metric_value) > 0:
+                                restored_losses[metric_key] = metric_value[0]
+                            else:
+                                restored_losses[metric_key] = metric_value
+                        
                         effect_entry = {
                             "name": current_effect,
                             "degraded": {
-                                "losses": detailed_metrics.get("degraded_metrics", metrics.get("degraded_metrics", {})),
+                                "losses": degraded_losses,  # Include ALL metrics
                                 "audio": formatted_degraded_path  # Formatted path to degraded audio
                             },
                             "restored": {
-                                "losses": detailed_metrics.get("restored_metrics", metrics.get("restored_metrics", {})),
-                                "audio": json_restored_path  # Just the filename without path
+                                "losses": restored_losses,  # Include ALL metrics
+                                "audio": json_restored_path  # Format restored audio path
                             }
                         }
+                        
+                        LOG.info(f"Created entry for {current_effect} with {len(degraded_losses)} degraded metrics and {len(restored_losses)} restored metrics")
                         
                         # Add to the corresponding effects array
                         consolidated_results["data"][audio_name][duration][intensity]["effects"].append(effect_entry)
@@ -1815,7 +2053,7 @@ def create_sampling_ui(model_config):
             output_audios_list.append(new_filepath)
             output_spectrograms_list.extend(spectrograms)
         
-        # Désactiver les plots pour le batch processing
+        # Disable plots for batch processing
         if model_name and effects_list:
             plots = None
         elif clean_audio is not None:
