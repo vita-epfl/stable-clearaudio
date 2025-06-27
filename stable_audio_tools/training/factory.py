@@ -75,6 +75,9 @@ def create_training_wrapper_from_config(model_config, model):
             cfg_dropout_prob = training_config.get("cfg_dropout_prob", 0.1),
             timestep_sampler = training_config.get("timestep_sampler", "uniform"),
         )
+    elif model_type == 'cold_diffusion_cond':
+        from .diffusion import ColdDiffusionCondTrainingWrapper
+        return ColdDiffusionCondTrainingWrapper(model, **training_config)
     elif model_type == 'diffusion_prior':
         from .diffusion import DiffusionPriorTrainingWrapper
         from ..models.diffusion_prior import PriorType
