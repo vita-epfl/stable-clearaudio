@@ -144,6 +144,140 @@ def apply_config_to_audio(info, audio, preset_path):
         #     return audio
 
         return audio
+                
+class ColdDiffusionSoxTransform(nn.Module):
+    """
+    A transform that applies a chain of SoX effects to an audio tensor,
+    with parameters dynamically interpolated based on a timestep 't'.
+    This is designed for Cold Diffusion training.
+
+    The preset YAML should be structured as follows:
+    effects:
+      - name: lowpass
+        args: ["-1", [10000, 500]] # Interpolates the cutoff frequency
+      - name: rate
+        args: [[48000, 8000]] # Interpolates the sample rate
+    """
+    def __init__(self, name, effects_template, sample_rate):
+        super().__init__()
+        self.name = name
+        self.effects_template = effects_template
+        self.sample_rate = sample_rate
+        LOG.info(f"[ColdDiffusion] Initialized transform '{name}' with {len(effects_template)} effects at {sample_rate}Hz")
+        if len(effects_template) > 0:
+            LOG.debug(f"[ColdDiffusion] Effects template: {effects_template}")
+
+    @classmethod
+    def from_preset(cls, preset_path, sample_rate):
+        """Creates a transform instance from a YAML preset file."""
+        LOG.debug(f"[ColdDiffusion] Loading preset from {preset_path} with sample rate {sample_rate}")
+        if not Path(preset_path).exists():
+            LOG.error(f"[ColdDiffusion] Degradation preset not found: {preset_path}")
+            raise FileNotFoundError(f"Degradation preset not found: {preset_path}")
+            
+        try:
+            with open(preset_path) as file:
+                config = yaml.safe_load(file)
+            
+            effects_template = config.get("effects", [])
+            if not effects_template:
+                LOG.warning(f"[ColdDiffusion] No effects found in preset {preset_path}")
+            else:
+                LOG.debug(f"[ColdDiffusion] Loaded {len(effects_template)} effects from preset {preset_path}")
+                for i, effect in enumerate(effects_template):
+                    LOG.debug(f"[ColdDiffusion] Effect {i+1}: {effect}")
+                    
+            name = Path(preset_path).stem
+            LOG.debug(f"[ColdDiffusion] Created transform with name '{name}'")
+            return cls(name, effects_template, sample_rate)
+        except Exception as e:
+            LOG.error(f"[ColdDiffusion] Error loading preset {preset_path}: {str(e)}")
+            raise
+
+    def _interpolate(self, value, t):
+        """Linearly interpolates a value if it's a list of two numbers."""
+        if isinstance(value, (list, tuple)) and len(value) == 2:
+            try:
+                start, end = float(value[0]), float(value[1])
+                interpolated = start + t * (end - start)
+                LOG.debug(f"[ColdDiffusion] Interpolated value [{start}, {end}] at t={t:.4f} -> {interpolated:.4f}")
+                return interpolated
+            except (ValueError, TypeError) as e:
+                LOG.debug(f"[ColdDiffusion] Failed to interpolate {value}: {str(e)}")
+                return value
+        else:
+            LOG.debug(f"[ColdDiffusion] Using constant value {value} (not interpolatable)")
+            return value
+
+    def apply(self, audio_tensor: torch.Tensor, t: float) -> torch.Tensor:
+        """
+        Builds the effects chain with interpolated parameters for a given timestep 't'
+        and applies it to the audio tensor.
+        """
+        LOG.debug(f"[ColdDiffusion] Applying effects with timestep t={t:.4f} to tensor shape={audio_tensor.shape}")
+        
+        if not self.effects_template:
+            LOG.warning(f"[ColdDiffusion] No effects template found for {self.name}")
+            return audio_tensor
+
+        # Créer un SoxEffectTransform temporaire avec les effets interpolés
+        temp_transform = SoxEffectTransform(name=f"{self.name}_t{t:.2f}")
+        
+        # Construire la liste d'effets avec interpolation des paramètres
+        for effect_template in self.effects_template:
+            effect_name = effect_template['name']
+            interpolated_args = [str(self._interpolate(arg, t)) for arg in effect_template.get('args', [])]
+            effect_to_add = [effect_name] + interpolated_args
+            temp_transform.add_effect(effect_to_add)
+            LOG.debug(f"[ColdDiffusion] Adding interpolated effect: {effect_to_add}")
+
+        if not temp_transform.effects:
+            LOG.warning(f"[ColdDiffusion] No effects generated from template for t={t:.4f}")
+            return audio_tensor
+        
+        device = audio_tensor.device
+        LOG.debug(f"[ColdDiffusion] Original audio - device: {device}, shape: {audio_tensor.shape}, min: {audio_tensor.min():.4f}, max: {audio_tensor.max():.4f}")
+        
+        try:
+            # Utiliser la méthode éprouvée apply_tensor qui gère correctement les dimensions et canaux
+            LOG.debug(f"[ColdDiffusion] Applying effects using SoxEffectTransform.apply_tensor: {temp_transform.effects}")
+            processed_audio, out_sr = temp_transform.apply_tensor(audio_tensor, self.sample_rate)
+            LOG.debug(f"[ColdDiffusion] After SoX - shape: {processed_audio.shape}, sr: {out_sr}, min: {processed_audio.min():.4f}, max: {processed_audio.max():.4f}")
+            
+            # Vérifier si le traitement a préservé la forme d'onde
+            if processed_audio.shape != audio_tensor.shape:
+                LOG.warning(f"[ColdDiffusion] Shape mismatch after SoX effects: input={audio_tensor.shape}, output={processed_audio.shape}")
+                
+                # Ajuster la taille si nécessaire
+                if processed_audio.shape[0] != audio_tensor.shape[0]:
+                    LOG.debug(f"[ColdDiffusion] Fixing channel count: {processed_audio.shape[0]} -> {audio_tensor.shape[0]}")
+                    if processed_audio.shape[0] == 1 and audio_tensor.shape[0] > 1:
+                        processed_audio = processed_audio.repeat(audio_tensor.shape[0], 1)
+                    else:
+                        processed_audio = processed_audio.mean(dim=0, keepdim=True).repeat(audio_tensor.shape[0], 1)
+                
+                # Ajuster la longueur si nécessaire
+                if processed_audio.shape[1] != audio_tensor.shape[1]:
+                    LOG.debug(f"[ColdDiffusion] Fixing audio length: {processed_audio.shape[1]} -> {audio_tensor.shape[1]}")
+                    if processed_audio.shape[1] < audio_tensor.shape[1]:
+                        # Padding
+                        pad_length = audio_tensor.shape[1] - processed_audio.shape[1]
+                        processed_audio = torch.nn.functional.pad(processed_audio, (0, pad_length))
+                    else:
+                        # Trimming
+                        processed_audio = processed_audio[:, :audio_tensor.shape[1]]
+
+            # Assurer que l'audio est sur le même device
+            processed_audio = processed_audio.to(device)
+            LOG.debug(f"[ColdDiffusion] Final degraded audio - shape: {processed_audio.shape}, min: {processed_audio.min():.4f}, max: {processed_audio.max():.4f}")
+            return processed_audio
+            
+        except Exception as e:
+            LOG.error(f"[ColdDiffusion] SoX effect application failed: {str(e)}")
+            import traceback
+            LOG.error(traceback.format_exc())
+            return audio_tensor
+
 
 class ExternalSoundTransform(nn.Module):
     def __init__(self, sound_name: str, sound_path: List[str], gain: float = 1.0):

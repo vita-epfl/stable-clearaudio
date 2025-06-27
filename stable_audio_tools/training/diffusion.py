@@ -8,6 +8,8 @@ import torchaudio
 import typing as tp
 import wandb
 import logging
+import yaml
+from pathlib import Path
 
 # Configure logging to suppress matplotlib debug messages
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
@@ -22,8 +24,9 @@ from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 from ..interface.aeiou import pca_point_cloud, audio_spectrogram_image, tokens_spectrogram_image
 from ..inference.sampling import get_alphas_sigmas, sample, sample_discrete_euler, truncated_logistic_normal_rescaled, DistributionShift
-from ..models.diffusion import DiffusionModelWrapper, ConditionedDiffusionModelWrapper
-from ..models.autoencoders import DiffusionAutoencoder
+from ..models.conditioners import CrossAttention, T5Cond, CLAPCond, IntCond, BoolCond, NumberCond
+from ..models.diffusion import DiffusionModelWrapper, ConditionedDiffusionModelWrapper, get_alphas_sigmas, DiffusionAutoencoder, DiffusionPrior
+from ..transforms.signal import ColdDiffusionSoxTransform
 from ..models.diffusion_prior import PriorType
 from .autoencoders import create_loss_modules_from_bottleneck
 from .losses import AuralossLoss, MSELoss, MultiLoss
@@ -1550,7 +1553,6 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
     This method replaces Gaussian noise with a deterministic degradation process.
     """
     def __init__(self, *args, **kwargs):
-        # Placeholder for degradation config
         self.degradation_config = kwargs.pop('degradation_config', None)
         super().__init__(*args, **kwargs)
 
@@ -1565,6 +1567,17 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
             )
         ]
         self.losses = MultiLoss(self.loss_modules)
+
+        if self.degradation_config:
+            self.degradation_presets = self.degradation_config.get('presets', [])
+        else:
+            self.degradation_presets = []
+
+        if not self.degradation_presets:
+            print("Warning: Cold Diffusion wrapper is used, but no degradation presets are configured.")
+            self.degradation_ops = []
+        else:
+            self.degradation_ops = [ColdDiffusionSoxTransform.from_preset(p, self.diffusion.sample_rate) for p in self.degradation_presets]
 
     def training_step(self, batch, batch_idx):
         reals, metadata = batch
@@ -1599,12 +1612,17 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
         # Draw uniformly distributed continuous timesteps
         t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
 
-        # === COLD DIFFUSION DEGRADATION (Placeholder) ===
-        # In Cold Diffusion, we apply a deterministic degradation D(x, t)
-        # instead of adding Gaussian noise.
-        # For now, this is a placeholder. The actual degradation will be
-        # implemented later using a SoX-based operator.
-        degraded_inputs = diffusion_input # Placeholder: for now, the input is not degraded
+        # === COLD DIFFUSION DEGRADATION ===
+        if self.degradation_ops:
+            degraded_inputs = torch.zeros_like(diffusion_input)
+            for i in range(diffusion_input.shape[0]):
+                # For each item in the batch, choose a random degradation and apply it
+                op = random.choice(self.degradation_ops)
+                degraded_inputs[i] = op.apply(diffusion_input[i], t[i].item())
+        else:
+            # If no degradation is configured, just pass the clean audio through
+            degraded_inputs = diffusion_input
+
         targets = diffusion_input # The model must learn to reverse the degradation (i.e., predict the clean audio)
         # ===============================================
 
