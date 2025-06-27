@@ -94,7 +94,8 @@ def main():
     if args.remove_pretransform_weight_norm == "post_load":
         remove_weight_norm_from_model(model.pretransform)
 
-    training_wrapper = create_training_wrapper_from_config(model_config, model)
+    # Passer la configuration du dataset pour permettre d'accéder aux informations de dégradation
+    training_wrapper = create_training_wrapper_from_config(model_config, model, dataset_config=dataset_config)
 
     exc_callback = ExceptionCallback()
 

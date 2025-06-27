@@ -26,7 +26,9 @@ from ..interface.aeiou import pca_point_cloud, audio_spectrogram_image, tokens_s
 from ..inference.sampling import get_alphas_sigmas, sample, sample_discrete_euler, truncated_logistic_normal_rescaled, DistributionShift
 from ..models.conditioners import CrossAttention, T5Cond, CLAPCond, IntCond, BoolCond, NumberCond
 from ..models.diffusion import DiffusionModelWrapper, ConditionedDiffusionModelWrapper, get_alphas_sigmas, DiffusionAutoencoder, DiffusionPrior
-from ..transforms.signal import ColdDiffusionSoxTransform
+from pathlib import Path
+from ..utils.config_utils import load_yaml_config
+from ..transforms.signal import ColdDiffusionSoxTransform, SoxEffectTransform
 from ..models.diffusion_prior import PriorType
 from .autoencoders import create_loss_modules_from_bottleneck
 from .losses import AuralossLoss, MSELoss, MultiLoss
@@ -1553,7 +1555,11 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
     This method replaces Gaussian noise with a deterministic degradation process.
     """
     def __init__(self, *args, **kwargs):
+        # Récupérer les informations de dégradation du dataset
+        self.degradation_dataset_info = kwargs.pop('degradation_dataset_info', None)
+        # Pour compatibilité arrière, accepter aussi la configuration dans le modèle
         self.degradation_config = kwargs.pop('degradation_config', None)
+        
         super().__init__(*args, **kwargs)
 
         # The loss objective is different for Cold Diffusion. 
@@ -1567,17 +1573,110 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
             )
         ]
         self.losses = MultiLoss(self.loss_modules)
+        
+        # Utiliser les informations de dégradation du dataset en priorité
+        # Cela permet de ne pas dupliquer les configurations
+        self.degradation_ops = []
+        
+        if self.degradation_dataset_info:
+            LOG.info(f"[ColdDiffusion] Utilisation des informations de dégradation du dataset")
+            
+            effects_dir = self.degradation_dataset_info.get('low_quality_effects_dir', None)
+            preset_names = self.degradation_dataset_info.get('degradation_presets', [])
+            effects_mode = self.degradation_dataset_info.get('effects_mode', 'specific')
+            
+            LOG.info(f"[ColdDiffusion] Effects directory from dataset: {effects_dir}")
+            LOG.info(f"[ColdDiffusion] Preset names from dataset: {preset_names}")
+            LOG.info(f"[ColdDiffusion] Effects mode from dataset: {effects_mode}")
+            
+            # Gérer les différents modes d'application des effets
+            if effects_mode == 'random':
+                LOG.info("[ColdDiffusion] Using random effects mode - creating SoxEffectTransform directly")
+                # En mode aléatoire, créer directement un SoxEffectTransform
+                # qui génèrera des effets aléatoires à chaque application
+                for i in range(3):  # Créer plusieurs opérateurs aléatoires pour la diversité
+                    try:
+                        # Réutiliser la logique de génération d'effets aléatoires
+                        transform = SoxEffectTransform.get_random_transform(self.diffusion.sample_rate)
+                        if transform:
+                            self.degradation_ops.append(transform)
+                            LOG.info(f"[ColdDiffusion] Created random transform #{i+1}")
+                    except Exception as e:
+                        LOG.error(f"[ColdDiffusion] Failed to create random transform: {str(e)}")
+                        
+            else:  # Mode 'specific' par défaut
+                # Construire les chemins des presets
+                for preset_name in preset_names:
+                    try:
+                        # Utiliser la même logique que dans apply_config_to_audio
+                        # pour construire le chemin du preset
+                        preset_path = preset_name
+                        if effects_dir:
+                            # Résoudre le chemin du répertoire d'effets si nécessaire
+                            if effects_dir.startswith("/stable"):
+                                # Obtenir le chemin de base du projet
+                                base_path = Path(__file__).resolve().parent.parent  # Remonte de deux niveaux
+                                
+                                if effects_dir.startswith("/stable-clearaudio/"):
+                                    relative_path = effects_dir[len("/stable-clearaudio/"):]
+                                    effects_dir_resolved = str(base_path / relative_path)
+                                elif effects_dir.startswith("/stable_audio_tools/"):
+                                    relative_path = effects_dir[len("/stable_audio_tools/"):]
+                                    effects_dir_resolved = str(base_path / relative_path)
+                                else:
+                                    effects_dir_resolved = effects_dir
+                            else:
+                                effects_dir_resolved = effects_dir
+                                
+                            # Construire le chemin complet du preset
+                            preset_path = os.path.join(effects_dir_resolved, preset_name)
+                            if not preset_path.endswith(".yaml"):
+                                preset_path += ".yaml"
+                        
+                        LOG.info(f"[ColdDiffusion] Loading preset from dataset config: {preset_path}")
+                        
+                        if os.path.exists(preset_path):
+                            # Charger directement le fichier YAML comme dans apply_config_to_audio
+                            preset_cfg = load_yaml_config(preset_path)
+                            
+                            # Utiliser SoxEffectTransform.get_effects_transform comme dans apply_config_to_audio
+                            transform = SoxEffectTransform.get_effects_transform(preset_cfg)
+                            
+                            if transform:
+                                # Créer un wrapper ColdDiffusionSoxTransform autour du SoxEffectTransform
+                                # pour pouvoir interpoler les effets en fonction de t
+                                cold_transform = ColdDiffusionSoxTransform.from_sox_transform(
+                                    transform, os.path.basename(preset_path), self.diffusion.sample_rate
+                                )
+                                self.degradation_ops.append(cold_transform)
+                                LOG.info(f"[ColdDiffusion] Created transform from preset: {preset_path}")
+                        else:
+                            LOG.error(f"[ColdDiffusion] Preset file not found: {preset_path}")
+                    except Exception as e:
+                        LOG.error(f"[ColdDiffusion] Error creating transform for preset {preset_name}: {str(e)}")
+                        import traceback
+                        LOG.error(traceback.format_exc())
+        
+        # Si aucune information du dataset, essayer d'utiliser la configuration du modèle (compatibilité arrière)
+        elif self.degradation_config:
+            LOG.warning("[ColdDiffusion] Using model configuration for degradation (no dataset info available)")
+            preset_paths = self.degradation_config.get('presets', [])
+            
+            for preset_name in preset_paths:
+                try:
+                    transform = ColdDiffusionSoxTransform.from_preset(preset_name, self.diffusion.sample_rate)
+                    self.degradation_ops.append(transform)
+                except Exception as e:
+                    LOG.error(f"[ColdDiffusion] Failed to create transform: {str(e)}")
+        
+        # Vérifier qu'au moins une transformation a été créée
+        if not self.degradation_ops:
+            LOG.warning("[ColdDiffusion] No degradation transforms were created. Cold Diffusion might not work properly.")
+            
+        LOG.info(f"[ColdDiffusion] Created {len(self.degradation_ops)} degradation transforms")
+        for i, op in enumerate(self.degradation_ops):
+            LOG.info(f"[ColdDiffusion] Transform #{i+1}: {op.name}")
 
-        if self.degradation_config:
-            self.degradation_presets = self.degradation_config.get('presets', [])
-        else:
-            self.degradation_presets = []
-
-        if not self.degradation_presets:
-            print("Warning: Cold Diffusion wrapper is used, but no degradation presets are configured.")
-            self.degradation_ops = []
-        else:
-            self.degradation_ops = [ColdDiffusionSoxTransform.from_preset(p, self.diffusion.sample_rate) for p in self.degradation_presets]
 
     def training_step(self, batch, batch_idx):
         reals, metadata = batch

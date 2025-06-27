@@ -168,31 +168,113 @@ class ColdDiffusionSoxTransform(nn.Module):
             LOG.debug(f"[ColdDiffusion] Effects template: {effects_template}")
 
     @classmethod
+    def from_sox_transform(cls, sox_transform, name, sample_rate):
+        """
+        Creates a ColdDiffusionSoxTransform from an existing SoxEffectTransform.
+        This allows reusing the same transforms created by get_effects_transform.
+        
+        Args:
+            sox_transform: An existing SoxEffectTransform instance
+            name: Name for the new transform
+            sample_rate: Sample rate to use
+            
+        Returns:
+            A ColdDiffusionSoxTransform that wraps the effects from the SoxEffectTransform
+        """
+        LOG.debug(f"[ColdDiffusion] Creating from SoxEffectTransform: {name}")
+        
+        # Convertir les effets SoxEffectTransform en template pour ColdDiffusionSoxTransform
+        effects_template = []
+        
+        if hasattr(sox_transform, 'effects'):
+            for effect in sox_transform.effects:
+                if effect and len(effect) > 0:
+                    effect_dict = {
+                        'name': effect[0],
+                        'args': effect[1:] if len(effect) > 1 else []
+                    }
+                    effects_template.append(effect_dict)
+                    LOG.debug(f"[ColdDiffusion] Added effect: {effect_dict}")
+        
+        LOG.debug(f"[ColdDiffusion] Created template with {len(effects_template)} effects")
+        return cls(name, effects_template, sample_rate)
+    
+    @classmethod
     def from_preset(cls, preset_path, sample_rate):
-        """Creates a transform instance from a YAML preset file."""
-        LOG.debug(f"[ColdDiffusion] Loading preset from {preset_path} with sample rate {sample_rate}")
-        if not Path(preset_path).exists():
-            LOG.error(f"[ColdDiffusion] Degradation preset not found: {preset_path}")
-            raise FileNotFoundError(f"Degradation preset not found: {preset_path}")
-            
+        """
+        Creates a ColdDiffusionSoxTransform from a preset file.
+        preset_path can be either:
+          - A full path to a YAML file
+          - A preset name (without extension) that exists in a effects directory
+        """
         try:
-            with open(preset_path) as file:
-                config = yaml.safe_load(file)
-            
-            effects_template = config.get("effects", [])
-            if not effects_template:
-                LOG.warning(f"[ColdDiffusion] No effects found in preset {preset_path}")
+            # Vérifier si c'est déjà un chemin complet
+            if os.path.exists(preset_path):
+                LOG.debug(f"[ColdDiffusion] Loading preset from direct path: {preset_path}")
+                preset_full_path = preset_path
             else:
-                LOG.debug(f"[ColdDiffusion] Loaded {len(effects_template)} effects from preset {preset_path}")
-                for i, effect in enumerate(effects_template):
-                    LOG.debug(f"[ColdDiffusion] Effect {i+1}: {effect}")
+                # Vérifier s'il s'agit d'un nom de preset sans extension
+                if not preset_path.endswith(".yaml"):
+                    LOG.debug(f"[ColdDiffusion] Adding .yaml extension to: {preset_path}")
+                    preset_with_ext = preset_path + ".yaml"
+                else:
+                    preset_with_ext = preset_path
+                
+                # Cas où c'est juste le nom du preset, chercher dans les répertoires d'effets
+                preset_name = os.path.basename(preset_with_ext)
+                
+                # Chercher dans les répertoires possibles (comme fait dans get_metadata_on_the_fly)
+                candidate_dirs = [
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), "../configs/dataset_configs/low_quality_effect"),
+                    "/stable_audio_tools/configs/dataset_configs/low_quality_effect",
+                    "/stable-clearaudio/configs/dataset_configs/low_quality_effect"
+                ]
+                
+                preset_full_path = None
+                for base_dir in candidate_dirs:
+                    # Normalisation du chemin
+                    if base_dir.startswith("/stable"):
+                        # Obtenir le chemin de base du projet
+                        base_path = Path(__file__).resolve().parent.parent  # Remonte de deux niveaux depuis transforms/
+                        
+                        if base_dir.startswith("/stable-clearaudio/"):
+                            relative_path = base_dir[len("/stable-clearaudio/"):]
+                            potential_dir = str(base_path / relative_path)
+                        elif base_dir.startswith("/stable_audio_tools/"):
+                            relative_path = base_dir[len("/stable_audio_tools/"):]
+                            potential_dir = str(base_path / relative_path)
+                        else:
+                            potential_dir = base_dir
                     
-            name = Path(preset_path).stem
-            LOG.debug(f"[ColdDiffusion] Created transform with name '{name}'")
-            return cls(name, effects_template, sample_rate)
+                    potential_path = os.path.join(potential_dir, preset_name)
+                    if os.path.exists(potential_path):
+                        preset_full_path = potential_path
+                        LOG.debug(f"[ColdDiffusion] Found preset at: {preset_full_path}")
+                        break
+                
+                if preset_full_path is None:
+                    LOG.error(f"[ColdDiffusion] Preset file not found anywhere: {preset_path}")
+                    return cls(f"invalid_preset_{os.path.basename(preset_path)}", [], sample_rate)
+            
+            LOG.debug(f"[ColdDiffusion] Loading preset from {preset_full_path}")
+            preset_data = load_yaml_config(preset_full_path)
+            
+            effects_template = []
+            if "effects" in preset_data:
+                for effect in preset_data["effects"]:
+                    if "name" in effect:
+                        effects_template.append(effect)
+                
+                LOG.debug(f"[ColdDiffusion] Loaded {len(effects_template)} effects from preset")
+            else:
+                LOG.warning(f"[ColdDiffusion] No 'effects' found in preset {preset_full_path}")
+                
+            return cls(os.path.basename(preset_path), effects_template, sample_rate)
         except Exception as e:
             LOG.error(f"[ColdDiffusion] Error loading preset {preset_path}: {str(e)}")
-            raise
+            import traceback
+            LOG.error(traceback.format_exc())
+            return cls(f"error_preset_{os.path.basename(preset_path)}", [], sample_rate)
 
     def _interpolate(self, value, t):
         """Linearly interpolates a value if it's a list of two numbers."""

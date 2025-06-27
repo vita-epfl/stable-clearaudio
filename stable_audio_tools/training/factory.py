@@ -2,7 +2,7 @@ import torch
 from torch.nn import Parameter
 from ..models.factory import create_model_from_config
 
-def create_training_wrapper_from_config(model_config, model):
+def create_training_wrapper_from_config(model_config, model, dataset_config=None):
     model_type = model_config.get('model_type', None)
     assert model_type is not None, 'model_type must be specified in model config'
 
@@ -77,7 +77,18 @@ def create_training_wrapper_from_config(model_config, model):
         )
     elif model_type == 'cold_diffusion_cond':
         from .diffusion import ColdDiffusionCondTrainingWrapper
-        return ColdDiffusionCondTrainingWrapper(model, **training_config)
+        
+        # Extraire les informations de dégradation du dataset_config si disponible
+        degradation_info = None
+        if dataset_config is not None:
+            # Rechercher dans les datasets pour trouver les informations de dégradation
+            for ds in dataset_config.get('datasets', []):
+                if 'custom_metadata_args' in ds and 'build_degraded_args' in ds['custom_metadata_args']:
+                    degradation_info = ds['custom_metadata_args']['build_degraded_args']
+                    break
+        
+        # Passer les informations de dégradation au wrapper
+        return ColdDiffusionCondTrainingWrapper(model, degradation_dataset_info=degradation_info, **training_config)
     elif model_type == 'diffusion_prior':
         from .diffusion import DiffusionPriorTrainingWrapper
         from ..models.diffusion_prior import PriorType
