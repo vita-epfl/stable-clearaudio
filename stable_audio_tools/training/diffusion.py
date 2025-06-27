@@ -1544,6 +1544,116 @@ def create_source_mixture(reals, num_sources=2):
 
     return source
 
+class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
+    """
+    Wrapper for training a conditional audio diffusion model using the Cold Diffusion method.
+    This method replaces Gaussian noise with a deterministic degradation process.
+    """
+    def __init__(self, *args, **kwargs):
+        # Placeholder for degradation config
+        self.degradation_config = kwargs.pop('degradation_config', None)
+        super().__init__(*args, **kwargs)
+
+        # The loss objective is different for Cold Diffusion. 
+        # We are predicting the original audio directly.
+        self.loss_modules = [
+            MSELoss("output",
+                   "targets",
+                   weight=1.0,
+                   mask_key="padding_mask" if self.mask_padding else None,
+                   name="mse_loss"
+            )
+        ]
+        self.losses = MultiLoss(self.loss_modules)
+
+    def training_step(self, batch, batch_idx):
+        reals, metadata = batch
+
+        if reals.ndim == 4 and reals.shape[0] == 1:
+            reals = reals[0]
+
+        loss_info = {}
+        diffusion_input = reals
+
+        if not self.pre_encoded:
+            loss_info["audio_reals"] = diffusion_input
+
+        conditioning = self.diffusion.conditioner(metadata, self.device)
+
+        use_padding_mask = self.mask_padding and random.random() > self.mask_padding_dropout
+        if use_padding_mask:
+            padding_masks = torch.stack([md["padding_mask"][0] for md in metadata], dim=0).to(self.device)
+
+        if self.diffusion.pretransform is not None:
+            self.diffusion.pretransform.to(self.device)
+            if not self.pre_encoded:
+                with torch.cuda.amp.autocast() and torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
+                    self.diffusion.pretransform.train(self.diffusion.pretransform.enable_grad)
+                    diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
+                    if use_padding_mask:
+                        padding_masks = F.interpolate(padding_masks.unsqueeze(1).float(), size=diffusion_input.shape[2], mode="nearest").squeeze(1).bool()
+            else:
+                if hasattr(self.diffusion.pretransform, "scale") and self.diffusion.pretransform.scale != 1.0:
+                    diffusion_input = diffusion_input / self.diffusion.pretransform.scale
+
+        # Draw uniformly distributed continuous timesteps
+        t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
+
+        # === COLD DIFFUSION DEGRADATION (Placeholder) ===
+        # In Cold Diffusion, we apply a deterministic degradation D(x, t)
+        # instead of adding Gaussian noise.
+        # For now, this is a placeholder. The actual degradation will be
+        # implemented later using a SoX-based operator.
+        degraded_inputs = diffusion_input # Placeholder: for now, the input is not degraded
+        targets = diffusion_input # The model must learn to reverse the degradation (i.e., predict the clean audio)
+        # ===============================================
+
+        # Prepare model arguments
+        extra_args = {}
+        if self.diffusion.model.cross_attn_cond_ids:
+            extra_args['cross_attn_cond'] = {k: conditioning[k] for k in self.diffusion.model.cross_attn_cond_ids if k in conditioning}
+        
+        if self.diffusion.model.global_cond_ids:
+            extra_args['global_cond'] = {k: conditioning[k] for k in self.diffusion.model.global_cond_ids if k in conditioning}
+
+        if self.diffusion.model.input_concat_ids:
+            extra_args['input_concat_cond'] = {k: conditioning[k] for k in self.diffusion.model.input_concat_ids if k in conditioning}
+
+        # Classifier-Free Guidance
+        if random.random() < self.cfg_dropout_prob:
+            # Create a shallow copy of extra_args to avoid modifying the original dictionary
+            extra_args = extra_args.copy()
+            for key in extra_args:
+                if isinstance(extra_args[key], dict):
+                    # Also create a shallow copy of the inner dictionary
+                    extra_args[key] = extra_args[key].copy()
+                    for cond_key in extra_args[key]:
+                        extra_args[key][cond_key] = torch.zeros_like(extra_args[key][cond_key])
+
+        with torch.cuda.amp.autocast():
+            output = self.diffusion(degraded_inputs, t, **extra_args)
+            loss_info.update({
+                "output": output,
+                "targets": targets
+            })
+
+            if use_padding_mask:
+                loss_info["padding_mask"] = padding_masks
+
+            loss, losses = self.losses(loss_info)
+
+        log_dict = {
+            'train/loss': loss.detach(),
+            'train/std_data': diffusion_input.std(),
+        }
+
+        if self.log_loss_info:
+            for loss_name, loss_value in losses.items():
+                log_dict[f"train/{loss_name}"] = loss_value.detach()
+
+        self.log_dict(log_dict, prog_bar=True, on_step=True)
+        return loss
+
 class DiffusionPriorTrainingWrapper(pl.LightningModule):
     '''
     Wrapper for training a diffusion prior for inverse problems
