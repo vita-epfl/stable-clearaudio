@@ -79,16 +79,16 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
         from .diffusion import ColdDiffusionCondTrainingWrapper
         
         # Extract degradation info from dataset_config if available
-        degradation_info = None
+        build_degraded_args = None
         if dataset_config is not None:
             # Search in datasets for degradation info
             for ds in dataset_config.get('datasets', []):
                 if 'custom_metadata_args' in ds and 'build_degraded_args' in ds['custom_metadata_args']:
-                    degradation_info = ds['custom_metadata_args']['build_degraded_args']
+                    build_degraded_args = ds['custom_metadata_args']['build_degraded_args']
                     break
         
         # Pass the degradation info to the wrapper
-        return ColdDiffusionCondTrainingWrapper(model, degradation_dataset_info=degradation_info, **training_config)
+        return ColdDiffusionCondTrainingWrapper(model, build_degraded_args=build_degraded_args, **training_config)
     elif model_type == 'diffusion_prior':
         from .diffusion import DiffusionPriorTrainingWrapper
         from ..models.diffusion_prior import PriorType

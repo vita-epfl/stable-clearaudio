@@ -1557,9 +1557,7 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
     """
     def __init__(self, *args, **kwargs):
         # Get degradation dataset info
-        self.degradation_dataset_info = kwargs.pop('degradation_dataset_info', None)
-        # For backward compatibility, accept also the configuration in the model
-        self.degradation_config = kwargs.pop('degradation_config', None)
+        self.build_degraded_args = kwargs.pop('build_degraded_args', None)
         
         # Clean up any other possible parameters not accepted by parent class
         # that might be in training_config but not in DiffusionCondTrainingWrapper.__init__
@@ -1592,12 +1590,12 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
         # This allows to avoid duplicating configurations
         self.degradation_ops = []
         
-        if self.degradation_dataset_info:
-            LOG.info(f"[ColdDiffusion] Using degradation dataset info")
+        if self.build_degraded_args:
+            LOG.info(f"[ColdDiffusion] Using build_degraded_args from dataset config")
             
-            effects_dir = self.degradation_dataset_info.get('low_quality_effects_dir', None)
-            preset_names = self.degradation_dataset_info.get('degradation_presets', [])
-            effects_mode = self.degradation_dataset_info.get('effects_mode', 'specific')
+            effects_dir = self.build_degraded_args.get('low_quality_effects_dir', None)
+            preset_names = self.build_degraded_args.get('degradation_presets', [])
+            effects_mode = self.build_degraded_args.get('effects_mode', 'specific')
             
             LOG.info(f"[ColdDiffusion] Effects directory from dataset: {effects_dir}")
             LOG.info(f"[ColdDiffusion] Preset names from dataset: {preset_names}")
