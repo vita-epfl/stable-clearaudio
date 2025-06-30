@@ -9,6 +9,7 @@ import typing as tp
 import wandb
 import logging
 import yaml
+import traceback
 from pathlib import Path
 
 # Configure logging to suppress matplotlib debug messages
@@ -348,7 +349,7 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
 
         loss_info = {}
 
-        diffusion_input = reals
+        diffusion_input = reals # reals are the clean audio
 
         if not self.pre_encoded:
             loss_info["audio_reals"] = diffusion_input
@@ -596,7 +597,8 @@ class DiffusionCondDemoCallback(pl.Callback):
                  demo_cfg_scales: tp.Optional[tp.List[int]] = [3, 5, 7],
                  demo_cond_from_batch: bool = False,
                  display_audio_cond: bool = False,
-                 cond_display_configs: tp.Optional[tp.List[tp.Dict[str, tp.Any]]] = None
+                 cond_display_configs: tp.Optional[tp.List[tp.Dict[str, tp.Any]]] = None,
+                 is_cold_diffusion: bool = False
     ):
         super().__init__()
 
@@ -608,6 +610,9 @@ class DiffusionCondDemoCallback(pl.Callback):
         self.last_demo_step = -1
         self.demo_conditioning = demo_conditioning
         self.demo_cfg_scales = demo_cfg_scales
+        self.is_cold_diffusion = is_cold_diffusion
+        
+        LOG.info(f"DiffusionCondDemoCallback initialized with is_cold_diffusion={self.is_cold_diffusion}")
 
         # Initialize metrics
         # Initialize metrics
@@ -768,10 +773,67 @@ class DiffusionCondDemoCallback(pl.Callback):
                 with torch.cuda.amp.autocast():
                     model = module.diffusion_ema.model if module.diffusion_ema is not None else module.diffusion.model
 
-                    if module.diffusion_objective == "v":
-                        fakes = sample(model, noise, self.demo_steps, 0, **cond_inputs, cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
-                    elif module.diffusion_objective == "rectified_flow":
-                        fakes = sample_discrete_euler(model, noise, self.demo_steps, **cond_inputs, cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
+                    # If it's Cold Diffusion, we need to apply the degradation operations
+                    if self.is_cold_diffusion and hasattr(module, 'degradation_ops') and module.degradation_ops:
+                        LOG.info(f"Generating demo with Cold Diffusion using {len(module.degradation_ops)} degradation ops")
+                        
+                        # Choose randomly one transformation from the available ones
+                        degradation_op = random.choice(module.degradation_ops)
+                        LOG.info(f"Using degradation op: {degradation_op.name}")
+                            
+                        # For Cold Diffusion, instead of using noise as starting point,
+                        # we directly degrade the original signal at t=1
+                        start_audio = clean_audio.clone()
+                        
+                        # Apply degradation with t=1 (maximum degradation)
+                        t_max = torch.ones((start_audio.shape[0], 1), device=start_audio.device)
+                        
+                        with torch.no_grad():
+                            try:
+                                # In Cold Diffusion, we start with the maximally degraded signal
+                                start_audio = degradation_op.apply(start_audio, t_max)
+                                LOG.info(f"Applied degradation to clean audio, starting sampling")
+                                
+                                # Use standard sampling method
+                                if module.diffusion_objective == "v":
+                                    LOG.info("Using v-diffusion sampling for Cold Diffusion")
+                                    
+                                    # Define callback to track restoration process
+                                    intermediates = []
+                                    def cold_callback(info):
+                                        # Save intermediate steps if necessary
+                                        if len(intermediates) < 5:  # Limit number of recorded steps
+                                            intermediates.append(info['denoised'].clone().cpu())
+                                    
+                                    # Use sample with the degraded signal instead of noise
+                                    fakes = sample(model, start_audio, self.demo_steps, 0, 
+                                                    callback=cold_callback, **cond_inputs, 
+                                                    cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
+                                    
+                                elif module.diffusion_objective == "rectified_flow":
+                                    LOG.info("Using rectified-flow sampling for Cold Diffusion")
+                                    fakes = sample_discrete_euler(model, start_audio, self.demo_steps, 
+                                                                **cond_inputs, cfg_scale=cfg_scale, 
+                                                                dist_shift=module.diffusion.dist_shift, batch_cfg=True)
+                                
+                                LOG.info(f"Generated Cold Diffusion samples with shape {fakes.shape}")
+                            except Exception as e:
+                                LOG.error(f"Error during Cold Diffusion sampling: {e}")
+                                LOG.error(traceback.format_exc())
+                                # Fallback to standard sampling
+                                if module.diffusion_objective == "v":
+                                    fakes = sample(model, noise, self.demo_steps, 0, **cond_inputs, 
+                                                    cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
+                                elif module.diffusion_objective == "rectified_flow":
+                                    fakes = sample_discrete_euler(model, noise, self.demo_steps, **cond_inputs, 
+                                                                    cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
+                                                                    
+                    else:
+                        # Diffusion standard
+                        if module.diffusion_objective == "v":
+                            fakes = sample(model, noise, self.demo_steps, 0, **cond_inputs, cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
+                        elif module.diffusion_objective == "rectified_flow":
+                            fakes = sample_discrete_euler(model, noise, self.demo_steps, **cond_inputs, cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
 
                     if module.diffusion.pretransform is not None:
                         fakes = module.diffusion.pretransform.decode(fakes)

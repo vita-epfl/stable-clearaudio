@@ -213,9 +213,10 @@ def create_demo_callback_from_config(model_config, **kwargs):
             sample_rate=model_config["sample_rate"],
             **kwargs
         )
-    elif model_type == "diffusion_cond":
+    elif model_type == "diffusion_cond" or model_type == "cold_diffusion_cond":
         from .diffusion import DiffusionCondDemoCallback
 
+        # If it's cold_diffusion_cond, we pass is_cold_diffusion=True
         return DiffusionCondDemoCallback(
             demo_every=demo_config.get("demo_every", 2000), 
             sample_size=model_config["sample_size"],
@@ -227,6 +228,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
             demo_cond_from_batch=demo_config.get("demo_cond_from_batch", False),
             display_audio_cond=demo_config.get("display_audio_cond", False),
             cond_display_configs=demo_config.get("cond_display_configs", None),
+            is_cold_diffusion=(model_type == "cold_diffusion_cond")
         )
     elif model_type == "diffusion_cond_inpaint":
         from .diffusion import DiffusionCondInpaintDemoCallback
