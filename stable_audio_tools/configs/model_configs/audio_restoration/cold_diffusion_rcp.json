@@ -39,22 +39,7 @@
                 "io_channels": 2
             }
         },
-        "conditioning": {
-            "configs": [
-                {
-                    "id": "degraded_audio",
-                    "type": "pretransform",
-                    "config": {
-                        "output_dim": 64,
-                        "sample_rate": 44100,
-                        "use_model_pretransform": true
-                    }
-                }
-            ],
-            "cond_dim": 128
-        },
         "diffusion": {
-            "input_concat_ids": ["degraded_audio"],
             "type": "dit",
             "config": {
                 "input_concat_dim": 64,
