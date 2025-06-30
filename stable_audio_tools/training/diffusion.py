@@ -1573,18 +1573,6 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
                 kwargs.pop(key, None)
         
         super().__init__(*args, **kwargs)
-
-        # The loss objective is different for Cold Diffusion. 
-        # We are predicting the original audio directly.
-        self.loss_modules = [
-            MSELoss("output",
-                   "targets",
-                   weight=1.0,
-                   mask_key="padding_mask" if self.mask_padding else None,
-                   name="mse_loss"
-            )
-        ]
-        self.losses = MultiLoss(self.loss_modules)
         
         # Use degradation dataset info if available
         # This allows to avoid duplicating configurations
@@ -1669,17 +1657,12 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
                         import traceback
                         LOG.error(traceback.format_exc())
         
-        # If no dataset info, try to use the model configuration (backward compatibility)
-        elif self.degradation_config:
-            LOG.warning("[ColdDiffusion] Using model configuration for degradation (no dataset info available)")
-            preset_paths = self.degradation_config.get('presets', [])
-            
-            for preset_name in preset_paths:
-                try:
-                    transform = ColdDiffusionSoxTransform.from_preset(preset_name, self.diffusion.sample_rate)
-                    self.degradation_ops.append(transform)
-                except Exception as e:
-                    LOG.error(f"[ColdDiffusion] Failed to create transform: {str(e)}")
+        # For backward compatibility: in the model config, parameter might be passed under a different name
+        # This is just for transitional support and will be removed in the future
+        else:
+            LOG.warning("[ColdDiffusion] No build_degraded_args found in dataset config, ColdDiffusion might not work properly")
+            LOG.warning("[ColdDiffusion] Check your dataset config and make sure build_degraded_args is correctly defined")
+            # No fallback option available now that we've unified the configuration
         
         # Check if at least one transform was created
         if not self.degradation_ops:
@@ -1744,9 +1727,6 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
         
         if self.diffusion.model.global_cond_ids:
             extra_args['global_cond'] = {k: conditioning[k] for k in self.diffusion.model.global_cond_ids if k in conditioning}
-
-        if self.diffusion.model.input_concat_ids:
-            extra_args['input_concat_cond'] = {k: conditioning[k] for k in self.diffusion.model.input_concat_ids if k in conditioning}
 
         # Classifier-Free Guidance
         if random.random() < self.cfg_dropout_prob:
