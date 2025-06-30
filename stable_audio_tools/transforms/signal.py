@@ -183,7 +183,7 @@ class ColdDiffusionSoxTransform(nn.Module):
         """
         LOG.debug(f"[ColdDiffusion] Creating from SoxEffectTransform: {name}")
         
-        # Convertir les effets SoxEffectTransform en template pour ColdDiffusionSoxTransform
+        # Convert SoxEffectTransform effects to template for ColdDiffusionSoxTransform
         effects_template = []
         
         if hasattr(sox_transform, 'effects'):
@@ -208,22 +208,22 @@ class ColdDiffusionSoxTransform(nn.Module):
           - A preset name (without extension) that exists in a effects directory
         """
         try:
-            # Vérifier si c'est déjà un chemin complet
+            # Check if it's already a complete path
             if os.path.exists(preset_path):
                 LOG.debug(f"[ColdDiffusion] Loading preset from direct path: {preset_path}")
                 preset_full_path = preset_path
             else:
-                # Vérifier s'il s'agit d'un nom de preset sans extension
+                # Check if it's a preset name without extension
                 if not preset_path.endswith(".yaml"):
                     LOG.debug(f"[ColdDiffusion] Adding .yaml extension to: {preset_path}")
                     preset_with_ext = preset_path + ".yaml"
                 else:
                     preset_with_ext = preset_path
                 
-                # Cas où c'est juste le nom du preset, chercher dans les répertoires d'effets
+                # Case where it's just the preset name, search in effect directories
                 preset_name = os.path.basename(preset_with_ext)
                 
-                # Chercher dans les répertoires possibles (comme fait dans get_metadata_on_the_fly)
+                # Search in possible directories (like done in get_metadata_on_the_fly)
                 candidate_dirs = [
                     os.path.join(os.path.dirname(os.path.abspath(__file__)), "../configs/dataset_configs/low_quality_effect"),
                     "/stable_audio_tools/configs/dataset_configs/low_quality_effect",
@@ -232,10 +232,10 @@ class ColdDiffusionSoxTransform(nn.Module):
                 
                 preset_full_path = None
                 for base_dir in candidate_dirs:
-                    # Normalisation du chemin
+                    # Normalize the path
                     if base_dir.startswith("/stable"):
-                        # Obtenir le chemin de base du projet
-                        base_path = Path(__file__).resolve().parent.parent  # Remonte de deux niveaux depuis transforms/
+                        # Get the project base path
+                        base_path = Path(__file__).resolve().parent.parent  # Go two levels up from transforms/
                         
                         if base_dir.startswith("/stable-clearaudio/"):
                             relative_path = base_dir[len("/stable-clearaudio/"):]
@@ -302,10 +302,10 @@ class ColdDiffusionSoxTransform(nn.Module):
             LOG.warning(f"[ColdDiffusion] No effects template found for {self.name}")
             return audio_tensor
 
-        # Créer un SoxEffectTransform temporaire avec les effets interpolés
+        # Create a temporary SoxEffectTransform with interpolated effects
         temp_transform = SoxEffectTransform(name=f"{self.name}_t{t:.2f}")
         
-        # Construire la liste d'effets avec interpolation des paramètres
+        # Build the list of effects with parameter interpolation
         for effect_template in self.effects_template:
             effect_name = effect_template['name']
             interpolated_args = [str(self._interpolate(arg, t)) for arg in effect_template.get('args', [])]
@@ -321,16 +321,16 @@ class ColdDiffusionSoxTransform(nn.Module):
         LOG.debug(f"[ColdDiffusion] Original audio - device: {device}, shape: {audio_tensor.shape}, min: {audio_tensor.min():.4f}, max: {audio_tensor.max():.4f}")
         
         try:
-            # Utiliser la méthode éprouvée apply_tensor qui gère correctement les dimensions et canaux
+            # Use the proven apply_tensor method which correctly handles dimensions and channels
             LOG.debug(f"[ColdDiffusion] Applying effects using SoxEffectTransform.apply_tensor: {temp_transform.effects}")
             processed_audio, out_sr = temp_transform.apply_tensor(audio_tensor, self.sample_rate)
             LOG.debug(f"[ColdDiffusion] After SoX - shape: {processed_audio.shape}, sr: {out_sr}, min: {processed_audio.min():.4f}, max: {processed_audio.max():.4f}")
             
-            # Vérifier si le traitement a préservé la forme d'onde
+            # Verify if the processing preserved the waveform shape
             if processed_audio.shape != audio_tensor.shape:
                 LOG.warning(f"[ColdDiffusion] Shape mismatch after SoX effects: input={audio_tensor.shape}, output={processed_audio.shape}")
                 
-                # Ajuster la taille si nécessaire
+                # Adjust the size if necessary
                 if processed_audio.shape[0] != audio_tensor.shape[0]:
                     LOG.debug(f"[ColdDiffusion] Fixing channel count: {processed_audio.shape[0]} -> {audio_tensor.shape[0]}")
                     if processed_audio.shape[0] == 1 and audio_tensor.shape[0] > 1:
@@ -338,7 +338,7 @@ class ColdDiffusionSoxTransform(nn.Module):
                     else:
                         processed_audio = processed_audio.mean(dim=0, keepdim=True).repeat(audio_tensor.shape[0], 1)
                 
-                # Ajuster la longueur si nécessaire
+                # Adjust the length if necessary
                 if processed_audio.shape[1] != audio_tensor.shape[1]:
                     LOG.debug(f"[ColdDiffusion] Fixing audio length: {processed_audio.shape[1]} -> {audio_tensor.shape[1]}")
                     if processed_audio.shape[1] < audio_tensor.shape[1]:
@@ -349,7 +349,7 @@ class ColdDiffusionSoxTransform(nn.Module):
                         # Trimming
                         processed_audio = processed_audio[:, :audio_tensor.shape[1]]
 
-            # Assurer que l'audio est sur le même device
+            # Ensure the audio is on the same device
             processed_audio = processed_audio.to(device)
             LOG.debug(f"[ColdDiffusion] Final degraded audio - shape: {processed_audio.shape}, min: {processed_audio.min():.4f}, max: {processed_audio.max():.4f}")
             return processed_audio
@@ -408,7 +408,7 @@ class ExternalSoundTransform(nn.Module):
             LOG.debug(f"External sound loaded with shape: {external_waveform.shape}, sample rate: {external_sr}")
             LOG.debug(f"Original audio shape: {tensor.shape}, sample rate: {sample_rate}")
             
-            # Convertir en mono si nécessaire
+            # Convert to mono if necessary
             if external_waveform.shape[0] > 1:
                 external_waveform = torch.mean(external_waveform, dim=0, keepdim=True)
                 LOG.debug(f"Converted external sound to mono: {external_waveform.shape}")
