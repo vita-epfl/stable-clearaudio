@@ -1556,10 +1556,23 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
     This method replaces Gaussian noise with a deterministic degradation process.
     """
     def __init__(self, *args, **kwargs):
-        # Récupérer les informations de dégradation du dataset
+        # Get degradation dataset info
         self.degradation_dataset_info = kwargs.pop('degradation_dataset_info', None)
         # For backward compatibility, accept also the configuration in the model
         self.degradation_config = kwargs.pop('degradation_config', None)
+        
+        # Clean up any other possible parameters not accepted by parent class
+        # that might be in training_config but not in DiffusionCondTrainingWrapper.__init__
+        accepted_params = ['model', 'lr', 'mask_padding', 'mask_padding_dropout', 
+                          'use_ema', 'log_loss_info', 'optimizer_configs', 
+                          'pre_encoded', 'cfg_dropout_prob', 'timestep_sampler',
+                          'validation_timesteps']
+        
+        # Create a copy of keys to avoid modifying during iteration
+        param_keys = list(kwargs.keys())
+        for key in param_keys:
+            if key not in accepted_params:
+                kwargs.pop(key, None)
         
         super().__init__(*args, **kwargs)
 
