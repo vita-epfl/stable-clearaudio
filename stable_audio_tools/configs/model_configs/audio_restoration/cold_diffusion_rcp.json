@@ -42,7 +42,7 @@
         "diffusion": {
             "type": "dit",
             "config": {
-                "io_channels": 128,
+                "io_channels": 64,
                 "embed_dim": 1536,
                 "depth": 24,
                 "num_heads": 24,
