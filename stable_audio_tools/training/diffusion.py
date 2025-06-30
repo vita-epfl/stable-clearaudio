@@ -489,7 +489,12 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
         diffusion_input = reals
 
         with torch.cuda.amp.autocast() and torch.no_grad():
-            conditioning = self.diffusion.conditioner(metadata, self.device)
+            if hasattr(self.diffusion, 'conditioner') and self.diffusion.conditioner is not None:
+                conditioning = self.diffusion.conditioner(metadata, self.device)
+            else:
+                # If there's no conditioner, use an empty dict
+                LOG.debug("No conditioner found, using empty conditioning dictionary")
+                conditioning = {}
 
         # TODO: decide what to do with padding masks during validation
 
@@ -797,7 +802,10 @@ class DiffusionCondDemoCallback(pl.Callback):
                                 # Use standard sampling method
                                 if module.diffusion_objective == "v":
                                     LOG.info("Using v-diffusion sampling for Cold Diffusion")
-                                    
+                                    # For Cold Diffusion we must have clean audio
+                                    if clean_audio is None:
+                                        raise ValueError("Clean audio is required for Cold Diffusion but none was found. Please check your model configuration.")
+
                                     # Define callback to track restoration process
                                     intermediates = []
                                     def cold_callback(info):
@@ -1747,7 +1755,13 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
         if not self.pre_encoded:
             loss_info["audio_reals"] = diffusion_input
 
-        conditioning = self.diffusion.conditioner(metadata, self.device)
+        # Calculate the conditioning inputs (if conditioner exists)
+        if hasattr(self.diffusion, 'conditioner') and self.diffusion.conditioner is not None:
+            conditioning = self.diffusion.conditioner(metadata, self.device)
+        else:
+            # If there's no conditioner, use an empty dict
+            LOG.debug("No conditioner found, using empty conditioning dictionary")
+            conditioning = {}
 
         use_padding_mask = self.mask_padding and random.random() > self.mask_padding_dropout
         if use_padding_mask:
@@ -1775,8 +1789,10 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
                 # For each item in the batch, choose a random degradation and apply it
                 op = random.choice(self.degradation_ops)
                 degraded_inputs[i] = op.apply(diffusion_input[i], t[i].item())
+                LOG.debug(f"Applying degradation {op.name} to sample {i}")
         else:
             # If no degradation is configured, just pass the clean audio through
+            LOG.debug("No degradation configured")
             degraded_inputs = diffusion_input
 
         targets = diffusion_input # The model must learn to reverse the degradation (i.e., predict the clean audio)
@@ -1784,15 +1800,19 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
 
         # Prepare model arguments
         extra_args = {}
-        if self.diffusion.model.cross_attn_cond_ids:
+        if hasattr(self.diffusion.model, 'cross_attn_cond_ids') and self.diffusion.model.cross_attn_cond_ids:
             extra_args['cross_attn_cond'] = {k: conditioning[k] for k in self.diffusion.model.cross_attn_cond_ids if k in conditioning}
-        
-        if self.diffusion.model.global_cond_ids:
+        if hasattr(self.diffusion.model, 'global_cond_ids') and self.diffusion.model.global_cond_ids:
             extra_args['global_cond'] = {k: conditioning[k] for k in self.diffusion.model.global_cond_ids if k in conditioning}
+        if hasattr(self.diffusion.model, 'input_concat_ids') and self.diffusion.model.input_concat_ids:
+            extra_args['input_concat_cond'] = {k: conditioning[k] for k in self.diffusion.model.input_concat_ids if k in conditioning}
 
         # Classifier-Free Guidance
         if random.random() < self.cfg_dropout_prob:
-            # Create a shallow copy of extra_args to avoid modifying the original dictionary
+            # No conditioning for CFG - create empty dictionary
+            extra_args = {}
+        else:
+            # Create a shallow copy of extra_args to avoid modifying the original
             extra_args = extra_args.copy()
             for key in extra_args:
                 if isinstance(extra_args[key], dict):
