@@ -163,7 +163,7 @@ class ColdDiffusionSoxTransform(nn.Module):
         self.effects_template = effects_template
         self.sample_rate = sample_rate
         self.random_config = random_config or {}
-        LOG.info(f"[ColdDiffusion] Initialized transform '{name}' with {len(effects_template)} effects at {sample_rate}Hz")
+        LOG.debug(f"[ColdDiffusion] Initialized transform '{name}' with {len(effects_template)} effects at {sample_rate}Hz")
         if len(effects_template) > 0:
             LOG.debug(f"[ColdDiffusion] Effects template: {effects_template}")
 
@@ -361,7 +361,10 @@ class ColdDiffusionSoxTransform(nn.Module):
         try:
             # Use the proven apply_tensor method which correctly handles dimensions and channels
             LOG.debug(f"[ColdDiffusion] Applying effects using SoxEffectTransform.apply_tensor: {temp_transform.effects}")
-            processed_audio, out_sr = temp_transform.apply_tensor(audio_tensor, self.sample_rate)
+            # Move tensor to CPU for SoX processing, then move back to original device
+            audio_tensor_cpu = audio_tensor.to('cpu')
+            processed_audio, out_sr = temp_transform.apply_tensor(audio_tensor_cpu, self.sample_rate)
+            processed_audio = processed_audio.to(device)
             LOG.debug(f"[ColdDiffusion] After SoX - shape: {processed_audio.shape}, sr: {out_sr}, min: {processed_audio.min():.4f}, max: {processed_audio.max():.4f}")
             
             # Verify if the processing preserved the waveform shape
@@ -898,63 +901,6 @@ class SoxEffectTransform(nn.Module):
             self.effects.append(effect)
         return self
 
-    def add_equalizer(self, center_freq: float, gain: float, Q: float = 0.707) -> SoxEffectTransform:
-        """
-        Apply a two-pole peaking equalisation (EQ) filter. With this filter, the signal-level at and around a selected frequency can be increased or decreased, whilst (unlike band-pass and band-reject filters) that at all other frequencies is unchanged.
-        frequency gives the filter's central frequency in Hz, width, the band-width, and gain the required gain or attenuation in dB. Beware of Clipping when using a positive gain
-
-        Taken from: https://howtoeq.wordpress.com/2010/10/07/q-factor-and-bandwidth-in-eq-what-it-all-means/
-        Q factor (float) controls the bandwidth—or number of frequencies—that will be cut or boosted by the equaliser. The lower the Q factor, the wider the bandwidth (and the more frequencies will be affected).
-        The higher the Q factor, the narrower the bandwidth (and the fewer frequencies will be affected).
-        Q-factor
-        0.7  = 2 octaves
-        1    = 1 1/3 octaves
-        1.4  = 1 octave
-        2.8  = 1/2 octave
-        4.3  = 1/3 octave
-        8.6  = 1/6 octave
-        """
-        effect = ["equalizer", str(center_freq), str(Q), str(gain)]
-        self.effects.append(effect)
-        return self
-
-    def add_overdrive(self, gain: float, colour: float) -> SoxEffectTransform:
-        """
-        gain (float) desired gain at the boost (or attenuation) in dB [0 to 100]
-        colour	(float): controls the amount of even harmonic content in the over-driven output [0, 100]
-        """
-        effect = ["overdrive", str(gain), str(colour)]
-        self.effects.append(effect)
-        return self
-
-    def add_treble(self, center_freq: float, gain: float, Q: float = 0.707) -> SoxEffectTransform:
-        """
-        gain (float) desired gain at the boost (or attenuation) in dB [-20 to 20]
-        Q factor (float) controls the bandwidth—or number of frequencies—that will be impacted
-        """
-        # Ensure parameters are within safe ranges for SoX
-        gain = max(-10, min(10, gain))  # Limit gain to very safe range
-        
-        # Use the simplest form of the treble effect which is more reliable
-        # Format: treble gain
-        effect = ['treble', str(gain)]
-        self.effects.append(effect)
-        
-        LOG.debug(f"Using simplified treble effect: {effect}")
-        return self
-
-    def add_bass(self, center_freq: float, gain: float, Q: float = 0.707) -> SoxEffectTransform:
-        """
-        gain (float) desired gain at the boost (or attenuation) in dB [-100 to 100]
-        Q factor (float) controls the bandwidth—or number of frequencies—that will be impacted
-        """
-        # The sox bass effect expects: bass gain(dB) [frequency(Hz) [width_q]]
-        # Ensure frequency is within the acceptable range for sox (usually 10-1000Hz for bass)
-        center_freq = max(10, min(1000, center_freq))
-        effect = ['bass', str(gain), str(center_freq), str(Q)]
-        self.effects.append(effect)
-        return self
-
     def add_effect(self, effect: List[Any]) -> SoxEffectTransform:
         effect = list(map(lambda x: str(x), effect))
         self.effects.append(effect)
@@ -964,11 +910,6 @@ class SoxEffectTransform(nn.Module):
         effect = ["gain", "-n"]
         if level is not None:
             effect.append(str(level))
-        self.effects.append(effect)
-        return self
-
-    def add_gain(self, gain: float = 0) -> SoxEffectTransform:
-        effect = ["gain", str(gain)]
         self.effects.append(effect)
         return self
 
@@ -985,32 +926,3 @@ class SoxEffectTransform(nn.Module):
 
     def forward(self, tensor: Tensor, sample_rate: int) -> Tuple[Tensor, int]:
         return self.apply_tensor(tensor, sample_rate)
-
-    def apply_file(self, filepath: str) -> Tuple[Tensor, int]:
-        return sox.apply_effects_file(filepath, self.effects, channels_first=True)
-
-    def process_file(self, input_filepath: str, output_folder: str, override: bool = False) -> str:
-        """Apply effect directly on an audio file and creates the transformed version by
-        using the original name and self.name returns the filepath of the transformed file
-        if transformed file already exists skip unless override is True
-        """
-        eq_name = self.name
-        if not eq_name:
-            eq_name = "eq_def"
-        inpath = Path(input_filepath).expanduser().resolve()
-        filename = str(inpath.stem)
-        ext = inpath.suffix
-
-        # Create folder if needed
-        outfolder = Path(output_folder).expanduser().resolve()
-        outfolder.mkdir(parents=True, exist_ok=True)
-
-        output_path = outfolder / (filename + "_" + eq_name + ext)
-        if output_path.exists() and not override:
-            LOG.info(f"File exist, skipping: {output_path}")
-            return str(output_path)
-
-        waveform, sr = self.apply_file(inpath)
-        torchaudio.save(output_path, waveform, sr)
-        LOG.info(f"Wrote: {output_path}")
-        return str(output_path)
