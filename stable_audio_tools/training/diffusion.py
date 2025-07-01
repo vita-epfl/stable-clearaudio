@@ -206,58 +206,140 @@ class DiffusionUncondDemoCallback(pl.Callback):
     def __init__(self,
                  demo_every=2000,
                  num_demos=8,
+                 sample_size=65536,
                  demo_steps=250,
-                 sample_rate=48000
+                 sample_rate=48000,
+                 is_cold_diffusion: bool = False
     ):
         super().__init__()
 
         self.demo_every = demo_every
         self.num_demos = num_demos
+        self.demo_samples = sample_size
         self.demo_steps = demo_steps
         self.sample_rate = sample_rate
         self.last_demo_step = -1
+        self.is_cold_diffusion = is_cold_diffusion
+        
+        LOG.info(f"DiffusionUncondDemoCallback initialized with is_cold_diffusion={self.is_cold_diffusion}")
+
+        # Initialize metrics
+        self.metrics = {
+            'lsd': LogSpectralDistance(),
+            'ltas': LTASDistance(),
+            'sisdr': SISDRMetric(),
+            'snr': SNRMetric(),
+            'stft': STFTDistance(),
+            'mel': MelDistance(sample_rate=sample_rate)
+        }
+        
+        # Store the creation time for consistent demo directory naming
+        self.creation_datetime = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     @rank_zero_only
     @torch.no_grad()
-    def on_train_batch_end(self, trainer, module, outputs, batch, batch_idx):
+    def on_train_batch_end(self, trainer, module: "DiffusionUncondTrainingWrapper", outputs, batch, batch_idx):
 
         if (trainer.global_step - 1) % self.demo_every != 0 or self.last_demo_step == trainer.global_step:
             return
-
-        self.last_demo_step = trainer.global_step
-
-        demo_samples = module.diffusion.sample_size
-
-        if module.diffusion.pretransform is not None:
-            demo_samples = demo_samples // module.diffusion.pretransform.downsampling_ratio
-
-        noise = torch.randn([self.num_demos, module.diffusion.io_channels, demo_samples]).to(module.device)
+        
+        module.eval()
 
         try:
-            with torch.cuda.amp.autocast():
-                fakes = sample(module.diffusion_ema, noise, self.demo_steps, 0)
+            print(f"Generating demo")
+            self.last_demo_step = trainer.global_step
+
+            demo_samples = self.demo_samples
+
+            clean_audio = batch[0][:self.num_demos]
+
+            original_audio_inputs = clean_audio.clone()
+            # If pretransform is used, encode and decode the audio to get the version that is used for training
+            if module.diffusion.pretransform is not None:
+                original_latent = module.diffusion.pretransform.encode(original_audio_inputs)
+                original_audio_inputs = module.diffusion.pretransform.decode(original_latent)
+            
+            original_audio_for_log = rearrange(original_audio_inputs.clone(), 'b d n -> d (b n)')
+            LOG.debug(f"Clean audio shape: {clean_audio.shape}")
+
+            if module.diffusion.pretransform is not None:
+                demo_samples = demo_samples // module.diffusion.pretransform.downsampling_ratio
+
+            noise = torch.randn([self.num_demos, module.diffusion.io_channels, demo_samples]).to(module.device)
+
+            with torch.amp.autocast("cuda"):
+                fakes = sample(
+                    module.diffusion_ema,
+                    noise,
+                    self.demo_steps,
+                    0,
+                    batch_size=self.num_demos,
+                    sample_shape=[self.num_demos, module.diffusion.io_channels, demo_samples],
+                    is_cold_diffusion=self.is_cold_diffusion
+                )
 
                 if module.diffusion.pretransform is not None:
                     fakes = module.diffusion.pretransform.decode(fakes)
 
-            # Put the demos together
-            fakes = rearrange(fakes, 'b d n -> d (b n)')
+            # Create demos directory in a location with write permissions
+            project_root = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
+            
+            # Get the wandb run name if available
+            wandb_name = ""
+            if hasattr(trainer, 'loggers'):
+                for logger in trainer.loggers:
+                    # Check for WandbLogger
+                    if "WandbLogger" in str(type(logger)):
+                        experiment = logger.experiment
+                        if hasattr(experiment, 'name'):
+                            wandb_name = f"_{experiment.name}"
+                            break
+            
+            # Use the wandb name in the demos directory path
+            demos_dir = osp.join(project_root, "stable_audio_tools", "output", "demos", f"{self.creation_datetime}{wandb_name}")
+            os.makedirs(demos_dir, exist_ok=True)
+            
+            # Use a generic filename for unconditional generation
+            filename_fake = f'demo_{trainer.global_step:08}_fake.wav'
+            filepath_fake = osp.join(demos_dir, filename_fake)
+            
+            # Save fake audio
+            fakes_for_save = fakes.to(torch.float32).div(torch.max(torch.abs(fakes))).mul(32767).to(torch.int16).cpu()
+            fakes_for_log = rearrange(fakes.clone(), 'b d n -> d (b n)')
+            torchaudio.save(filepath_fake, rearrange(fakes_for_save, 'b d n -> d (b n)'), self.sample_rate)
 
-            filename = f'demo_{trainer.global_step:08}.wav'
-            fakes = fakes.to(torch.float32).div(torch.max(torch.abs(fakes))).mul(32767).to(torch.int16).cpu()
-            torchaudio.save(filename, fakes, self.sample_rate)
+            # Save original audio
+            filename_original = f'demo_{trainer.global_step:08}_original.wav'
+            filepath_original = osp.join(demos_dir, filename_original)
+            original_for_save = original_audio_inputs.to(torch.float32).div(torch.max(torch.abs(original_audio_inputs))).mul(32767).to(torch.int16).cpu()
+            torchaudio.save(filepath_original, rearrange(original_for_save, 'b d n -> d (b n)'), self.sample_rate)
 
-            log_audio(
-                trainer.logger, "demo", filename,
-                sample_rate=self.sample_rate, caption='Reconstructed')
-            log_image(
-                trainer.logger, "demo_melspec_left",
-                audio_spectrogram_image(fakes))
+            # Logging to wandb
+            log_audio(trainer.logger, "demo_fake", filepath_fake, sample_rate=self.sample_rate, caption=f"Fake")
+            log_audio(trainer.logger, "demo_original", filepath_original, sample_rate=self.sample_rate, caption=f"Original")
 
-            del fakes
+            log_image(trainer.logger, f"demo_melspec_fake", audio_spectrogram_image(fakes_for_log))
+            log_image(trainer.logger, f"demo_melspec_original", audio_spectrogram_image(original_audio_for_log))
+
+            # Calculate and log metrics
+            metrics_results = {}
+            for name, metric in self.metrics.items():
+                try:
+                    metric.update(fakes.to(torch.float32), original_audio_inputs.to(torch.float32))
+                    metrics_results[f'demo_metrics/{name}'] = metric.compute()
+                    metric.reset()
+                except Exception as e:
+                    LOG.error(f"Error computing metric {name}: {e}")
+            
+            trainer.logger.log_metrics(metrics_results, step=trainer.global_step)
+
+            del fakes, fakes_for_save, fakes_for_log, original_for_save, original_audio_for_log
+        
         except Exception as e:
             print(f'{type(e).__name__}: {e}')
+        
         finally:
+            module.train()
             gc.collect()
             torch.cuda.empty_cache()
 
