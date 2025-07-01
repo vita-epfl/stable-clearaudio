@@ -1,9 +1,10 @@
 {
-    "model_type": "cold_diffusion_cond",
+    "model_type": "cold_diffusion_uncond",
     "sample_size": 220500,
     "sample_rate": 44100,
     "audio_channels": 2,
     "model": {
+        "type": "dit",
         "pretransform": {
             "type": "autoencoder",
             "iterate_batch": true,
@@ -42,7 +43,7 @@
         "diffusion": {
             "type": "dit",
             "config": {
-                "io_channels": 64,
+                "in_channels": 64,
                 "embed_dim": 1536,
                 "depth": 24,
                 "num_heads": 24,
@@ -53,8 +54,6 @@
         "io_channels": 64
     },
     "training": {
-        "max_epochs": 5000,
-        "use_ema": true,
         "log_loss_info": false,
         "optimizer_configs": {
             "diffusion": {

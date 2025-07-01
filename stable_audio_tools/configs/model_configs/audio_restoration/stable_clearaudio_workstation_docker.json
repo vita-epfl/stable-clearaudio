@@ -3,6 +3,7 @@
     "sample_size": 220500,
     "sample_rate": 44100,
     "audio_channels": 2,
+    "max_epochs": 1000,
     "model": {
         "pretransform": {
             "type": "autoencoder",
@@ -71,7 +72,6 @@
         "io_channels": 64
     },
     "training": {
-        "max_epochs": 1000,
         "use_ema": true,
         "log_loss_info": false,
         "optimizer_configs": {
