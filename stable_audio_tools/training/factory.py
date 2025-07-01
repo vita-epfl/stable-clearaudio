@@ -58,7 +58,10 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
         from .diffusion import DiffusionUncondTrainingWrapper
         return DiffusionUncondTrainingWrapper(
             model, 
-            lr=training_config["learning_rate"],
+            lr=training_config.get("learning_rate", None),
+            use_ema = training_config.get("use_ema", True),
+            log_loss_info=training_config.get("log_loss_info", False),
+            optimizer_configs=training_config.get("optimizer_configs", None),
             pre_encoded=training_config.get("pre_encoded", False),
         )
     elif model_type == 'diffusion_cond':
@@ -87,7 +90,15 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
                     build_degraded_args = ds['custom_metadata_args']['build_degraded_args']
                     break
 
-        return ColdDiffusionUncondTrainingWrapper(model, **training_config)
+        return ColdDiffusionUncondTrainingWrapper(
+            model, 
+            lr=training_config.get("learning_rate", None),
+            use_ema = training_config.get("use_ema", True),
+            log_loss_info=training_config.get("log_loss_info", False),
+            optimizer_configs=training_config.get("optimizer_configs", None),
+            pre_encoded=training_config.get("pre_encoded", False),
+            build_degraded_args=build_degraded_args
+        )
     elif model_type == 'diffusion_prior':
         from .diffusion import DiffusionPriorTrainingWrapper
         from ..models.diffusion_prior import PriorType

@@ -78,7 +78,8 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
             use_ema: bool = True,
             log_loss_info: bool = False,
             optimizer_configs: dict = None,
-            pre_encoded: bool = False
+            pre_encoded: bool = False,
+            **kwargs
     ):
         super().__init__()
 
