@@ -357,7 +357,10 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
         p.tick("setup")
 
         #with torch.amp.autocast(device_type="cuda"):
-        conditioning = self.diffusion.conditioner(metadata, self.device)
+        if hasattr(self.diffusion, 'conditioner') and self.diffusion.conditioner is not None:
+            conditioning = self.diffusion.conditioner(metadata, self.device)
+        else:
+            conditioning = {}
 
         # If mask_padding is on, randomly drop the padding masks to allow for learning silence padding
         use_padding_mask = self.mask_padding and random.random() > self.mask_padding_dropout
@@ -372,7 +375,7 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
             self.diffusion.pretransform.to(self.device)
 
             if not self.pre_encoded:
-                with torch.cuda.amp.autocast() and torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
+                with torch.cuda.amp.autocast(), torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
                     self.diffusion.pretransform.train(self.diffusion.pretransform.enable_grad)
 
                     diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
@@ -488,7 +491,7 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
 
         diffusion_input = reals
 
-        with torch.cuda.amp.autocast() and torch.no_grad():
+        with torch.amp.autocast("cuda"), torch.no_grad():
             if hasattr(self.diffusion, 'conditioner') and self.diffusion.conditioner is not None:
                 conditioning = self.diffusion.conditioner(metadata, self.device)
             else:
@@ -509,7 +512,7 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
             self.diffusion.pretransform.to(self.device)
 
             if not self.pre_encoded:
-                with torch.cuda.amp.autocast() and torch.no_grad():
+                with torch.amp.autocast("cuda"), torch.no_grad():
                     self.diffusion.pretransform.train(self.diffusion.pretransform.enable_grad)
 
                     diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
@@ -677,8 +680,11 @@ class DiffusionCondDemoCallback(pl.Callback):
 
         try:
             print("Getting conditioning")
-            with torch.cuda.amp.autocast():
-                conditioning = module.diffusion.conditioner(demo_cond, module.device)
+            with torch.amp.autocast("cuda"):
+                if hasattr(module.diffusion, 'conditioner') and module.diffusion.conditioner is not None:
+                    conditioning = module.diffusion.conditioner(demo_cond, module.device)
+                else:
+                    conditioning = {}
 
             cond_inputs = module.diffusion.get_conditioning_inputs(conditioning)
             cond_inputs["input_concat_cond"] = cond_inputs["input_concat_cond"][:, :, :demo_samples]
@@ -1110,7 +1116,9 @@ class DiffusionCondInpaintTrainingWrapper(pl.LightningModule):
         p.tick("setup")
 
         #with torch.cuda.amp.autocast():
-        conditioning = self.diffusion.conditioner(metadata, self.device)
+        conditioning = {}
+        if hasattr(self.diffusion, 'conditioner') and self.diffusion.conditioner is not None:
+            conditioning = self.diffusion.conditioner(metadata, self.device)
 
         p.tick("conditioning")
 
@@ -1120,7 +1128,6 @@ class DiffusionCondInpaintTrainingWrapper(pl.LightningModule):
             if not self.pre_encoded:
                 diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
                 p.tick("pretransform")
-
                 padding_masks = F.interpolate(padding_masks.unsqueeze(1).float(), size=diffusion_input.shape[2], mode="nearest").squeeze(1).bool()
             else:
                 # Apply scale to pre-encoded latents if needed, as the pretransform encode function will not be run
@@ -1292,8 +1299,10 @@ class DiffusionCondInpaintDemoCallback(pl.Callback):
 
             demo_samples = demo_reals.shape[2]
 
-            # Get conditioning
-            conditioning = module.diffusion.conditioner(metadata, module.device)
+            # Calculate the conditioning inputs
+            conditioning = {}
+            if hasattr(module.diffusion, 'conditioner') and module.diffusion.conditioner is not None:
+                conditioning = module.diffusion.conditioner(metadata, module.device)
 
             padding_masks = torch.stack([md["padding_mask"][0] for md in metadata], dim=0).to(module.device) # Shape (batch_size, sequence_length)
 
@@ -1466,7 +1475,7 @@ class DiffusionAutoencoderTrainingWrapper(pl.LightningModule):
         noised_reals = reals * alphas + noise * sigmas
         targets = noise * alphas - reals * sigmas
 
-        with torch.cuda.amp.autocast():
+        with torch.amp.autocast("cuda"):
             v = self.diffae.diffusion(noised_reals, t, input_concat_cond=latents)
 
             loss_info.update({
@@ -1711,7 +1720,7 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
         if self.diffusion.pretransform is not None:
             self.diffusion.pretransform.to(self.device)
             if not self.pre_encoded:
-                with torch.cuda.amp.autocast(), torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
+                with torch.amp.autocast("cuda"), torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
                     self.diffusion.pretransform.train(self.diffusion.pretransform.enable_grad)
                     diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
                     if use_padding_mask:
@@ -1764,8 +1773,8 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
                     for cond_key in extra_args[key]:
                         extra_args[key][cond_key] = torch.zeros_like(extra_args[key][cond_key])
 
-        with torch.cuda.amp.autocast():
-            output = self.diffusion(degraded_inputs, t, **extra_args)
+        with torch.amp.autocast('cuda'):
+            output = self.diffusion(degraded_inputs, t, cond=conditioning, **extra_args)
             loss_info.update({
                 "output": output,
                 "targets": targets
@@ -2035,7 +2044,7 @@ class DiffusionPriorDemoCallback(pl.Callback):
         encoder_input = demo_reals
 
         if module.diffusion.conditioner is not None:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast("cuda"):
                 conditioning_tensors = module.diffusion.conditioner(metadata, module.device)
 
         else:
