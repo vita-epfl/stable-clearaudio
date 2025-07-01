@@ -98,6 +98,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         self.lr = lr
 
+        self.log_loss_info = log_loss_info
         self.optimizer_configs = optimizer_configs
 
         self.rng = torch.quasirandom.SobolEngine(1, scramble=True)
@@ -1726,11 +1727,13 @@ class ColdDiffusionUncondTrainingWrapper(DiffusionUncondTrainingWrapper):
         if self.degradation_preset_paths:
             degraded_inputs = torch.zeros_like(diffusion_input)
             for i in range(diffusion_input.shape[0]):
+                print("Applying degradation preset to sample", i)
                 preset_path = random.choice(self.degradation_preset_paths)
                 op = ColdDiffusionSoxTransform.from_preset(preset_path, self.diffusion.sample_rate)
                 degraded_inputs[i] = op.apply(diffusion_input[i], t[i].item())
                 LOG.debug(f"Applying degradation preset {op.name} to sample {i} with t={t[i].item():.4f}")
         else:
+            print("No degradation presets found, using clean audio")
             degraded_inputs = diffusion_input
 
         targets = diffusion_input
