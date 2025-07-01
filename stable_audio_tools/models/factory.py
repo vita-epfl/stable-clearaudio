@@ -8,7 +8,7 @@ def create_model_from_config(model_config):
     if model_type == 'autoencoder':
         from .autoencoders import create_autoencoder_from_config
         return create_autoencoder_from_config(model_config)
-    elif model_type == 'diffusion_uncond':
+    elif model_type == 'diffusion_uncond' or model_type == 'cold_diffusion_uncond':
         from .diffusion import create_diffusion_uncond_from_config
         return create_diffusion_uncond_from_config(model_config)
     elif model_type == 'diffusion_cond' or model_type == 'cold_diffusion_cond' or model_type == 'diffusion_cond_inpaint' or model_type == "diffusion_prior":

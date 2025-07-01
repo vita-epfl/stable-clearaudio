@@ -357,10 +357,7 @@ class DiffusionCondTrainingWrapper(pl.LightningModule):
         p.tick("setup")
 
         #with torch.amp.autocast(device_type="cuda"):
-        if hasattr(self.diffusion, 'conditioner') and self.diffusion.conditioner is not None:
-            conditioning = self.diffusion.conditioner(metadata, self.device)
-        else:
-            conditioning = {}
+        conditioning = self.diffusion.conditioner(metadata, self.device)
 
         # If mask_padding is on, randomly drop the padding masks to allow for learning silence padding
         use_padding_mask = self.mask_padding and random.random() > self.mask_padding_dropout
@@ -688,14 +685,6 @@ class DiffusionCondDemoCallback(pl.Callback):
 
             cond_inputs = module.diffusion.get_conditioning_inputs(conditioning)
             cond_inputs["input_concat_cond"] = cond_inputs["input_concat_cond"][:, :, :demo_samples]
-            
-            # Use the stored creation time instead of current time
-            current_datetime = self.creation_datetime
-            
-            # Try to get max epochs from trainer
-            max_epochs = ""
-            if hasattr(trainer, 'max_epochs') and trainer.max_epochs is not None:
-                max_epochs = f"_epochs{trainer.max_epochs}"
             
             # Create demos directory in a location with write permissions
             project_root = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
@@ -1629,38 +1618,24 @@ def create_source_mixture(reals, num_sources=2):
 
     return source
 
-class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
+class ColdDiffusionUncondTrainingWrapper(DiffusionUncondTrainingWrapper):
     """
-    Wrapper for training a conditional audio diffusion model using the Cold Diffusion method.
+    Wrapper for training an unconditional audio diffusion model using the Cold Diffusion method.
     This method replaces Gaussian noise with a deterministic degradation process.
     """
-    def __init__(self, *args, **kwargs):
-        # Get degradation dataset info
-        self.build_degraded_args = kwargs.pop('build_degraded_args', None)
+    def __init__(self, model, build_degraded_args=None, **kwargs):
+        # pop log_loss_info
+        kwargs.pop("log_loss_info", None)
+        # pop optimizer_configs
+        kwargs.pop("optimizer_configs", None)
+        super().__init__(model, **kwargs)
         
-        # Clean up any other possible parameters not accepted by parent class
-        # that might be in training_config but not in DiffusionCondTrainingWrapper.__init__
-        accepted_params = ['model', 'lr', 'mask_padding', 'mask_padding_dropout', 
-                          'use_ema', 'log_loss_info', 'optimizer_configs', 
-                          'pre_encoded', 'cfg_dropout_prob', 'timestep_sampler',
-                          'validation_timesteps']
-        
-        # Create a copy of keys to avoid modifying during iteration
-        param_keys = list(kwargs.keys())
-        for key in param_keys:
-            if key not in accepted_params:
-                kwargs.pop(key, None)
-        
-        super().__init__(*args, **kwargs)
-        
-        # Use degradation dataset info if available
-        # This allows to avoid duplicating configurations
         self.degradation_preset_paths = []
-        if self.build_degraded_args:
+        if build_degraded_args:
             LOG.info("[ColdDiffusion] Initializing degradation presets from dataset config")
 
-            effects_dir = self.build_degraded_args.get('low_quality_effects_dir')
-            preset_names = self.build_degraded_args.get('degradation_presets', [])
+            effects_dir = build_degraded_args.get('low_quality_effects_dir')
+            preset_names = build_degraded_args.get('degradation_presets', [])
 
             if not effects_dir or not preset_names:
                 LOG.warning("[ColdDiffusion] 'low_quality_effects_dir' or 'degradation_presets' not found in config. No degradations will be applied.")
@@ -1692,42 +1667,38 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
         else:
             LOG.info(f"[ColdDiffusion] Loaded {len(self.degradation_preset_paths)} degradation presets.")
 
+        # Override the loss function for cold diffusion
+        loss_modules = [
+            MSELoss("output", # The model's output (predicted clean audio)
+                     "targets", # The ground truth clean audio
+                     weight=1.0,
+                     name="mse_loss"
+                )
+        ]
+        self.losses = MultiLoss(loss_modules)
 
     def training_step(self, batch, batch_idx):
-        reals, metadata = batch
+        reals = batch[0]
 
         if reals.ndim == 4 and reals.shape[0] == 1:
             reals = reals[0]
 
-        loss_info = {}
         diffusion_input = reals
+
+        loss_info = {}
 
         if not self.pre_encoded:
             loss_info["audio_reals"] = diffusion_input
 
-        # Calculate the conditioning inputs (if conditioner exists)
-        if hasattr(self.diffusion, 'conditioner') and self.diffusion.conditioner is not None:
-            conditioning = self.diffusion.conditioner(metadata, self.device)
-        else:
-            # If there's no conditioner, use an empty dict
-            LOG.debug("No conditioner found, using empty conditioning dictionary")
-            conditioning = {}
-
-        use_padding_mask = self.mask_padding and random.random() > self.mask_padding_dropout
-        if use_padding_mask:
-            padding_masks = torch.stack([md["padding_mask"][0] for md in metadata], dim=0).to(self.device)
-
         if self.diffusion.pretransform is not None:
-            self.diffusion.pretransform.to(self.device)
             if not self.pre_encoded:
-                with torch.amp.autocast("cuda"), torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
-                    self.diffusion.pretransform.train(self.diffusion.pretransform.enable_grad)
+                with torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
                     diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
-                    if use_padding_mask:
-                        padding_masks = F.interpolate(padding_masks.unsqueeze(1).float(), size=diffusion_input.shape[2], mode="nearest").squeeze(1).bool()
             else:
                 if hasattr(self.diffusion.pretransform, "scale") and self.diffusion.pretransform.scale != 1.0:
                     diffusion_input = diffusion_input / self.diffusion.pretransform.scale
+
+        loss_info["reals"] = diffusion_input
 
         # Draw uniformly distributed continuous timesteps
         t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
@@ -1736,52 +1707,22 @@ class ColdDiffusionCondTrainingWrapper(DiffusionCondTrainingWrapper):
         if self.degradation_preset_paths:
             degraded_inputs = torch.zeros_like(diffusion_input)
             for i in range(diffusion_input.shape[0]):
-                # For each item in the batch, choose a random preset, create a transform, and apply it
                 preset_path = random.choice(self.degradation_preset_paths)
-                # Create a new transform instance on-the-fly to ensure randomization
                 op = ColdDiffusionSoxTransform.from_preset(preset_path, self.diffusion.sample_rate)
                 degraded_inputs[i] = op.apply(diffusion_input[i], t[i].item())
                 LOG.debug(f"Applying degradation preset {op.name} to sample {i} with t={t[i].item():.4f}")
         else:
-            # If no degradation is configured, just pass the clean audio through
-            LOG.debug("No degradation presets configured, using clean audio as target.")
             degraded_inputs = diffusion_input
 
-        targets = diffusion_input # The model must learn to reverse the degradation (i.e., predict the clean audio)
+        targets = diffusion_input
         # ===============================================
 
-        # Prepare model arguments
-        extra_args = {}
-        if hasattr(self.diffusion.model, 'cross_attn_cond_ids') and self.diffusion.model.cross_attn_cond_ids:
-            extra_args['cross_attn_cond'] = {k: conditioning[k] for k in self.diffusion.model.cross_attn_cond_ids if k in conditioning}
-        if hasattr(self.diffusion.model, 'global_cond_ids') and self.diffusion.model.global_cond_ids:
-            extra_args['global_cond'] = {k: conditioning[k] for k in self.diffusion.model.global_cond_ids if k in conditioning}
-        if hasattr(self.diffusion.model, 'input_concat_ids') and self.diffusion.model.input_concat_ids:
-            extra_args['input_concat_cond'] = {k: conditioning[k] for k in self.diffusion.model.input_concat_ids if k in conditioning}
-
-        # Classifier-Free Guidance
-        if random.random() < self.cfg_dropout_prob:
-            # No conditioning for CFG - create empty dictionary
-            extra_args = {}
-        else:
-            # Create a shallow copy of extra_args to avoid modifying the original
-            extra_args = extra_args.copy()
-            for key in extra_args:
-                if isinstance(extra_args[key], dict):
-                    # Also create a shallow copy of the inner dictionary
-                    extra_args[key] = extra_args[key].copy()
-                    for cond_key in extra_args[key]:
-                        extra_args[key][cond_key] = torch.zeros_like(extra_args[key][cond_key])
-
         with torch.amp.autocast('cuda'):
-            output = self.diffusion(degraded_inputs, t, cond=conditioning, **extra_args)
+            output = self.diffusion(degraded_inputs, t)
             loss_info.update({
                 "output": output,
                 "targets": targets
             })
-
-            if use_padding_mask:
-                loss_info["padding_mask"] = padding_masks
 
             loss, losses = self.losses(loss_info)
 

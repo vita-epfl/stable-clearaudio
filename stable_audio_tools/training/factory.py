@@ -75,8 +75,8 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
             cfg_dropout_prob = training_config.get("cfg_dropout_prob", 0.1),
             timestep_sampler = training_config.get("timestep_sampler", "uniform"),
         )
-    elif model_type == 'cold_diffusion_cond':
-        from .diffusion import ColdDiffusionCondTrainingWrapper
+    elif model_type == 'cold_diffusion_uncond':
+        from .diffusion import ColdDiffusionUncondTrainingWrapper
         
         # Extract degradation info from dataset_config if available
         build_degraded_args = None
@@ -86,9 +86,8 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
                 if 'custom_metadata_args' in ds and 'build_degraded_args' in ds['custom_metadata_args']:
                     build_degraded_args = ds['custom_metadata_args']['build_degraded_args']
                     break
-        
-        # Pass the degradation info to the wrapper
-        return ColdDiffusionCondTrainingWrapper(model, build_degraded_args=build_degraded_args, **training_config)
+
+        return ColdDiffusionUncondTrainingWrapper(model, **training_config)
     elif model_type == 'diffusion_prior':
         from .diffusion import DiffusionPriorTrainingWrapper
         from ..models.diffusion_prior import PriorType
@@ -188,7 +187,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
             sample_rate=model_config["sample_rate"],
             **kwargs
         )
-    elif model_type == 'diffusion_uncond':
+    elif model_type == 'diffusion_uncond' or model_type == 'cold_diffusion_uncond':
         from .diffusion import DiffusionUncondDemoCallback
         return DiffusionUncondDemoCallback(
             demo_every=demo_config.get("demo_every", 2000), 
@@ -213,7 +212,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
             sample_rate=model_config["sample_rate"],
             **kwargs
         )
-    elif model_type == "diffusion_cond" or model_type == "cold_diffusion_cond":
+    elif model_type == "diffusion_cond":
         from .diffusion import DiffusionCondDemoCallback
 
         # If it's cold_diffusion_cond, we pass is_cold_diffusion=True
