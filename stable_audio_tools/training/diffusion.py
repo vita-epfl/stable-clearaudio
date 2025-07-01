@@ -75,21 +75,29 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
             self,
             model: DiffusionModelWrapper,
             lr: float = 1e-4,
+            use_ema: bool = True,
+            log_loss_info: bool = False,
+            optimizer_configs: dict = None,
             pre_encoded: bool = False
     ):
         super().__init__()
 
         self.diffusion = model
 
-        self.diffusion_ema = EMA(
-            self.diffusion.model,
-            beta=0.9999,
-            power=3/4,
-            update_every=1,
-            update_after_step=1
-        )
+        if use_ema:
+            self.diffusion_ema = EMA(
+                self.diffusion.model,
+                beta=0.9999,
+                power=3/4,
+                update_every=1,
+                update_after_step=1
+            )
+        else:
+            self.diffusion_ema = None
 
         self.lr = lr
+
+        self.optimizer_configs = optimizer_configs
 
         self.rng = torch.quasirandom.SobolEngine(1, scramble=True)
 
@@ -106,7 +114,21 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         self.pre_encoded = pre_encoded
 
     def configure_optimizers(self):
-        return optim.Adam([*self.diffusion.parameters()], lr=self.lr)
+        if self.optimizer_configs is None:
+            return optim.Adam([*self.diffusion.parameters()], lr=self.lr)
+
+        diffusion_opt_config = self.optimizer_configs['diffusion']
+        opt_diff = create_optimizer_from_config(diffusion_opt_config['optimizer'], self.diffusion.parameters())
+
+        if "scheduler" in diffusion_opt_config:
+            sched_diff = create_scheduler_from_config(diffusion_opt_config['scheduler'], opt_diff)
+            sched_diff_config = {
+                "scheduler": sched_diff,
+                "interval": "step"
+            }
+            return [opt_diff], [sched_diff_config]
+
+        return [opt_diff]
 
     def training_step(self, batch, batch_idx):
         reals = batch[0]
@@ -1624,10 +1646,6 @@ class ColdDiffusionUncondTrainingWrapper(DiffusionUncondTrainingWrapper):
     This method replaces Gaussian noise with a deterministic degradation process.
     """
     def __init__(self, model, build_degraded_args=None, **kwargs):
-        # pop log_loss_info
-        kwargs.pop("log_loss_info", None)
-        # pop optimizer_configs
-        kwargs.pop("optimizer_configs", None)
         super().__init__(model, **kwargs)
         
         self.degradation_preset_paths = []
