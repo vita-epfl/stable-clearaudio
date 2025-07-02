@@ -24,8 +24,7 @@ from torch.nn import functional as F
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 from ..interface.aeiou import pca_point_cloud, audio_spectrogram_image, tokens_spectrogram_image
-from ..inference.sampling import get_alphas_sigmas, sample, sample_discrete_euler, truncated_logistic_normal_rescaled, DistributionShift
-from ..models.conditioners import T5Conditioner, CLAPTextConditioner, CLAPAudioConditioner, IntConditioner, NumberConditioner
+from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, truncated_logistic_normal_rescaled
 from ..models.diffusion import DiffusionModelWrapper, ConditionedDiffusionModelWrapper
 from ..models.diffusion_prior import DiffusionPrior
 from ..models.autoencoders import DiffusionAutoencoder
@@ -79,11 +78,14 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
             log_loss_info: bool = False,
             optimizer_configs: dict = None,
             pre_encoded: bool = False,
+            model_type: str = 'diffusion_uncond',
+            build_degraded_args: dict = None,
             **kwargs
     ):
         super().__init__()
 
         self.diffusion = model
+        self.model_type = model_type
 
         if use_ema:
             self.diffusion_ema = EMA(
@@ -103,15 +105,63 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         self.rng = torch.quasirandom.SobolEngine(1, scramble=True)
 
-        loss_modules = [
-            MSELoss("v",
-                     "targets",
-                     weight=1.0,
-                     name="mse_loss"
-                )
-        ]
+        if self.model_type == 'cold_diffusion_uncond':
+            self.degradation_ops = []
+            if build_degraded_args:
+                LOG.info("[ColdDiffusion] Initializing degradation presets from dataset config")
 
-        self.losses = MultiLoss(loss_modules)
+                effects_dir = build_degraded_args.get('low_quality_effects_dir')
+                preset_names = build_degraded_args.get('degradation_presets', [])
+
+                if not effects_dir or not preset_names:
+                    LOG.warning("[ColdDiffusion] 'low_quality_effects_dir' or 'degradation_presets' not found in config. No degradations will be applied.")
+                else:
+                    # Resolve the absolute path for the effects directory
+                    if effects_dir.startswith("/") and not os.path.exists(effects_dir):
+                        # Assuming path is relative to project root, anchored at /stable_audio_tools/
+                        base_path = Path(__file__).resolve().parent.parent # .../stable_audio_tools
+                        if effects_dir.startswith("/stable_audio_tools/"):
+                            relative_path = effects_dir[len("/stable_audio_tools/"):]
+                            effects_dir = str(base_path / relative_path)
+                        else:
+                            LOG.warning(f"Cannot resolve path starting with '{effects_dir}'. Assuming it's a direct path that doesn't exist.")
+
+                    if not os.path.isdir(effects_dir):
+                        LOG.error(f"[ColdDiffusion] Effects directory not found or not a directory: {effects_dir}")
+                    else:
+                        LOG.info(f"[ColdDiffusion] Searching for presets in: {effects_dir}")
+                        for preset_name in preset_names:
+                            preset_path = os.path.join(effects_dir, f"{preset_name}.yaml")
+                            if os.path.exists(preset_path):
+                                op = ColdDiffusionSoxTransform.from_preset(preset_path, self.diffusion.sample_rate)
+                                self.degradation_ops.append(op)
+                                LOG.info(f"[ColdDiffusion] Found and added preset: {preset_path}")
+                            else:
+                                LOG.warning(f"[ColdDiffusion] Preset file not found, skipping: {preset_path}")
+            
+            if not self.degradation_ops:
+                LOG.warning("[ColdDiffusion] No valid degradation presets were loaded. The model will train on clean audio only.")
+            else:
+                LOG.info(f"[ColdDiffusion] Loaded {len(self.degradation_ops)} degradation presets.")
+
+            # Override the loss function for cold diffusion
+            loss_modules = [
+                MSELoss("output", # The model's output (predicted clean audio)
+                         "targets", # The ground truth clean audio
+                         weight=1.0,
+                         name="mse_loss"
+                    )
+            ]
+            self.losses = MultiLoss(loss_modules)
+        else:
+            loss_modules = [
+                MSELoss("v",
+                        "targets",
+                        weight=1.0,
+                        name="mse_loss"
+                    )
+            ]
+            self.losses = MultiLoss(loss_modules)
 
         self.pre_encoded = pre_encoded
 
@@ -159,25 +209,51 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         # Draw uniformly distributed continuous timesteps
         t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
 
-        # Calculate the noise schedule parameters for those timesteps
-        alphas, sigmas = get_alphas_sigmas(t)
+        if self.model_type == 'cold_diffusion_uncond':
+            # === COLD DIFFUSION DEGRADATION ===
+            if self.degradation_ops:
+                degraded_inputs = torch.zeros_like(diffusion_input)
+                for i in range(diffusion_input.shape[0]):
+                    op = random.choice(self.degradation_ops)
+                    op = op.to(self.device)
+                    degraded_audio = op.apply(diffusion_input[i], t[i].item())
+                    degraded_inputs[i] = degraded_audio
+                    #LOG.debug(f"Applying degradation preset {op.name} to sample {i} with t={t[i].item():.4f}")
+            else:
+                degraded_inputs = diffusion_input
 
-        # Combine the ground truth data and the noise
-        alphas = alphas[:, None, None]
-        sigmas = sigmas[:, None, None]
-        noise = torch.randn_like(diffusion_input)
-        noised_inputs = diffusion_input * alphas + noise * sigmas
-        targets = noise * alphas - diffusion_input * sigmas
+            targets = diffusion_input
+            # ===============================================
 
-        with torch.cuda.amp.autocast():
-            v = self.diffusion(noised_inputs, t)
+            with torch.amp.autocast('cuda'):
+                output = self.diffusion(degraded_inputs, t)
+                loss_info.update({
+                    "output": output,
+                    "targets": targets,
+                    "t": t
+                })
+                loss, losses = self.losses(loss_info)
 
-            loss_info.update({
-                "v": v,
-                "targets": targets
-            })
+        else:
+            # Calculate the noise schedule parameters for those timesteps
+            alphas, sigmas = get_alphas_sigmas(t)
 
-            loss, losses = self.losses(loss_info)
+            # Combine the ground truth data and the noise
+            alphas = alphas[:, None, None]
+            sigmas = sigmas[:, None, None]
+            noise = torch.randn_like(diffusion_input)
+            noised_inputs = diffusion_input * alphas + noise * sigmas
+            targets = noise * alphas - diffusion_input * sigmas
+
+            with torch.cuda.amp.autocast():
+                v = self.diffusion(noised_inputs, t)
+
+                loss_info.update({
+                    "v": v,
+                    "targets": targets
+                })
+
+                loss, losses = self.losses(loss_info)
 
         log_dict = {
             'train/loss': loss.detach(),
@@ -209,7 +285,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                  sample_size=65536,
                  demo_steps=250,
                  sample_rate=48000,
-                 is_cold_diffusion: bool = False
+                 model_type: str = 'diffusion_uncond'
     ):
         super().__init__()
 
@@ -219,9 +295,9 @@ class DiffusionUncondDemoCallback(pl.Callback):
         self.demo_steps = demo_steps
         self.sample_rate = sample_rate
         self.last_demo_step = -1
-        self.is_cold_diffusion = is_cold_diffusion
+        self.model_type = model_type
         
-        LOG.info(f"DiffusionUncondDemoCallback initialized with is_cold_diffusion={self.is_cold_diffusion}")
+        LOG.info(f"DiffusionUncondDemoCallback initialized with model_type={self.model_type}")
 
         # Initialize metrics
         self.metrics = {
@@ -267,16 +343,21 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
             noise = torch.randn([self.num_demos, module.diffusion.io_channels, demo_samples]).to(module.device)
 
-            with torch.amp.autocast("cuda"):
-                fakes = sample(
-                    module.diffusion_ema,
-                    noise,
-                    self.demo_steps,
-                    0,
-                    batch_size=self.num_demos,
-                    sample_shape=[self.num_demos, module.diffusion.io_channels, demo_samples],
-                    is_cold_diffusion=self.is_cold_diffusion
-                )
+            with torch.amp.autocast("cuda"):                
+                if self.model_type == 'cold_diffusion_uncond':
+                    fakes = sample_cold(
+                        module.diffusion_ema,
+                        noise,
+                        self.demo_steps,
+                        0
+                    )
+                else:
+                    fakes = sample(
+                        module.diffusion_ema,
+                        noise,
+                        self.demo_steps,
+                        0
+                    )
 
                 if module.diffusion.pretransform is not None:
                     fakes = module.diffusion.pretransform.decode(fakes)
@@ -708,8 +789,7 @@ class DiffusionCondDemoCallback(pl.Callback):
                  demo_cfg_scales: tp.Optional[tp.List[int]] = [3, 5, 7],
                  demo_cond_from_batch: bool = False,
                  display_audio_cond: bool = False,
-                 cond_display_configs: tp.Optional[tp.List[tp.Dict[str, tp.Any]]] = None,
-                 is_cold_diffusion: bool = False
+                 cond_display_configs: tp.Optional[tp.List[tp.Dict[str, tp.Any]]] = None
     ):
         super().__init__()
 
@@ -721,9 +801,6 @@ class DiffusionCondDemoCallback(pl.Callback):
         self.last_demo_step = -1
         self.demo_conditioning = demo_conditioning
         self.demo_cfg_scales = demo_cfg_scales
-        self.is_cold_diffusion = is_cold_diffusion
-        
-        LOG.info(f"DiffusionCondDemoCallback initialized with is_cold_diffusion={self.is_cold_diffusion}")
 
         # Initialize metrics
         # Initialize metrics
@@ -879,70 +956,11 @@ class DiffusionCondDemoCallback(pl.Callback):
                 with torch.cuda.amp.autocast():
                     model = module.diffusion_ema.model if module.diffusion_ema is not None else module.diffusion.model
 
-                    # If it's Cold Diffusion, we need to apply the degradation operations
-                    if self.is_cold_diffusion and hasattr(module, 'degradation_ops') and module.degradation_ops:
-                        LOG.info(f"Generating demo with Cold Diffusion using {len(module.degradation_ops)} degradation ops")
-                        
-                        # Choose randomly one transformation from the available ones
-                        degradation_op = random.choice(module.degradation_ops)
-                        LOG.info(f"Using degradation op: {degradation_op.name}")
-                            
-                        # For Cold Diffusion, instead of using noise as starting point,
-                        # we directly degrade the original signal at t=1
-                        start_audio = clean_audio.clone()
-                        
-                        # Apply degradation with t=1 (maximum degradation)
-                        t_max = torch.ones((start_audio.shape[0], 1), device=start_audio.device)
-                        
-                        with torch.no_grad():
-                            try:
-                                # In Cold Diffusion, we start with the maximally degraded signal
-                                start_audio = degradation_op.apply(start_audio, t_max)
-                                LOG.info(f"Applied degradation to clean audio, starting sampling")
-                                
-                                # Use standard sampling method
-                                if module.diffusion_objective == "v":
-                                    LOG.info("Using v-diffusion sampling for Cold Diffusion")
-                                    # For Cold Diffusion we must have clean audio
-                                    if clean_audio is None:
-                                        raise ValueError("Clean audio is required for Cold Diffusion but none was found. Please check your model configuration.")
-
-                                    # Define callback to track restoration process
-                                    intermediates = []
-                                    def cold_callback(info):
-                                        # Save intermediate steps if necessary
-                                        if len(intermediates) < 5:  # Limit number of recorded steps
-                                            intermediates.append(info['denoised'].clone().cpu())
-                                    
-                                    # Use sample with the degraded signal instead of noise
-                                    fakes = sample(model, start_audio, self.demo_steps, 0, 
-                                                    callback=cold_callback, **cond_inputs, 
-                                                    cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
-                                    
-                                elif module.diffusion_objective == "rectified_flow":
-                                    LOG.info("Using rectified-flow sampling for Cold Diffusion")
-                                    fakes = sample_discrete_euler(model, start_audio, self.demo_steps, 
-                                                                **cond_inputs, cfg_scale=cfg_scale, 
-                                                                dist_shift=module.diffusion.dist_shift, batch_cfg=True)
-                                
-                                LOG.info(f"Generated Cold Diffusion samples with shape {fakes.shape}")
-                            except Exception as e:
-                                LOG.error(f"Error during Cold Diffusion sampling: {e}")
-                                LOG.error(traceback.format_exc())
-                                # Fallback to standard sampling
-                                if module.diffusion_objective == "v":
-                                    fakes = sample(model, noise, self.demo_steps, 0, **cond_inputs, 
-                                                    cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
-                                elif module.diffusion_objective == "rectified_flow":
-                                    fakes = sample_discrete_euler(model, noise, self.demo_steps, **cond_inputs, 
-                                                                    cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
-                                                                    
-                    else:
-                        # Diffusion standard
-                        if module.diffusion_objective == "v":
-                            fakes = sample(model, noise, self.demo_steps, 0, **cond_inputs, cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
-                        elif module.diffusion_objective == "rectified_flow":
-                            fakes = sample_discrete_euler(model, noise, self.demo_steps, **cond_inputs, cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
+                    # Diffusion standard
+                    if module.diffusion_objective == "v":
+                        fakes = sample(model, noise, self.demo_steps, 0, **cond_inputs, cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
+                    elif module.diffusion_objective == "rectified_flow":
+                        fakes = sample_discrete_euler(model, noise, self.demo_steps, **cond_inputs, cfg_scale=cfg_scale, dist_shift=module.diffusion.dist_shift, batch_cfg=True)
 
                     if module.diffusion.pretransform is not None:
                         fakes = module.diffusion.pretransform.decode(fakes)
@@ -1723,124 +1741,6 @@ def create_source_mixture(reals, num_sources=2):
                 sources_added += 1
 
     return source
-
-class ColdDiffusionUncondTrainingWrapper(DiffusionUncondTrainingWrapper):
-    """
-    Wrapper for training an unconditional audio diffusion model using the Cold Diffusion method.
-    This method replaces Gaussian noise with a deterministic degradation process.
-    """
-    def __init__(self, model, build_degraded_args=None, **kwargs):
-        super().__init__(model, **kwargs)
-        
-        self.degradation_preset_paths = []
-        if build_degraded_args:
-            LOG.info("[ColdDiffusion] Initializing degradation presets from dataset config")
-
-            effects_dir = build_degraded_args.get('low_quality_effects_dir')
-            preset_names = build_degraded_args.get('degradation_presets', [])
-
-            if not effects_dir or not preset_names:
-                LOG.warning("[ColdDiffusion] 'low_quality_effects_dir' or 'degradation_presets' not found in config. No degradations will be applied.")
-            else:
-                # Resolve the absolute path for the effects directory
-                if effects_dir.startswith("/") and not os.path.exists(effects_dir):
-                    # Assuming path is relative to project root, anchored at /stable_audio_tools/
-                    base_path = Path(__file__).resolve().parent.parent # .../stable_audio_tools
-                    if effects_dir.startswith("/stable_audio_tools/"):
-                        relative_path = effects_dir[len("/stable_audio_tools/"):]
-                        effects_dir = str(base_path / relative_path)
-                    else:
-                        LOG.warning(f"Cannot resolve path starting with '{effects_dir}'. Assuming it's a direct path that doesn't exist.")
-
-                if not os.path.isdir(effects_dir):
-                    LOG.error(f"[ColdDiffusion] Effects directory not found or not a directory: {effects_dir}")
-                else:
-                    LOG.info(f"[ColdDiffusion] Searching for presets in: {effects_dir}")
-                    for preset_name in preset_names:
-                        preset_path = os.path.join(effects_dir, f"{preset_name}.yaml")
-                        if os.path.exists(preset_path):
-                            self.degradation_preset_paths.append(preset_path)
-                            LOG.info(f"[ColdDiffusion] Found and added preset: {preset_path}")
-                        else:
-                            LOG.warning(f"[ColdDiffusion] Preset file not found, skipping: {preset_path}")
-        
-        if not self.degradation_preset_paths:
-            LOG.warning("[ColdDiffusion] No valid degradation presets were loaded. The model will train on clean audio only.")
-        else:
-            LOG.info(f"[ColdDiffusion] Loaded {len(self.degradation_preset_paths)} degradation presets.")
-
-        # Override the loss function for cold diffusion
-        loss_modules = [
-            MSELoss("output", # The model's output (predicted clean audio)
-                     "targets", # The ground truth clean audio
-                     weight=1.0,
-                     name="mse_loss"
-                )
-        ]
-        self.losses = MultiLoss(loss_modules)
-
-    def training_step(self, batch, batch_idx):
-        reals = batch[0]
-
-        if reals.ndim == 4 and reals.shape[0] == 1:
-            reals = reals[0]
-
-        diffusion_input = reals
-
-        loss_info = {}
-
-        if not self.pre_encoded:
-            loss_info["audio_reals"] = diffusion_input
-
-        if self.diffusion.pretransform is not None:
-            if not self.pre_encoded:
-                with torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
-                    diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
-            else:
-                if hasattr(self.diffusion.pretransform, "scale") and self.diffusion.pretransform.scale != 1.0:
-                    diffusion_input = diffusion_input / self.diffusion.pretransform.scale
-
-        loss_info["reals"] = diffusion_input
-
-        # Draw uniformly distributed continuous timesteps
-        t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
-
-        # === COLD DIFFUSION DEGRADATION ===
-        if self.degradation_preset_paths:
-            degraded_inputs = torch.zeros_like(diffusion_input)
-            for i in range(diffusion_input.shape[0]):
-                print("Applying degradation preset to sample", i)
-                preset_path = random.choice(self.degradation_preset_paths)
-                op = ColdDiffusionSoxTransform.from_preset(preset_path, self.diffusion.sample_rate)
-                degraded_inputs[i] = op.apply(diffusion_input[i], t[i].item())
-                LOG.debug(f"Applying degradation preset {op.name} to sample {i} with t={t[i].item():.4f}")
-        else:
-            print("No degradation presets found, using clean audio")
-            degraded_inputs = diffusion_input
-
-        targets = diffusion_input
-        # ===============================================
-
-        with torch.amp.autocast('cuda'):
-            output = self.diffusion(degraded_inputs, t)
-            loss_info.update({
-                "output": output,
-                "targets": targets
-            })
-
-            loss, losses = self.losses(loss_info)
-
-        log_dict = {
-            'train/loss': loss.detach(),
-            'train/std_data': diffusion_input.std(),
-        }
-
-        if self.log_loss_info:
-            for loss_name, loss_value in losses.items():
-                log_dict[f"train/{loss_name}"] = loss_value.detach()
-
-        self.log_dict(log_dict, prog_bar=True, on_step=True)
-        return loss
 
 class DiffusionPriorTrainingWrapper(pl.LightningModule):
     '''

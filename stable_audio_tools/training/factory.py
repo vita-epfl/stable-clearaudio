@@ -54,7 +54,7 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
             latent_mask_ratio=latent_mask_ratio,
             teacher_model=teacher_model
         )
-    elif model_type == 'diffusion_uncond':
+    elif model_type == 'diffusion_uncond' or model_type == 'cold_diffusion_uncond':
         from .diffusion import DiffusionUncondTrainingWrapper
         return DiffusionUncondTrainingWrapper(
             model, 
@@ -63,6 +63,8 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
             log_loss_info=training_config.get("log_loss_info", False),
             optimizer_configs=training_config.get("optimizer_configs", None),
             pre_encoded=training_config.get("pre_encoded", False),
+            model_type=model_type,
+            build_degraded_args=training_config.get("build_degraded_args", None)
         )
     elif model_type == 'diffusion_cond':
         from .diffusion import DiffusionCondTrainingWrapper
@@ -77,27 +79,6 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
             pre_encoded=training_config.get("pre_encoded", False),
             cfg_dropout_prob = training_config.get("cfg_dropout_prob", 0.1),
             timestep_sampler = training_config.get("timestep_sampler", "uniform"),
-        )
-    elif model_type == 'cold_diffusion_uncond':
-        from .diffusion import ColdDiffusionUncondTrainingWrapper
-        
-        # Extract degradation info from dataset_config if available
-        build_degraded_args = None
-        if dataset_config is not None:
-            # Search in datasets for degradation info
-            for ds in dataset_config.get('datasets', []):
-                if 'custom_metadata_args' in ds and 'build_degraded_args' in ds['custom_metadata_args']:
-                    build_degraded_args = ds['custom_metadata_args']['build_degraded_args']
-                    break
-
-        return ColdDiffusionUncondTrainingWrapper(
-            model, 
-            lr=training_config.get("learning_rate", None),
-            use_ema = training_config.get("use_ema", True),
-            log_loss_info=training_config.get("log_loss_info", False),
-            optimizer_configs=training_config.get("optimizer_configs", None),
-            pre_encoded=training_config.get("pre_encoded", False),
-            build_degraded_args=build_degraded_args
         )
     elif model_type == 'diffusion_prior':
         from .diffusion import DiffusionPriorTrainingWrapper
@@ -198,13 +179,6 @@ def create_demo_callback_from_config(model_config, **kwargs):
             sample_rate=model_config["sample_rate"],
             **kwargs
         )
-    elif model_type == 'diffusion_uncond' or model_type == 'cold_diffusion_uncond':
-        from .diffusion import DiffusionUncondDemoCallback
-        return DiffusionUncondDemoCallback(
-            demo_every=demo_config.get("demo_every", 2000), 
-            demo_steps=demo_config.get("demo_steps", 250), 
-            sample_rate=model_config["sample_rate"]
-        )
     elif model_type == "diffusion_autoencoder":
         from .diffusion import DiffusionAutoencoderDemoCallback
         return DiffusionAutoencoderDemoCallback(
@@ -226,7 +200,6 @@ def create_demo_callback_from_config(model_config, **kwargs):
     elif model_type == "diffusion_cond":
         from .diffusion import DiffusionCondDemoCallback
 
-        # If it's cold_diffusion_cond, we pass is_cold_diffusion=True
         return DiffusionCondDemoCallback(
             demo_every=demo_config.get("demo_every", 2000), 
             sample_size=model_config["sample_size"],
@@ -237,8 +210,21 @@ def create_demo_callback_from_config(model_config, **kwargs):
             demo_conditioning=demo_config.get("demo_cond", {}),
             demo_cond_from_batch=demo_config.get("demo_cond_from_batch", False),
             display_audio_cond=demo_config.get("display_audio_cond", False),
-            cond_display_configs=demo_config.get("cond_display_configs", None),
-            is_cold_diffusion=(model_type == "cold_diffusion_cond")
+            cond_display_configs=demo_config.get("cond_display_configs", None)
+        )
+    elif model_type == 'diffusion_uncond' or model_type == 'cold_diffusion_uncond':
+
+        from .diffusion import DiffusionUncondDemoCallback
+        return DiffusionUncondDemoCallback(
+            demo_every=demo_config.get("demo_every", 2000), 
+            num_demos=demo_config.get("num_demos", 8),
+            sample_size=model_config["sample_size"],
+            demo_steps=demo_config.get("demo_steps", 250), 
+            sample_rate=model_config["sample_rate"],
+            demo_cfg_scales=[1.0], # Use a single CFG scale for unconditional
+            demo_conditioning={},
+            demo_cond_from_batch=False,
+            model_type=model_type
         )
     elif model_type == "diffusion_cond_inpaint":
         from .diffusion import DiffusionCondInpaintDemoCallback
