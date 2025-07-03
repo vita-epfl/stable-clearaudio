@@ -225,6 +225,58 @@ def sample(model, x, steps, eta, callback=None, sigma_max=1.0, dist_shift=None, 
     # If we are on the last timestep, output the denoised data
     return pred
 
+
+def sample_cold(model, x, steps, degradation_ops, t_start=1.0, **extra_args):
+    """
+    Cold diffusion sampling for audio restoration or generation.
+
+    This function is a general-purpose solver for the cold diffusion reverse process.
+
+    For audio restoration:
+    - x: The degraded audio input.
+    - t_start: The starting time, corresponding to the degradation level of x.
+
+    For generation from noise:
+    - The caller is responsible for creating an initial degraded signal.
+      For example, by applying a degradation_op to a noise tensor at t=1.0.
+    - x: The initial degraded signal (e.g., degraded noise).
+    - t_start: Should be 1.0.
+    
+    Args:
+        model: The diffusion model.
+        x: The initial degraded signal at t=t_start.
+        steps: The number of sampling steps.
+        degradation_ops: A list of degradation operators.
+        t_start (float, optional): The starting time for the reverse process. Defaults to 1.0.
+        **extra_args: Additional arguments for the model.
+    """
+    from tqdm.auto import trange
+    import torch
+    import random
+
+    ts = x.new_ones([x.shape[0]])
+
+    # Create the time schedule for the reverse process
+    time_schedule = torch.linspace(t_start, 0, steps + 1, device=x.device)
+
+    for i in trange(steps, disable=None):
+        t_now = time_schedule[i]
+        t_next = time_schedule[i+1]
+
+        # Predict the clean audio from the current degraded state
+        x_0_hat = model(x, ts * t_now, **extra_args)
+
+        if i < steps - 1:
+            # Re-degrade the clean prediction to get the input for the next step
+            op = random.choice(degradation_ops)
+            op = op.to(x.device)
+            x = op.apply(x_0_hat, t_next)
+        else:
+            # Last step, the output is the final clean prediction
+            x = x_0_hat
+
+    return x
+
 # Soft mask inpainting is just shrinking hard (binary) mask inpainting
 # Given a float-valued soft mask (values between 0 and 1), get the binary mask for this particular step
 def get_bmask(i, steps, mask):
