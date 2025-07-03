@@ -6,8 +6,9 @@ from torchaudio import transforms as T
 from torch.nn.functional import interpolate
 from einops import rearrange
 
+import os
 from .utils import prepare_audio
-from .sampling import sample, sample_k, sample_rf
+from .sampling import sample, sample_k, sample_rf, sample_cold
 from ..data.utils import PadCrop
 
 import logging
@@ -156,6 +157,7 @@ def generate_diffusion_uncond(
         init_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
         init_noise_level: float = 1.0,
         return_latents = False,
+        degradation_ops: tp.Optional[list] = None,
         **sampler_kwargs
         ) -> torch.Tensor:
     
@@ -208,13 +210,20 @@ def generate_diffusion_uncond(
 
     # Now the generative AI part:
 
-    diff_objective = model.diffusion_objective
+    # Check for cold diffusion model type from config
+    if model.model_config.get("model_type") == "cold_diffusion_uncond":
+        # Cold diffusion sampling process
+        if not degradation_ops:
+            raise ValueError("Cold diffusion is enabled, but no degradation operators are loaded.")
+        sampled = sample_cold(model.model, noise, steps, degradation_ops=degradation_ops, **sampler_kwargs)
+    else:
+        diff_objective = model.diffusion_objective
 
-    if diff_objective == "v":    
-        # k-diffusion denoising process go!
-        sampled = sample_k(model.model, noise, init_audio, mask, steps, **sampler_kwargs, device=device)
-    elif diff_objective == "rectified_flow":
-        sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, device=device)
+        if diff_objective == "v":    
+            # k-diffusion denoising process go!
+            sampled = sample_k(model.model, noise, init_audio, mask, steps, **sampler_kwargs, device=device)
+        elif diff_objective == "rectified_flow":
+            sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, device=device)
 
     # Denoising process done. 
     # If this is latent diffusion, decode latents back into audio
