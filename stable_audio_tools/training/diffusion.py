@@ -138,6 +138,8 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                                 LOG.info(f"[ColdDiffusion] Found and added preset: {preset_path}")
                             else:
                                 LOG.warning(f"[ColdDiffusion] Preset file not found, skipping: {preset_path}")
+            else:
+                LOG.info("[ColdDiffusion] No degradation presets specified in config. The model will train on clean audio only.")
             
             if not self.degradation_ops:
                 LOG.warning("[ColdDiffusion] No valid degradation presets were loaded. The model will train on clean audio only.")
@@ -300,14 +302,14 @@ class DiffusionUncondDemoCallback(pl.Callback):
         LOG.info(f"DiffusionUncondDemoCallback initialized with model_type={self.model_type}")
 
         # Initialize metrics
-        self.metrics = {
+        self.metrics = torch.nn.ModuleDict({
             'lsd': LogSpectralDistance(),
             'ltas': LTASDistance(),
             'sisdr': SISDRMetric(),
             'snr': SNRMetric(),
             'stft': STFTDistance(),
             'mel': MelDistance(sample_rate=sample_rate)
-        }
+        })
         
         # Store the creation time for consistent demo directory naming
         self.creation_datetime = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -341,17 +343,29 @@ class DiffusionUncondDemoCallback(pl.Callback):
             if module.diffusion.pretransform is not None:
                 demo_samples = demo_samples // module.diffusion.pretransform.downsampling_ratio
 
-            noise = torch.randn([self.num_demos, module.diffusion.io_channels, demo_samples]).to(module.device)
 
             with torch.amp.autocast("cuda"):                
                 if self.model_type == 'cold_diffusion_uncond':
+                    import random
+                    # For demos, we want to see how the model restores a degraded version of the clean audio
+                    degradation_t = 1.0 # Start from fully degraded
+                    
+                    degraded_audio = torch.zeros_like(original_audio_inputs)
+                    for i in range(original_audio_inputs.shape[0]):
+                        op = random.choice(module.degradation_ops)
+                        op = op.to(module.device)
+                        # Apply degradation to each item in the batch
+                        degraded_audio[i] = op.apply(original_audio_inputs[i], degradation_t)
+
                     fakes = sample_cold(
                         module.diffusion_ema,
-                        noise,
+                        degraded_audio,
                         self.demo_steps,
-                        0
+                        degradation_ops=module.degradation_ops,
+                        t_start=degradation_t
                     )
                 else:
+                    noise = torch.randn([self.num_demos, module.diffusion.io_channels, demo_samples]).to(module.device)
                     fakes = sample(
                         module.diffusion_ema,
                         noise,
@@ -395,24 +409,41 @@ class DiffusionUncondDemoCallback(pl.Callback):
             original_for_save = original_audio_inputs.to(torch.float32).div(torch.max(torch.abs(original_audio_inputs))).mul(32767).to(torch.int16).cpu()
             torchaudio.save(filepath_original, rearrange(original_for_save, 'b d n -> d (b n)'), self.sample_rate)
 
+            # Save degraded audio
+            filename_degraded = f'demo_{trainer.global_step:08}_degraded.wav'
+            filepath_degraded = osp.join(demos_dir, filename_degraded)
+            degraded_for_save = degraded_audio.to(torch.float32).div(torch.max(torch.abs(degraded_audio))).mul(32767).to(torch.int16).cpu()
+            degraded_for_log = rearrange(degraded_audio.clone(), 'b d n -> d (b n)')
+            torchaudio.save(filepath_degraded, rearrange(degraded_for_save, 'b d n -> d (b n)'), self.sample_rate)
+
             # Logging to wandb
             log_audio(trainer.logger, "demo_fake", filepath_fake, sample_rate=self.sample_rate, caption=f"Fake")
             log_audio(trainer.logger, "demo_original", filepath_original, sample_rate=self.sample_rate, caption=f"Original")
+            log_audio(trainer.logger, "demo_degraded", filepath_degraded, sample_rate=self.sample_rate, caption=f"Degraded")
 
             log_image(trainer.logger, f"demo_melspec_fake", audio_spectrogram_image(fakes_for_log))
             log_image(trainer.logger, f"demo_melspec_original", audio_spectrogram_image(original_audio_for_log))
+            log_image(trainer.logger, f"demo_melspec_degraded", audio_spectrogram_image(degraded_for_log))
 
             # Calculate and log metrics
-            metrics_results = {}
+            # Move metrics to the correct device
+            for metric in self.metrics.values():
+                metric.to(module.device)
+
             for name, metric in self.metrics.items():
                 try:
-                    metric.update(fakes.to(torch.float32), original_audio_inputs.to(torch.float32))
-                    metrics_results[f'demo_metrics/{name}'] = metric.compute()
-                    metric.reset()
+                    fakes_for_metric = fakes.to(torch.float32)
+                    original_audio_for_metric = original_audio_inputs.to(torch.float32)
+
+                    # Reshape from [b, c, n] to [b*c, n] for metrics
+                    if fakes_for_metric.dim() == 3:
+                        fakes_for_metric = rearrange(fakes_for_metric, 'b c n -> (b c) n')
+                        original_audio_for_metric = rearrange(original_audio_for_metric, 'b c n -> (b c) n')
+
+                    metric_val = metric(fakes_for_metric, original_audio_for_metric)
+                    log_metric(trainer.logger, f"demo/{name}", metric_val)
                 except Exception as e:
-                    LOG.error(f"Error computing metric {name}: {e}")
-            
-            trainer.logger.log_metrics(metrics_results, step=trainer.global_step)
+                    LOG.error(f"Error computing metric {name}: {e}", exc_info=True)
 
             del fakes, fakes_for_save, fakes_for_log, original_for_save, original_audio_for_log
         
