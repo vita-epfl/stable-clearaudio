@@ -159,6 +159,7 @@ class ColdDiffusionSoxTransform(nn.Module):
         args: [[48000, 8000]] # Interpolates the sample rate
     """
     def __init__(self, name, effects_template, sample_rate, random_config=None):
+        super().__init__()
         self.name = name
         self.effects_template = effects_template
         self.sample_rate = sample_rate
@@ -358,48 +359,60 @@ class ColdDiffusionSoxTransform(nn.Module):
         device = audio_tensor.device
         LOG.debug(f"[ColdDiffusion] Original audio - device: {device}, shape: {audio_tensor.shape}, min: {audio_tensor.min():.4f}, max: {audio_tensor.max():.4f}")
         
-        try:
-            # Use the proven apply_tensor method which correctly handles dimensions and channels
-            LOG.debug(f"[ColdDiffusion] Applying effects using SoxEffectTransform.apply_tensor: {temp_transform.effects}")
-            # Move tensor to CPU for SoX processing, then move back to original device
-            audio_tensor_cpu = audio_tensor.to('cpu')
-            processed_audio, out_sr = temp_transform.apply_tensor(audio_tensor_cpu, self.sample_rate)
-            processed_audio = processed_audio.to(device)
-            LOG.debug(f"[ColdDiffusion] After SoX - shape: {processed_audio.shape}, sr: {out_sr}, min: {processed_audio.min():.4f}, max: {processed_audio.max():.4f}")
-            
-            # Verify if the processing preserved the waveform shape
-            if processed_audio.shape != audio_tensor.shape:
-                LOG.warning(f"[ColdDiffusion] Shape mismatch after SoX effects: input={audio_tensor.shape}, output={processed_audio.shape}")
-                
-                # Adjust the size if necessary
-                if processed_audio.shape[0] != audio_tensor.shape[0]:
-                    LOG.debug(f"[ColdDiffusion] Fixing channel count: {processed_audio.shape[0]} -> {audio_tensor.shape[0]}")
-                    if processed_audio.shape[0] == 1 and audio_tensor.shape[0] > 1:
-                        processed_audio = processed_audio.repeat(audio_tensor.shape[0], 1)
-                    else:
-                        processed_audio = processed_audio.mean(dim=0, keepdim=True).repeat(audio_tensor.shape[0], 1)
-                
-                # Adjust the length if necessary
-                if processed_audio.shape[1] != audio_tensor.shape[1]:
-                    LOG.debug(f"[ColdDiffusion] Fixing audio length: {processed_audio.shape[1]} -> {audio_tensor.shape[1]}")
-                    if processed_audio.shape[1] < audio_tensor.shape[1]:
-                        # Padding
-                        pad_length = audio_tensor.shape[1] - processed_audio.shape[1]
-                        processed_audio = torch.nn.functional.pad(processed_audio, (0, pad_length))
-                    else:
-                        # Trimming
-                        processed_audio = processed_audio[:, :audio_tensor.shape[1]]
-
-            # Ensure the audio is on the same device
-            processed_audio = processed_audio.to(device)
-            LOG.debug(f"[ColdDiffusion] Final degraded audio - shape: {processed_audio.shape}, min: {processed_audio.min():.4f}, max: {processed_audio.max():.4f}")
-            return processed_audio
-            
-        except Exception as e:
-            LOG.error(f"[ColdDiffusion] SoX effect application failed: {str(e)}")
-            import traceback
-            LOG.error(traceback.format_exc())
+        # Handle both batched (3D) and non-batched (2D) tensors
+        is_batched = audio_tensor.dim() == 3
+        if not is_batched and audio_tensor.dim() != 2:
+            LOG.error(f"[ColdDiffusion] Unsupported tensor shape: {audio_tensor.shape}. Expected 2D or 3D tensor.")
             return audio_tensor
+
+        # Uniformly handle batched and non-batched by iterating
+        input_tensors = audio_tensor if is_batched else audio_tensor.unsqueeze(0)
+        processed_samples = []
+
+        for i, sample_in in enumerate(input_tensors):
+            try:
+                LOG.debug(f"[ColdDiffusion] Applying effects to sample {i} with shape {sample_in.shape}: {temp_transform.effects}")
+                
+                # Move tensor to CPU for SoX processing
+                audio_tensor_cpu = sample_in.to('cpu', dtype=torch.float32)
+                processed_audio, out_sr = temp_transform.apply_tensor(audio_tensor_cpu, self.sample_rate)
+                
+                # Move back to original device
+                processed_audio = processed_audio.to(device)
+                LOG.debug(f"[ColdDiffusion] After SoX for sample {i} - shape: {processed_audio.shape}, sr: {out_sr}")
+
+                # Verify and fix shape if necessary
+                if processed_audio.shape != sample_in.shape:
+                    LOG.warning(f"[ColdDiffusion] Shape mismatch for sample {i}: input={sample_in.shape}, output={processed_audio.shape}")
+                    
+                    # Adjust channel count
+                    if processed_audio.shape[0] != sample_in.shape[0]:
+                        LOG.debug(f"[ColdDiffusion] Fixing channel count for sample {i}: {processed_audio.shape[0]} -> {sample_in.shape[0]}")
+                        if processed_audio.shape[0] == 1 and sample_in.shape[0] > 1:
+                            processed_audio = processed_audio.repeat(sample_in.shape[0], 1)
+                        else: # Collapse to mono and repeat
+                            processed_audio = processed_audio.mean(dim=0, keepdim=True).repeat(sample_in.shape[0], 1)
+                    
+                    # Adjust length
+                    if processed_audio.shape[1] != sample_in.shape[1]:
+                        LOG.debug(f"[ColdDiffusion] Fixing audio length for sample {i}: {processed_audio.shape[1]} -> {sample_in.shape[1]}")
+                        processed_audio = F.interpolate(processed_audio.unsqueeze(0), size=sample_in.shape[1], mode='linear', align_corners=False).squeeze(0)
+
+                processed_samples.append(processed_audio)
+
+            except Exception as e:
+                LOG.error(f"[ColdDiffusion] SoX effect application failed on sample {i}: {e}")
+                LOG.error(f"[ColdDiffusion] Traceback (most recent call last):\n{traceback.format_exc()}")
+                # In case of error, append the original sample to avoid crashing
+                processed_samples.append(sample_in)
+        
+        # Stack the processed samples back into a single tensor
+        if not processed_samples:
+            LOG.warning("[ColdDiffusion] No samples were processed.")
+            return audio_tensor
+            
+        output_tensor = torch.stack(processed_samples)
+        return output_tensor if is_batched else output_tensor.squeeze(0)
 
 
 class ExternalSoundTransform(nn.Module):
