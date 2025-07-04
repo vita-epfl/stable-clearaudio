@@ -160,6 +160,23 @@ class DiffusionTransformer(nn.Module):
         return_info=False,
         **kwargs):
 
+        """
+        This is the forward pass of the model. It takes in the input x and the timestep t, and returns the output of the model.
+        
+        Args:
+            x: The input to the model.
+            t: The timestep.
+            mask: The mask for the input.
+            cross_attn_cond: The cross attention conditioning.
+            cross_attn_cond_mask: The mask for the cross attention conditioning.
+            input_concat_cond: The input concatenation conditioning.
+            global_embed: The global embedding.
+            prepend_cond: The prepend conditioning.
+            prepend_cond_mask: The mask for the prepend conditioning.
+            return_info: Whether to return additional information.
+            **kwargs: Additional keyword arguments.
+        """
+
         if cross_attn_cond is not None:
             cross_attn_cond = self.to_cond_embed(cross_attn_cond)
 
