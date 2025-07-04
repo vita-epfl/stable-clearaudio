@@ -47,7 +47,7 @@ LOG = logging.getLogger(__name__)
 
 # handler
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.INFO)
+LOG.setLevel(logging.DEBUG)
 
 
 class Profiler:
@@ -195,53 +195,64 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         if reals.ndim == 4 and reals.shape[0] == 1:
             reals = reals[0]
 
-        diffusion_input = reals
-
         loss_info = {}
 
         if not self.pre_encoded:
-            loss_info["audio_reals"] = diffusion_input
-
-        if self.diffusion.pretransform is not None:
-            if not self.pre_encoded:
-                with torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
-                    diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
-            else:
-                # Apply scale to pre-encoded latents if needed, as the pretransform encode function will not be run
-                if hasattr(self.diffusion.pretransform, "scale") and self.diffusion.pretransform.scale != 1.0:
-                    diffusion_input = diffusion_input / self.diffusion.pretransform.scale
-
-        loss_info["reals"] = diffusion_input
+            loss_info["audio_reals"] = reals
 
         # Draw uniformly distributed continuous timesteps
         t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
 
         if self.model_type == 'cold_diffusion_uncond':
-            # === COLD DIFFUSION DEGRADATION ===
+            LOG.debug("[ColdDiffusion] Using cold diffusion")
+            # For cold diffusion, degradation is applied to the raw audio waveform
             if self.degradation_ops:
-                degraded_inputs = torch.zeros_like(diffusion_input)
-                for i in range(diffusion_input.shape[0]):
+                degraded_reals = torch.zeros_like(reals)
+                for i in range(reals.shape[0]):
                     op = random.choice(self.degradation_ops)
                     op = op.to(self.device)
-                    degraded_audio = op.apply(diffusion_input[i], t[i].item())
-                    degraded_inputs[i] = degraded_audio
-                    #LOG.debug(f"Applying degradation preset {op.name} to sample {i} with t={t[i].item():.4f}")
+                    degraded_reals[i] = op.apply(reals[i], t[i].item())
             else:
-                degraded_inputs = diffusion_input
+                LOG.debug("No degradation ops specified, using clean audio as input")
+                degraded_reals = reals
 
-            targets = diffusion_input
-            # ===============================================
+            # The model's target is the clean audio (or its latent representation)
+            targets = reals
+            # The model's input is the degraded audio (or its latent representation)
+            model_input = degraded_reals
+
+            # Encode both if a pretransform (autoencoder) is being used
+            if self.diffusion.pretransform is not None:
+                with torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
+                    targets = self.diffusion.pretransform.encode(targets)
+                    model_input = self.diffusion.pretransform.encode(model_input)
+            
+            loss_info["reals"] = targets
+
+            # The "diffusion_input" is the clean latent, for logging purposes
+            diffusion_input = targets
 
             with torch.amp.autocast('cuda'):
-                output = self.diffusion(degraded_inputs, t)
+                output = self.diffusion(model_input, t)
                 loss_info.update({
                     "output": output,
                     "targets": targets,
                     "t": t
                 })
                 loss, losses = self.losses(loss_info)
-
         else:
+            # Original diffusion logic for other model types
+            diffusion_input = reals
+            if self.diffusion.pretransform is not None:
+                if not self.pre_encoded:
+                    with torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
+                        diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
+                else:
+                    if hasattr(self.diffusion.pretransform, "scale") and self.diffusion.pretransform.scale != 1.0:
+                        diffusion_input = diffusion_input / self.diffusion.pretransform.scale
+            
+            loss_info["reals"] = diffusion_input
+
             # Calculate the noise schedule parameters for those timesteps
             alphas, sigmas = get_alphas_sigmas(t)
 
@@ -350,40 +361,42 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
         with torch.amp.autocast("cuda"):                
             if self.model_type == 'cold_diffusion_uncond':
-                import random
                 # For demos, we want to see how the model restores a degraded version of the clean audio
                 degradation_t = 1.0 # Start from fully degraded
                 
                 degraded_audio = torch.zeros_like(original_audio_inputs)
-                for i in range(original_audio_inputs.shape[0]):
-                    op = random.choice(module.degradation_ops)
-                    LOG.debug(f"Applying degradation: {op.name}")
-                    op = op.to(module.device)
-                    # Apply degradation to each item in the batch
-                    degraded_audio[i] = op.apply(original_audio_inputs[i], degradation_t)
-                
-                # Process degraded audio through pretransform if available, similar to generate_diffusion_cond
-                LOG.debug(f"[ColdDiffusion] Processing degraded audio, shape before: {degraded_audio.shape}")
-                
-                # Follow the same pattern as in generate_diffusion_cond
-                degraded_latent = degraded_audio
-                if module.diffusion.pretransform is not None:
-                    # Encode the degraded audio to latent space
-                    LOG.debug(f"[ColdDiffusion] Encoding degraded audio with pretransform")
-                    degraded_latent = module.diffusion.pretransform.encode(degraded_audio)
-                    LOG.debug(f"[ColdDiffusion] Degraded latent shape after encoding: {degraded_latent.shape}")
-                
-                # No need to manually match channels or use preprocess_conv directly
-                # The model will handle this internally during the sample_cold function call
+                fakes = torch.zeros_like(original_audio_inputs)
 
-                fakes = sample_cold(
-                    module.diffusion_ema,
-                    degraded_latent,
-                    self.demo_steps,
-                    degradation_ops=module.degradation_ops,
-                    pretransform=module.diffusion.pretransform,
-                    t_start=degradation_t
-                )
+                for i in range(original_audio_inputs.shape[0]):
+                    # For each demo, pick one degradation and stick with it for the whole sampling process
+                    op = random.choice(module.degradation_ops)
+                    LOG.debug(f"Applying degradation: {op.name} for demo sample {i}")
+                    op = op.to(module.device)
+                    
+                    # Apply degradation to the single item
+                    current_degraded_audio = op.apply(original_audio_inputs[i], degradation_t)
+                    degraded_audio[i] = current_degraded_audio
+
+                    # Process the single degraded audio through pretransform if available
+                    degraded_latent = current_degraded_audio.unsqueeze(0) # Add batch dimension
+                    if module.diffusion.pretransform is not None:
+                        degraded_latent = module.diffusion.pretransform.encode(degraded_latent)
+
+                    # Sample using only the chosen degradation op
+                    fake_latent = sample_cold(
+                        module.diffusion_ema,
+                        degraded_latent,
+                        self.demo_steps,
+                        degradation_ops=[op], # Pass only the selected op
+                        pretransform=module.diffusion.pretransform,
+                        t_start=degradation_t
+                    )
+
+                    # Decode the result if necessary
+                    if module.diffusion.pretransform is not None:
+                        fakes[i] = module.diffusion.pretransform.decode(fake_latent).squeeze(0)
+                    else:
+                        fakes[i] = fake_latent.squeeze(0)
             else:
                 noise = torch.randn([self.num_demos, module.diffusion.io_channels, demo_samples]).to(module.device)
                 fakes = sample(

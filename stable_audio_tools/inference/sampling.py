@@ -1,9 +1,19 @@
+import logging
 import torch
 import math
 from tqdm import trange, tqdm
 import torch.distributions as dist
+from tqdm.auto import trange
+import random
 
 import k_diffusion as K
+
+LOG = logging.getLogger(__name__)
+
+# Logging configuration
+logging.basicConfig(level=logging.DEBUG, 
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    force=True)
 
 # Define the noise schedule and sampling loop
 def get_alphas_sigmas(t):
@@ -225,13 +235,12 @@ def sample(model, x, steps, eta, callback=None, sigma_max=1.0, dist_shift=None, 
     # If we are on the last timestep, output the denoised data
     return pred
 
-
 def sample_cold(
     model,
-    x, # The initial degraded latent at t=t_start.
+    x,
     steps,
-    degradation_ops,
-    pretransform,
+    degradation_ops=None,
+    pretransform=None,
     t_start=1.0,
     **extra_args
 ):
@@ -257,9 +266,6 @@ def sample_cold(
         t_start (float, optional): The starting time for the reverse process. Defaults to 1.0.
         **extra_args: Additional arguments for the model.
     """
-    from tqdm.auto import trange
-    import torch
-    import random
 
     # Make tensor of ones to broadcast the single t values
     ts = x.new_ones([x.shape[0]])
