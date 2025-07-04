@@ -47,7 +47,7 @@ LOG = logging.getLogger(__name__)
 
 # handler
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.DEBUG)
+LOG.setLevel(logging.INFO)
 
 
 class Profiler:
@@ -359,20 +359,20 @@ class DiffusionUncondDemoCallback(pl.Callback):
             demo_samples = demo_samples // module.diffusion.pretransform.downsampling_ratio
 
 
-        with torch.amp.autocast("cuda"):                
+        with torch.amp.autocast("cuda"):
             if self.model_type == 'cold_diffusion_uncond':
                 # For demos, we want to see how the model restores a degraded version of the clean audio
                 degradation_t = 1.0 # Start from fully degraded
-                
+
                 degraded_audio = torch.zeros_like(original_audio_inputs)
-                fakes = torch.zeros_like(original_audio_inputs)
+                fakes = torch.zeros_like(original_audio_inputs) # Initialize fakes tensor for the batch
 
                 for i in range(original_audio_inputs.shape[0]):
                     # For each demo, pick one degradation and stick with it for the whole sampling process
                     op = random.choice(module.degradation_ops)
                     LOG.debug(f"Applying degradation: {op.name} for demo sample {i}")
                     op = op.to(module.device)
-                    
+
                     # Apply degradation to the single item
                     current_degraded_audio = op.apply(original_audio_inputs[i], degradation_t)
                     degraded_audio[i] = current_degraded_audio
@@ -392,22 +392,9 @@ class DiffusionUncondDemoCallback(pl.Callback):
                         t_start=degradation_t
                     )
 
-                    # Decode the result if necessary
+                    # Decode the result right here if necessary
                     if module.diffusion.pretransform is not None:
                         fakes[i] = module.diffusion.pretransform.decode(fake_latent).squeeze(0)
-                    else:
-                        fakes[i] = fake_latent.squeeze(0)
-            else:
-                noise = torch.randn([self.num_demos, module.diffusion.io_channels, demo_samples]).to(module.device)
-                fakes = sample(
-                    module.diffusion_ema,
-                    noise,
-                    self.demo_steps,
-                    0
-                )
-
-            if module.diffusion.pretransform is not None:
-                fakes = module.diffusion.pretransform.decode(fakes)
 
         # Create demos directory in a location with write permissions
         project_root = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
@@ -448,15 +435,14 @@ class DiffusionUncondDemoCallback(pl.Callback):
         log_audio(trainer.logger, "demo_original", filepath_original, sample_rate=self.sample_rate, caption=f"Original")
         log_image(trainer.logger, f"demo_melspec_original", audio_spectrogram_image(original_audio_for_log))
 
-        if self.model_type == 'cold_diffusion_uncond':
-            # Save degraded audio
-            filename_degraded = f'demo_{trainer.global_step:08}_degraded.wav'
-            filepath_degraded = osp.join(demos_dir, filename_degraded)
-            degraded_for_save = degraded_audio.to(torch.float32).div(torch.max(torch.abs(degraded_audio))).mul(32767).to(torch.int16).cpu()
-            degraded_for_log = rearrange(degraded_audio.clone(), 'b d n -> d (b n)')
-            torchaudio.save(filepath_degraded, rearrange(degraded_for_save, 'b d n -> d (b n)'), self.sample_rate)
-            log_audio(trainer.logger, "demo_degraded", filepath_degraded, sample_rate=self.sample_rate, caption=f"Degraded")
-            log_image(trainer.logger, f"demo_melspec_degraded", audio_spectrogram_image(degraded_for_log))
+        # Save degraded audio
+        filename_degraded = f'demo_{trainer.global_step:08}_degraded.wav'
+        filepath_degraded = osp.join(demos_dir, filename_degraded)
+        degraded_for_save = degraded_audio.to(torch.float32).div(torch.max(torch.abs(degraded_audio))).mul(32767).to(torch.int16).cpu()
+        degraded_for_log = rearrange(degraded_audio.clone(), 'b d n -> d (b n)')
+        torchaudio.save(filepath_degraded, rearrange(degraded_for_save, 'b d n -> d (b n)'), self.sample_rate)
+        log_audio(trainer.logger, "demo_degraded", filepath_degraded, sample_rate=self.sample_rate, caption=f"Degraded")
+        log_image(trainer.logger, f"demo_melspec_degraded", audio_spectrogram_image(degraded_for_log))
 
         # Calculate and log metrics
         # Move metrics to the correct device
