@@ -357,6 +357,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                 degraded_audio = torch.zeros_like(original_audio_inputs)
                 for i in range(original_audio_inputs.shape[0]):
                     op = random.choice(module.degradation_ops)
+                    LOG.debug(f"Applying degradation: {op.name}")
                     op = op.to(module.device)
                     # Apply degradation to each item in the batch
                     degraded_audio[i] = op.apply(original_audio_inputs[i], degradation_t)
@@ -380,6 +381,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                     degraded_latent,
                     self.demo_steps,
                     degradation_ops=module.degradation_ops,
+                    pretransform=module.diffusion.pretransform,
                     t_start=degradation_t
                 )
             else:
@@ -429,8 +431,8 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
         # Logging to wandb
         log_audio(trainer.logger, "demo_fake", filepath_fake, sample_rate=self.sample_rate, caption=f"Fake")
-        log_audio(trainer.logger, "demo_original", filepath_original, sample_rate=self.sample_rate, caption=f"Original")
         log_image(trainer.logger, f"demo_melspec_fake", audio_spectrogram_image(fakes_for_log))
+        log_audio(trainer.logger, "demo_original", filepath_original, sample_rate=self.sample_rate, caption=f"Original")
         log_image(trainer.logger, f"demo_melspec_original", audio_spectrogram_image(original_audio_for_log))
 
         if self.model_type == 'cold_diffusion_uncond':

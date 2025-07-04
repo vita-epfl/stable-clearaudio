@@ -226,15 +226,21 @@ def sample(model, x, steps, eta, callback=None, sigma_max=1.0, dist_shift=None, 
     return pred
 
 
-def sample_cold(model, x, steps, degradation_ops, t_start=1.0, **extra_args):
+def sample_cold(
+    model,
+    x, # The initial degraded latent at t=t_start.
+    steps,
+    degradation_ops,
+    pretransform,
+    t_start=1.0,
+    **extra_args
+):
     """
-    Cold diffusion sampling for audio restoration or generation.
+    Cold Diffusion sampling process.
 
-    This function is a general-purpose solver for the cold diffusion reverse process.
-
-    For audio restoration:
-    - x: The degraded audio input.
-    - t_start: The starting time, corresponding to the degradation level of x.
+    For generation from a degraded signal:
+    - x: The degraded signal (latent).
+    - t_start: The time corresponding to the degradation level of x.
 
     For generation from noise:
     - The caller is responsible for creating an initial degraded signal.
@@ -244,9 +250,10 @@ def sample_cold(model, x, steps, degradation_ops, t_start=1.0, **extra_args):
     
     Args:
         model: The diffusion model.
-        x: The initial degraded signal at t=t_start.
+        x: The initial degraded latent at t=t_start.
         steps: The number of sampling steps.
         degradation_ops: A list of degradation operators.
+        pretransform: The autoencoder model to decode/encode latents.
         t_start (float, optional): The starting time for the reverse process. Defaults to 1.0.
         **extra_args: Additional arguments for the model.
     """
@@ -254,6 +261,7 @@ def sample_cold(model, x, steps, degradation_ops, t_start=1.0, **extra_args):
     import torch
     import random
 
+    # Make tensor of ones to broadcast the single t values
     ts = x.new_ones([x.shape[0]])
 
     # Create the time schedule for the reverse process
@@ -263,17 +271,25 @@ def sample_cold(model, x, steps, degradation_ops, t_start=1.0, **extra_args):
         t_now = time_schedule[i]
         t_next = time_schedule[i+1]
 
-        # Predict the clean audio from the current degraded state
-        x_0_hat = model(x, ts * t_now, **extra_args)
+        # Predict the clean latent from the current degraded state
+        x_0_hat_latent = model(x, ts * t_now, **extra_args)
 
         if i < steps - 1:
+            # Decode the clean latent to audio
+            x_0_hat_audio = pretransform.decode(x_0_hat_latent)
+
             # Re-degrade the clean prediction to get the input for the next step
             op = random.choice(degradation_ops)
             op = op.to(x.device)
-            x = op.apply(x_0_hat, t_next)
+            
+            # Apply degradation in audio space
+            redegraded_audio = op.apply(x_0_hat_audio, t_next)
+            
+            # Encode the re-degraded audio back to latent
+            x = pretransform.encode(redegraded_audio)
         else:
-            # Last step, the output is the final clean prediction
-            x = x_0_hat
+            # Last step, the output is the final clean prediction (latent)
+            x = x_0_hat_latent
 
     return x
 
