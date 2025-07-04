@@ -158,15 +158,18 @@ class ColdDiffusionSoxTransform(nn.Module):
       - name: rate
         args: [[48000, 8000]] # Interpolates the sample rate
     """
-    def __init__(self, name, effects_template, sample_rate, random_config=None):
+    def __init__(self, name, effects_template, sample_rate, random_config=None, seed=None):
         super().__init__()
         self.name = name
         self.effects_template = effects_template
         self.sample_rate = sample_rate
         self.random_config = random_config or {}
+        self.seed = seed
         LOG.debug(f"[ColdDiffusion] Initialized transform '{name}' with {len(effects_template)} effects at {sample_rate}Hz")
         if len(effects_template) > 0:
             LOG.debug(f"[ColdDiffusion] Effects template: {effects_template}")
+        if self.seed is not None:
+            LOG.debug(f"[ColdDiffusion] Using fixed seed: {self.seed}")
 
     @classmethod
     def from_sox_transform(cls, sox_transform, name, sample_rate):
@@ -201,12 +204,21 @@ class ColdDiffusionSoxTransform(nn.Module):
         return cls(name, effects_template, sample_rate)
     
     @classmethod
-    def from_preset(cls, preset_path, sample_rate):
+    def from_preset(cls, preset_path, sample_rate, seed=None):
         """
         Creates a ColdDiffusionSoxTransform from a preset file.
         preset_path can be either:
           - A full path to a YAML file
           - A preset name (without extension) that exists in a effects directory
+
+        Parameters:
+            cls (type): The class to instantiate
+            preset_path (str): Path to the preset file or preset name
+            sample_rate (int): Sample rate to use
+            seed (int, optional): Seed for random number generator
+
+        Returns:
+            A ColdDiffusionSoxTransform instance
         """
         try:
             # Check if it's already a complete path
@@ -255,7 +267,7 @@ class ColdDiffusionSoxTransform(nn.Module):
                 
                 if preset_full_path is None:
                     LOG.error(f"[ColdDiffusion] Preset file not found anywhere: {preset_path}")
-                    return cls(f"invalid_preset_{os.path.basename(preset_path)}", [], sample_rate)
+                    return cls(f"invalid_preset_{os.path.basename(preset_path)}", [], sample_rate, seed=seed)
             
             LOG.debug(f"[ColdDiffusion] Loading preset from {preset_full_path}")
             preset_data = load_yaml_config(preset_full_path)
@@ -282,12 +294,12 @@ class ColdDiffusionSoxTransform(nn.Module):
                 total_weight = sum(weights)
                 random_config['weights'] = [w / total_weight for w in weights]
 
-            return cls(os.path.basename(preset_path), effects_template, sample_rate, random_config=random_config)
+            return cls(os.path.basename(preset_path), effects_template, sample_rate, random_config=random_config, seed=seed)
         except Exception as e:
             LOG.error(f"[ColdDiffusion] Error loading preset {preset_path}: {str(e)}")
             import traceback
             LOG.error(traceback.format_exc())
-            return cls(f"error_preset_{os.path.basename(preset_path)}", [], sample_rate)
+            return cls(f"error_preset_{os.path.basename(preset_path)}", [], sample_rate, seed=seed)
 
     def _interpolate(self, value, t):
         """Linearly interpolates a value if it's a list of two numbers."""
@@ -310,6 +322,10 @@ class ColdDiffusionSoxTransform(nn.Module):
         and applies it to the audio tensor.
         """
         LOG.debug(f"[ColdDiffusion] Applying effects with timestep t={t:.4f} to tensor shape={audio_tensor.shape}")
+
+        if self.seed is not None:
+            np.random.seed(self.seed) # Ensure deterministic degradation
+            LOG.debug(f"[ColdDiffusion] Applied seed {self.seed} for deterministic degradation.")
         
         if not self.effects_template:
             LOG.warning(f"[ColdDiffusion] No effects template found for {self.name}")

@@ -113,6 +113,10 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
                 effects_dir = build_degraded_args.get('low_quality_effects_dir')
                 preset_names = build_degraded_args.get('degradation_presets', [])
+                degradation_seed = build_degraded_args.get('degradation_seed')
+
+                if degradation_seed is not None:
+                    LOG.info(f"[ColdDiffusion] Using degradation seed: {degradation_seed}")
 
                 if not effects_dir or not preset_names:
                     LOG.warning("[ColdDiffusion] 'low_quality_effects_dir' or 'degradation_presets' not found in config. No degradations will be applied.")
@@ -134,7 +138,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                         for preset_name in preset_names:
                             preset_path = os.path.join(effects_dir, f"{preset_name}.yaml")
                             if os.path.exists(preset_path):
-                                op = ColdDiffusionSoxTransform.from_preset(preset_path, self.diffusion.sample_rate)
+                                op = ColdDiffusionSoxTransform.from_preset(preset_path, self.diffusion.sample_rate, seed=degradation_seed)
                                 self.degradation_ops.append(op)
                                 LOG.info(f"[ColdDiffusion] Found and added preset: {preset_path}")
                             else:
