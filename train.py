@@ -122,7 +122,8 @@ def main():
             "save_top_k": args.save_top_k,
             "monitor": 'train/loss',
             "mode": 'min',
-            "filename": '{epoch}-{step}-{train_loss:.6f}'
+            "filename": '{epoch}-{step}-{train_loss:.6f}',
+            "save_last": getattr(args, "save_last_checkpoint", False)
         }
         
         # Check which checkpoint frequency to use
@@ -139,9 +140,9 @@ def main():
         print("Using training checkpoint callback")
         # For non-validation case, use the same logic
         if args.checkpoint_every_n_epoch > 0:
-            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_epochs=args.checkpoint_every_n_epoch, dirpath=checkpoint_dir, save_top_k=-1)
+            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_epochs=args.checkpoint_every_n_epoch, dirpath=checkpoint_dir, save_top_k=-1, save_last=getattr(args, "save_last_checkpoint", False))
         else:
-            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1)
+            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1, save_last=getattr(args, "save_last_checkpoint", False))
     
     save_model_config_callback = ModelConfigEmbedderCallback(model_config)
     
