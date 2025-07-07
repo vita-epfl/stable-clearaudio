@@ -24,7 +24,7 @@ sample_size = 2097152
 sample_rate = 44100
 model_half = True
 
-from .diffusion_cond import generate_restoration
+from .restoration import generate_restoration
 
 def create_restoration_sampling_ui():
     diffusion_objective = model.diffusion_objective
