@@ -2,7 +2,6 @@ import numpy as np
 import torch 
 import typing as tp
 import math 
-from torchaudio import transforms as T
 from torch.nn.functional import interpolate
 from einops import rearrange
 
@@ -217,13 +216,7 @@ def generate_diffusion_uncond(
             raise ValueError("Cold diffusion is enabled, but no degradation operators are loaded.")
         sampled = sample_cold(model.model, noise, steps, degradation_ops=degradation_ops, **sampler_kwargs)
     else:
-        diff_objective = model.diffusion_objective
-
-        if diff_objective == "v":    
-            # k-diffusion denoising process go!
-            sampled = sample_k(model.model, noise, init_audio, mask, steps, **sampler_kwargs, device=device)
-        elif diff_objective == "rectified_flow":
-            sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, **sampler_kwargs, device=device)
+        raise ValueError("Unknown model type: " + model.model_config.get("model_type"))
 
     # Denoising process done. 
     # If this is latent diffusion, decode latents back into audio
@@ -233,8 +226,284 @@ def generate_diffusion_uncond(
     # Return audio
     return sampled
 
+def generate_cold_diffusion_uncond_restoration(
+        model,
+        steps: int = 250,
+        batch_size: int = 1,
+        sample_size: int = 2097152,
+        sample_rate: int = 48000,
+        seed: int = -1,
+        device: str = "cuda",
+        clean_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
+        degraded_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
+        return_latents = False,
+        callback = None,
+        output_dir = None,
+        metrics_every: int = 0,
+        **sampler_kwargs
+        ) -> tp.Tuple[torch.Tensor, tp.Optional[dict]]: 
+    """
+    Generate audio from a prompt using a diffusion model.
+    
+    Args:
+        model: The diffusion model to use for generation.
+        
+    """
+        
 
-def generate_diffusion_cond(
+    LOG.info("Starting audio generation")
+    
+    # Initialize metrics dictionary
+    metrics_dict = {}
+    init_audio = None
+    
+    # The length of the output in audio samples
+    audio_sample_size = sample_size
+
+    # If this is latent diffusion, change sample_size instead to the downsampled latent size
+    if model.pretransform is not None:
+        sample_size = sample_size // model.pretransform.downsampling_ratio
+        LOG.info(f"Using latent diffusion, adjusted sample_size to {sample_size}")
+
+    # Seed
+    seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
+    LOG.info(f"Using seed: {seed}")
+    torch.manual_seed(seed)
+
+    # Define the initial noise
+    noise = torch.randn([batch_size, model.io_channels, sample_size], device=device)
+
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+    torch.backends.cudnn.benchmark = False
+
+    # Conditioning
+    assert conditioning is not None or conditioning_tensors is not None, (
+        "Must provide either conditioning or conditioning_tensors"
+    )
+    if conditioning_tensors is None:
+        if isinstance(conditioning, list) and len(conditioning) > 0 and 'degraded_audio' in conditioning[0]:
+            degraded_audio = conditioning[0]['degraded_audio']
+            
+            # Use degraded audio as init_audio for restoration
+            if model.pretransform is not None:
+                init_audio = model.pretransform.encode(degraded_audio.unsqueeze(0).to(device))
+            else:
+                init_audio = degraded_audio.unsqueeze(0).to(device)
+
+            if hasattr(model, 'input_concat_ids') and 'degraded_audio' in model.input_concat_ids and hasattr(degraded_audio, 'shape'):
+                expected_latent_size = sample_size
+                
+                if degraded_audio.shape[-1] == expected_latent_size:
+                    conditioning_tensors = {'degraded_audio': [degraded_audio, torch.ones(degraded_audio.shape[0], degraded_audio.shape[-1]).to(device)]}
+                else:
+                    conditioning_tensors = model.conditioner(conditioning, device)
+            else:
+                conditioning_tensors = model.conditioner(conditioning, device)
+        else:
+            conditioning_tensors = model.conditioner(conditioning, device)
+
+    conditioning_inputs = model.get_conditioning_inputs(conditioning_tensors)
+    conditioning_inputs["input_concat_cond"] = conditioning_inputs["input_concat_cond"][:, :, :sample_size]
+
+    if negative_conditioning is not None or negative_conditioning_tensors is not None:
+        if negative_conditioning_tensors is None:
+            negative_conditioning_tensors = model.conditioner(negative_conditioning, device)
+        negative_conditioning_tensors = model.get_conditioning_inputs(negative_conditioning_tensors, negative=True)
+    else:
+        negative_conditioning_tensors = {}
+
+    if init_audio is not None:
+        # For restoration, init_audio is already prepared
+        if 'degraded_audio' not in conditioning[0]:
+             in_sr, init_audio = init_audio
+             io_channels = model.io_channels
+
+             if model.pretransform is not None:
+                 io_channels = model.pretransform.io_channels
+
+             init_audio = prepare_audio(init_audio, in_sr=in_sr, target_sr=model.sample_rate, target_length=audio_sample_size, target_channels=io_channels, device=device)
+
+             if model.pretransform is not None:
+                 init_audio = model.pretransform.encode(init_audio)
+
+        init_audio = init_audio.repeat(batch_size, 1, 1)
+        sampler_kwargs["sigma_max"] = init_noise_level
+
+    # Convert to model dtype
+    model_dtype = next(model.model.parameters()).dtype
+    noise = noise.type(model_dtype)
+
+    # Generate audio
+    diff_objective = model.diffusion_objective
+    LOG.info(f"Using diffusion objective: {diff_objective}")
+
+    # Optionally run metrics loop
+    if clean_audio is not None and metrics_every > 0:
+
+        # Check if we can actually calculate restoration metrics
+        can_calculate_metrics = isinstance(conditioning, list) and len(conditioning) > 0 and 'degraded_audio' in conditioning[0]
+
+        if not can_calculate_metrics:
+            LOG.warning("Cannot calculate restoration metrics without degraded_audio in conditioning. Skipping metrics loop.")
+        
+        else:
+            all_metrics = {}
+            step_milestones = sorted(list(set(list(range(metrics_every, steps, metrics_every)) + [steps])))
+            
+            # Prepare clean and degraded tensors once
+            degraded_audio_tensor_pre = conditioning[0]['degraded_audio']
+            clean_audio_tensor = clean_audio[1].unsqueeze(0).to(device)
+            degraded_audio_tensor = degraded_audio_tensor_pre.unsqueeze(0).to(device)
+
+            if model.pretransform:
+                clean_audio_latent = model.pretransform.encode(clean_audio_tensor)
+                clean_audio_tensor = model.pretransform.decode(clean_audio_latent)
+                degraded_audio_latent = model.pretransform.encode(degraded_audio_tensor)
+                degraded_audio_tensor = model.pretransform.decode(degraded_audio_latent)
+            else:
+                clean_audio_latent = None
+                degraded_audio_latent = None
+
+            for i, steps_i in enumerate(step_milestones):
+                LOG.info(f"[{i+1}/{len(step_milestones)}] Running diffusion for {steps_i} steps to calculate metrics")
+                
+                # Run sampler
+                if diff_objective == "v":
+                    all_args = {**sampler_kwargs, **conditioning_inputs, "cfg_scale": cfg_scale, "batch_cfg": True, "rescale_cfg": True}
+                    sampled_latent = sample_k(model.model, noise, init_data=init_audio, steps=steps_i, device=device, callback=callback, **all_args)
+                elif diff_objective == "rectified_flow":
+                    if "sigma_min" in sampler_kwargs: del sampler_kwargs["sigma_min"]
+                    if "rho" in sampler_kwargs: del sampler_kwargs["rho"]
+                    all_args = {**sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, "cfg_scale": cfg_scale, "batch_cfg": True, "rescale_cfg": True}
+                    sampled_latent = sample_rf(model.model, noise, init_data=init_audio, steps=steps_i, device=device, callback=callback, **all_args)
+                
+                # Decode if needed
+                if model.pretransform is not None:
+                    sampled_waveform = sampled_latent.to(next(model.pretransform.parameters()).dtype)
+                    sampled_waveform = model.pretransform.decode(sampled_waveform)
+                else:
+                    sampled_waveform = sampled_latent
+                
+                # Calculate metrics for this step
+                metrics_at_step = _calculate_metrics(
+                    sampled_waveform,
+                    sampled_latent if model.pretransform else None,
+                    clean_audio_tensor,
+                    clean_audio_latent,
+                    degraded_audio_tensor,
+                    degraded_audio_latent,
+                    model,
+                    device,
+                    steps_i
+                )
+                
+                for k, v in metrics_at_step.items():
+                    if k not in all_metrics:
+                        all_metrics[k] = []
+                    all_metrics[k].append(v)
+            
+            # Final sampled audio is from the last iteration
+            sampled = sampled_waveform
+            if return_latents:
+                sampled = sampled_latent
+
+            # Cleanup and return
+            del noise
+            del conditioning_tensors
+            del conditioning_inputs
+            torch.cuda.empty_cache()
+
+            return sampled, all_metrics
+        
+    # Generate audio without metrics loop
+    LOG.info(f"Running diffusion for {steps} steps")
+    if diff_objective == "v":    
+        all_args = {**sampler_kwargs, **conditioning_inputs, "cfg_scale": cfg_scale, "batch_cfg": True, "rescale_cfg": True}
+        sampled = sample_k(model.model, noise, init_data=init_audio, steps=steps, device=device, callback=callback, **all_args)
+    elif diff_objective == "rectified_flow":
+        if "sigma_min" in sampler_kwargs:
+            del sampler_kwargs["sigma_min"]
+        all_args = {**sampler_kwargs, **conditioning_inputs, **negative_conditioning_tensors, "cfg_scale": cfg_scale, "batch_cfg": True, "rescale_cfg": True}
+        sampled = sample_rf(model.model, noise, init_data=init_audio, steps=steps, device=device, callback=callback, **all_args)
+
+    # Cleanup
+    del noise
+    del conditioning_tensors
+    del conditioning_inputs
+    torch.cuda.empty_cache()
+
+    # Decode latents if needed
+    if model.pretransform is not None and not return_latents:
+        sampled_latent = sampled.clone().detach()
+        sampled = sampled.to(next(model.pretransform.parameters()).dtype)
+        sampled = model.pretransform.decode(sampled)
+
+    # Calculate metrics if clean audio is provided
+    if clean_audio is not None and not return_latents:
+        LOG.info("Calculating metrics between generated and clean audio")
+
+        # Check if we can actually calculate restoration metrics
+        can_calculate_metrics = isinstance(conditioning, list) and len(conditioning) > 0 and 'degraded_audio' in conditioning[0]
+        
+        if not can_calculate_metrics:
+            LOG.warning("Cannot calculate restoration metrics without degraded_audio in conditioning. Skipping metric calculation.")
+            return sampled, None
+
+        degraded_audio_tensor_pre = conditioning[0]['degraded_audio']
+        clean_audio_tensor = clean_audio[1].unsqueeze(0).to(device)
+        degraded_audio_tensor = degraded_audio_tensor_pre.unsqueeze(0).to(device)
+
+        if model.pretransform:
+            clean_audio_latent = model.pretransform.encode(clean_audio_tensor)
+            clean_audio_tensor = model.pretransform.decode(clean_audio_latent)
+            degraded_audio_latent = model.pretransform.encode(degraded_audio_tensor)
+            degraded_audio_tensor = model.pretransform.decode(degraded_audio_latent)
+        else:
+            clean_audio_latent = None
+            degraded_audio_latent = None
+        
+        metrics_dict = _calculate_metrics(
+            sampled,
+            sampled_latent if model.pretransform else None,
+            clean_audio_tensor,
+            clean_audio_latent,
+            degraded_audio_tensor,
+            degraded_audio_latent,
+            model,
+            device,
+            steps
+        )
+
+        if output_dir:
+            try:
+                 # Save clean audio
+                if clean_audio is not None:
+                    clean_audio_filename = os.path.join(output_dir, "clean_audio.wav")
+                    clean_audio_save = rearrange(clean_audio_tensor, 'b d n -> d (b n)').to(torch.float32)
+                    if torch.max(torch.abs(clean_audio_save)) > 1e-7:
+                        clean_audio_save = clean_audio_save.div(torch.max(torch.abs(clean_audio_save)))
+                    clean_audio_save = clean_audio_save.mul(32767).to(torch.int16).cpu()
+                    torchaudio.save(clean_audio_filename, clean_audio_save, model.sample_rate)
+                    LOG.info(f"Clean audio saved to {clean_audio_filename}")
+
+                # Save degraded audio
+                degraded_audio_filename = os.path.join(output_dir, "degraded_audio.wav")
+                degraded_audio_save = rearrange(degraded_audio_tensor, 'b d n -> d (b n)').to(torch.float32)
+                if torch.max(torch.abs(degraded_audio_save)) > 1e-7:
+                    degraded_audio_save = degraded_audio_save.div(torch.max(torch.abs(degraded_audio_save)))
+                degraded_audio_save = degraded_audio_save.mul(32767).to(torch.int16).cpu()
+                torchaudio.save(degraded_audio_filename, degraded_audio_save, model.sample_rate)
+                LOG.info(f"Degraded audio saved to {degraded_audio_filename}")
+            except Exception as e:
+                LOG.warning(f"Failed to save audio files: {e}")
+
+    # Return audio and metrics
+    return sampled, metrics_dict if clean_audio is not None else None
+
+
+def generate_diffusion_cond_restoration(
         model,
         steps: int = 250,
         cfg_scale=6,

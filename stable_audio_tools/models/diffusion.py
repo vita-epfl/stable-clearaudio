@@ -10,7 +10,7 @@ from .conditioners import MultiConditioner, create_multi_conditioner_from_condit
 from .dit import DiffusionTransformer
 from .factory import create_pretransform_from_config
 from .pretransforms import Pretransform
-from ..inference.generation import generate_diffusion_cond
+from ..inference.generation import generate_diffusion_cond_restoration
 from ..inference.sampling import DistributionShift
 
 from time import time
@@ -215,7 +215,7 @@ class ConditionedDiffusionModelWrapper(nn.Module):
         return self.model(x, t, **self.get_conditioning_inputs(cond), **kwargs)
 
     def generate(self, *args, **kwargs):
-        return generate_diffusion_cond(self, *args, **kwargs)
+        return generate_diffusion_cond_restoration(self, *args, **kwargs)
 
 class UNetCFG1DWrapper(ConditionedDiffusionModel):
     def __init__(

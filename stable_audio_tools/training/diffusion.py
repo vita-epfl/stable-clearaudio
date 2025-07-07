@@ -25,7 +25,7 @@ from torch.nn import functional as F
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 from ..interface.aeiou import pca_point_cloud, audio_spectrogram_image, tokens_spectrogram_image
-from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, truncated_logistic_normal_rescaled
+from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, truncated_logistic_normal_rescaled, sample_discrete_euler
 from ..models.diffusion import DiffusionModelWrapper, ConditionedDiffusionModelWrapper
 from ..models.diffusion_prior import DiffusionPrior
 from ..models.autoencoders import DiffusionAutoencoder

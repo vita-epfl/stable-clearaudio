@@ -27,8 +27,7 @@ from torchaudio import transforms as T
 
 from ..aeiou import audio_spectrogram_image
 from ...inference.generation import (
-    generate_diffusion_cond,
-    generate_diffusion_cond_inpaint,
+    generate_diffusion_cond_restoration, generate_cold_diffusion_uncond_restoration
 )  # , generate_diffusion_uncond
 
 # from ..models.factory import create_model_from_config
@@ -384,7 +383,8 @@ def generate_cond(
 
     return (output_filename if file_format != "wav" else output_wav, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images])
 
-def generate_cond_restoration(
+def generate_restoration(
+    degraded_audio,
     steps=250,
     preview_every=None,
     metrics_every=0,
@@ -395,8 +395,6 @@ def generate_cond_restoration(
     rho=1.0,
     cfg_rescale=0.0,
     file_format="wav",
-    file_naming="verbose",
-    degraded_audio=None,
     clean_audio=None,
     batch_size=1,
     degraded_audio_filename=None,
@@ -406,9 +404,6 @@ def generate_cond_restoration(
     
     # Access global variables
     global sample_rate, model
-    
-    # Initialize metrics dictionary
-    metrics_dict = {}
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -504,11 +499,6 @@ def generate_cond_restoration(
         
         clean_audio = (sample_rate, clean_audio)
 
-    conditioning_dict = {
-        "degraded_audio": degraded_audio[1] if degraded_audio is not None else None,
-    }
-    conditioning = [conditioning_dict] * batch_size
-
     def progress_callback(callback_info):
         global preview_images
         denoised = callback_info["denoised"]
@@ -529,9 +519,6 @@ def generate_cond_restoration(
 
     # Check if we should skip creating a date-based folder
     skip_date_folder = os.environ.get("STABLE_AUDIO_NO_DATE_FOLDER", "0") == "1"
-    
-    # Disable separate metrics processing for batch processing
-    is_batch_processing = os.environ.get("STABLE_AUDIO_BATCH_PROCESSING", "0") == "1"
 
     if custom_output_dir is not None:
         output_dir = custom_output_dir
@@ -555,29 +542,52 @@ def generate_cond_restoration(
     os.makedirs(generation_dir, exist_ok=True)
     LOG.info(f"Files will be saved in directory: {generation_dir}")
 
-    generate_args = {
-        "model": model,
-        "conditioning": conditioning,
-        "steps": steps,
-        "batch_size": batch_size,
-        "sample_size": input_sample_size,
-        "seed": seed,
-        "device": device,
-        "sampler_type": sampler_type,
-        "sigma_min": sigma_min,
-        "sigma_max": sigma_max,
-        "callback": progress_callback if (preview_every is not None) else None,
-        "scale_phi": cfg_rescale,
-        "rho": rho,
-        "clean_audio": clean_audio,
-        "output_dir": generation_dir,
-        "metrics_every": metrics_every
-    }
-
     # Do the audio generation
     LOG.info("Generating audio")
     
-    audio, final_metrics = generate_diffusion_cond(**generate_args)
+    if model_type == "diffusion_cond_restoration":
+        conditioning_dict = {
+            "degraded_audio": degraded_audio[1] if degraded_audio is not None else None,
+        }
+        conditioning = [conditioning_dict] * batch_size
+
+        generate_args = {
+            "model": model,
+            "conditioning": conditioning,
+            "steps": steps,
+            "batch_size": batch_size,
+            "sample_size": input_sample_size,
+            "seed": seed,
+            "device": device,
+            "sampler_type": sampler_type,
+            "sigma_min": sigma_min,
+            "sigma_max": sigma_max,
+            "callback": progress_callback if (preview_every is not None) else None,
+            "scale_phi": cfg_rescale,
+            "rho": rho,
+            "clean_audio": clean_audio,
+            "output_dir": generation_dir,
+            "metrics_every": metrics_every
+        }
+        audio, final_metrics = generate_diffusion_cond_restoration(**generate_args)
+    elif model_type == "cold_diffusion_uncond_restoration":
+        generate_args = {
+            "model": model,
+            "steps": steps,
+            "batch_size": batch_size,
+            "sample_size": input_sample_size,
+            "seed": seed,
+            "device": device,
+            "sampler_type": sampler_type,
+            "callback": progress_callback if (preview_every is not None) else None,
+            "clean_audio": clean_audio,
+            "degraded_audio": degraded_audio,
+            "output_dir": generation_dir,
+            "metrics_every": metrics_every
+        }
+        audio, final_metrics = generate_cold_diffusion_uncond_restoration(**generate_args)
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
     
     # Prepare the file names to avoid reference errors
     output_wav = os.path.join(generation_dir, "output.wav")
