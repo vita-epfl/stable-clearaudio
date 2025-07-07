@@ -1,41 +1,15 @@
-import gc
 import numpy as np
-import re
-import io
 import os
 import gc
-import time
 import glob
 import json
 import shutil
-import torch
 import gradio as gr
 import logging
 import torchaudio
-import threading
-import subprocess
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from io import BytesIO
-
-from einops import rearrange
-from safetensors.torch import load_file
-from torch.nn import functional as F
-from torchaudio import transforms as T
-
-from ..aeiou import audio_spectrogram_image
-from ...inference.generation import (
-    generate_diffusion_cond,
-    generate_diffusion_cond_inpaint,
-)  # , generate_diffusion_uncond
-
-# from ..models.factory import create_model_from_config
-# from ..models.pretrained import get_pretrained_model
-# from ..models.utils import load_ckpt_state_dict
-from ...inference.utils import prepare_audio
-# from ..training.utils import copy_state_dict
 
 import logging
 
@@ -50,81 +24,21 @@ sample_size = 2097152
 sample_rate = 44100
 model_half = True
 
-from .diffusion_cond import generate_cond
+from .diffusion_cond import generate_restoration
 
-def create_restoration_sampling_ui(model_config):
-    has_inpainting = model_config["model_type"] == "diffusion_cond_inpaint"
-
-    model_conditioning_config = model_config["model"].get("conditioning", None)
-    
-    # Check if this is a specific audio restoration model
-    input_concat_ids = model_config["model"].get("diffusion", {}).get("input_concat_ids", [])
-    is_audio_restoration = "degraded_audio" in input_concat_ids
-    
-    LOG.info(f"Input concat IDs: {input_concat_ids}")
-    LOG.info(f"Is audio restoration model: {is_audio_restoration}")
-    
-    # Define noise_level_slider as a global variable to access it from generate_cond
-    global noise_level_slider
-
+def create_restoration_sampling_ui():
     diffusion_objective = model.diffusion_objective
 
     is_rf = diffusion_objective == "rectified_flow"
     
-    with gr.Row():
-        with gr.Column(scale=6):
-            prompt_visible = not is_audio_restoration
-            prompt = gr.Textbox(show_label=False, placeholder="Prompt", visible=prompt_visible)
-            negative_prompt = gr.Textbox(
-                show_label=False, placeholder="Negative prompt", visible=prompt_visible
-            )
-            
-            # Information message for audio restoration model
-            if is_audio_restoration:
-                gr.Markdown("### Audio Restoration Model\nUpload an audio file to restore below")
-                
+    with gr.Row():                
         generate_button = gr.Button("Generate", variant="primary", scale=1)
         
     with gr.Row(equal_height=False):
         with gr.Column():
-            has_seconds_start = False
-            has_seconds_total = False
-            
-            if model_conditioning_config:
-                for config in model_conditioning_config.get("configs", []):
-                    if config.get("id") == "seconds_start":
-                        has_seconds_start = True
-                    if config.get("id") == "seconds_total":
-                        has_seconds_total = True
-            
-            timing_visible = (has_seconds_start or has_seconds_total) and not is_audio_restoration
-            with gr.Row(visible=timing_visible):
-                # Timing controls
-                seconds_start_slider = gr.Slider(
-                    minimum=0,
-                    maximum=512,
-                    step=1,
-                    value=0,
-                    label="Seconds start",
-                    visible=has_seconds_start,
-                )
-                seconds_total_slider = gr.Slider(
-                    minimum=0,
-                    maximum=512,
-                    step=1,
-                    value=sample_size // sample_rate,
-                    label="Seconds total",
-                    visible=has_seconds_total,
-                )
-
             with gr.Row():
-                # Controls for audio restoration
-                if is_audio_restoration:
-                    # Add information about how the model uses the audio
-                    gr.Markdown("The uploaded audio will be used as conditioning input for the model")
-                
                 # Steps slider
-                default_steps = 30 if is_audio_restoration else (50 if is_rf else 100)
+                default_steps = 30
                 steps_slider = gr.Slider(
                     minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
                 )
@@ -134,21 +48,6 @@ def create_restoration_sampling_ui(model_config):
                     # Seed
                     seed_textbox = gr.Textbox(
                         label="Seed (set to -1 for random seed)", value="-1"
-                    )
-
-                    cfg_interval_min_slider = gr.Slider(
-                        minimum=0.0,
-                        maximum=1,
-                        step=0.01,
-                        value=0.0,
-                        label="CFG interval min",
-                    )
-                    cfg_interval_max_slider = gr.Slider(
-                        minimum=0.0,
-                        maximum=1,
-                        step=0.01,
-                        value=1.0,
-                        label="CFG interval max",
                     )
 
                 with gr.Row():
@@ -223,14 +122,6 @@ def create_restoration_sampling_ui(model_config):
                         label="File format",
                         value="wav",
                     )
-                    file_naming_dropdown = gr.Dropdown(
-                        ["verbose", "prompt", "output.wav"],
-                        label="File naming",
-                        value="output.wav",
-                    )
-                    cut_to_seconds_total_checkbox = gr.Checkbox(
-                        label="Cut to seconds total", value=True
-                    )
                     preview_every_slider = gr.Slider(
                         minimum=0,
                         maximum=100,
@@ -243,120 +134,58 @@ def create_restoration_sampling_ui(model_config):
                         maximum=100,
                         step=1,
                         value=30,
-                        label="Compute Metrics Every N Steps",
-                        visible=is_audio_restoration,
+                        label="Compute Metrics Every N Steps"
                     )
-            if is_audio_restoration:
-                with gr.Accordion("Audio Inputs", open=True):
-                    with gr.Row():
-                        degraded_audio_files = gr.File(label="Degraded audio files", file_count="multiple")
-                        clean_audio = gr.Audio(label="Clean reference audio (optional)", visible=True)
+            with gr.Accordion("Audio Inputs", open=True):
+                with gr.Row():
+                    degraded_audio_files = gr.File(label="Degraded audio files", file_count="multiple")
+                    clean_audio = gr.Audio(label="Clean reference audio (optional)")
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play", interactive=True)
+                    with gr.Column(scale=1):
+                        degraded_audio_player = gr.Audio(label="Degraded audio player")
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Batch Processing Options")
                     
-                    with gr.Row():
-                        with gr.Column(scale=1):
-                            degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play", interactive=True)
-                        with gr.Column(scale=1):
-                            degraded_audio_player = gr.Audio(label="Degraded audio player")
-                    
-                    with gr.Row():
-                        with gr.Column(scale=1):
-                            gr.Markdown("### Batch Processing Options")
-                        
-                    with gr.Row():
-                        process_folder_path = gr.Textbox(
-                            label="Audio Folder",
-                            placeholder="Path to folder where the algorithm should search for audio files (e.g. audio/degraded/MIDI-Unprocessed_01_R1_2011_MID--AUDIO_R1-D1_04_Track04_wav)",
+                with gr.Row():
+                    process_folder_path = gr.Textbox(
+                        label="Audio Folder",
+                        placeholder="Path to folder where the algorithm should search for audio files (e.g. audio/degraded/MIDI-Unprocessed_01_R1_2011_MID--AUDIO_R1-D1_04_Track04_wav)",
+                    )
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        model_name = gr.Textbox(
+                            label="Model name",
+                            placeholder="Name of the model for results file (e.g. intense_equalizer)",
                         )
-                    
-                    with gr.Row():
-                        with gr.Column(scale=1):
-                            model_name = gr.Textbox(
-                                label="Model name",
-                                placeholder="Name of the model for results file (e.g. intense_equalizer)",
-                            )
-                        with gr.Column(scale=1):
-                            effects_list = gr.Textbox(
-                                label="Effects list",
-                                placeholder="Comma-separated list of effects (e.g. equalizer,bass,overdrive)",
-                            )
-            else:
-                # Default generation tab
-                with gr.Accordion("Init audio", open=False):
-                    init_audio_input = gr.Audio(label="Init audio")
-                    min_noise_level = 0.01 if is_rf else 0.1
-                    max_noise_level = 1.0 if is_rf else 100.0
-                    init_noise_level_slider = gr.Slider(
-                        minimum=min_noise_level,
-                        maximum=max_noise_level,
-                        step=0.01,
-                        value=0.1,
-                        label="Init noise level",
-                    )
+                    with gr.Column(scale=1):
+                        effects_list = gr.Textbox(
+                            label="Effects list",
+                            placeholder="Comma-separated list of effects (e.g. equalizer,bass,overdrive)",
+                        )
 
-            with gr.Accordion("Inpainting", open=False, visible=has_inpainting):
-                inpaint_audio_input = gr.Audio(label="Inpaint audio")
-                mask_maskstart_slider = gr.Slider(
-                    minimum=0.0,
-                    maximum=sample_size // sample_rate,
-                    step=0.1,
-                    value=10,
-                    label="Mask Start (sec)",
-                )
-                mask_maskend_slider = gr.Slider(
-                    minimum=0.0,
-                    maximum=sample_size // sample_rate,
-                    step=0.1,
-                    value=sample_size // sample_rate,
-                    label="Mask End (sec)",
-                )
-
-            if is_audio_restoration:
-                LOG.info("Audio restoration mode enabled")
-                inputs = [
-                        steps_slider,
-                        preview_every_slider,
-                        metrics_every_slider,
-                        seed_textbox,
-                        sampler_type_dropdown,
-                        sigma_min_slider,
-                        sigma_max_slider,
-                        rho_slider,
-                        cfg_rescale_slider,
-                        file_format_dropdown,
-                        file_naming_dropdown,
-                        degraded_audio_files,
-                        clean_audio,
-                        process_folder_path,
-                        model_name,
-                        effects_list,
-                    ]
-            else:
-                LOG.info("Default generation mode enabled")
-                inputs = [
-                    prompt,
-                    negative_prompt,
-                    seconds_start_slider,
-                    seconds_total_slider,
-                    steps_slider,
-                    preview_every_slider,
-                    seed_textbox,
-                    sampler_type_dropdown,
-                    sigma_min_slider,
-                    sigma_max_slider,
-                    rho_slider,
-                    cfg_interval_min_slider,
-                    cfg_interval_max_slider,
-                    cfg_rescale_slider,
-                    file_format_dropdown,
-                    file_naming_dropdown,
-                    cut_to_seconds_total_checkbox,
-                    init_audio_input,
-                    init_noise_level_slider,
-                    mask_maskstart_slider,
-                    mask_maskend_slider,
-                    inpaint_audio_input,
-                ] 
-            
+            inputs = [
+                steps_slider,
+                preview_every_slider,
+                metrics_every_slider,
+                seed_textbox,
+                sampler_type_dropdown,
+                sigma_min_slider,
+                sigma_max_slider,
+                rho_slider,
+                cfg_rescale_slider,
+                file_format_dropdown,
+                degraded_audio_files,
+                clean_audio,
+                process_folder_path,
+                model_name,
+                effects_list,
+            ]            
 
         with gr.Column():
             output_audio_dropdown = gr.Dropdown(label="Select generated audio")
@@ -364,31 +193,15 @@ def create_restoration_sampling_ui(model_config):
             audio_spectrogram_output = gr.Gallery(label="Output spectrograms", show_label=True, elem_id="spectrogram_gallery", columns=2, height=400)
             
             # Add metrics display section
-            with gr.Accordion("Restoration Metrics", open=True, visible=is_audio_restoration):
-                metrics_plots = gr.Image(label="Metrics Plots", visible=is_audio_restoration, type="numpy")
+            with gr.Accordion("Restoration Metrics", open=True):
+                metrics_plots = gr.Image(label="Metrics Plots", type="numpy")
             
             # Use different target based on model type
-            if is_audio_restoration:
-                send_to_init_button = gr.Button("Send to degraded audio", scale=1)
-                send_to_init_button.click(
-                    fn=lambda audio: [audio] if audio else None,
-                    inputs=[output_audio_player],
-                    outputs=[degraded_audio_files]
-                    )
-            else:
-                send_to_init_button = gr.Button("Send to init audio", scale=1)
-                send_to_init_button.click(
-                    fn=lambda audio: audio,
-                    inputs=[output_audio_player],
-                    outputs=[init_audio_input],
-                )
-
-            if has_inpainting:
-                send_to_inpaint_button = gr.Button("Send to inpaint audio", scale=1)
-                send_to_inpaint_button.click(
-                    fn=lambda audio: audio,
-                    inputs=[output_audio_player],
-                    outputs=[inpaint_audio_input],
+            send_to_init_button = gr.Button("Send to degraded audio", scale=1)
+            send_to_init_button.click(
+                fn=lambda audio: [audio] if audio else None,
+                inputs=[output_audio_player],
+                outputs=[degraded_audio_files]
                 )
 
     def process_folder_files(process_folder_path, model_name, effects_list):
@@ -556,10 +369,34 @@ def create_restoration_sampling_ui(model_config):
             # Using the centralized output directory already defined
             LOG.info(f"Results will be saved in: {output_dir}")
 
-    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, file_naming, degraded_audio_files, clean_audio, process_folder_path=None, model_name=None, effects_list=None):
-        if not is_audio_restoration:
-            return [], [], None
-            
+    def generate_multiple_with_plots(steps, preview_every, metrics_every, seed, sampler_type, sigma_min, sigma_max, rho, cfg_rescale, file_format, degraded_audio_files, clean_audio, process_folder_path=None, model_name=None, effects_list=None):
+        """
+        Generate multiple audio files from a folder of degraded audio files.
+
+        Args:
+            steps (int): Number of steps to generate audio.
+            preview_every (int): Preview every N steps.
+            metrics_every (int): Compute metrics every N steps.
+            seed (int): Seed for random number generator.
+            sampler_type (str): Type of sampler to use.
+            sigma_min (float): Minimum sigma value.
+            sigma_max (float): Maximum sigma value.
+            rho (float): Rho value.
+            cfg_rescale (float): CFG rescale amount.
+            file_format (str): File format to save audio files.
+            file_naming (str): File naming format.
+            degraded_audio_files (list): List of degraded audio files.
+            clean_audio (gr.Audio): Clean reference audio.
+            process_folder_path (str): Path to folder to process.
+            model_name (str): Name of the model to use.
+            effects_list (str): List of effects to apply.
+        
+        Returns:
+            audios (list): List of generated audio files.
+            spectrograms (list): List of spectrograms for each audio file.
+            plots (list): List of plots for each audio file.
+        """
+        
         # Check if we have a folder path to process
         folder_files = []
         effects_files = {}
@@ -648,7 +485,7 @@ def create_restoration_sampling_ui(model_config):
                 LOG.error(f"Error loading audio file {degraded_audio_path}: {str(e)}")
                 continue
 
-            audio, spectrograms, metrics = generate_cond_restoration(
+            audio, spectrograms, metrics = generate_restoration(
                 steps=steps,
                 preview_every=preview_every,
                 metrics_every=metrics_every,
@@ -659,7 +496,6 @@ def create_restoration_sampling_ui(model_config):
                 rho=rho,
                 cfg_rescale=cfg_rescale,
                 file_format=file_format,
-                file_naming=file_naming,
                 degraded_audio=degraded_audio_input,
                 clean_audio=clean_audio,
                 batch_size=1,
@@ -810,9 +646,9 @@ def create_restoration_sampling_ui(model_config):
                             effect_exists = True
                             LOG.info(f"Effect {current_effect} already processed for this audio, updating it instead")
                             
-                            # We already have metrics from generate_cond_restoration call at line 1615
+                            # We already have metrics from generate_restoration call at line 1615
                             # No need to reload them from file - just use what we have
-                            LOG.info(f"Using metrics from generate_cond_restoration for effect {current_effect}")
+                            LOG.info(f"Using metrics from generate_restoration for effect {current_effect}")
                             # Log available metrics types
                             if metrics and isinstance(metrics, dict):
                                 LOG.info(f"Available metrics keys: {list(metrics.keys())}")
@@ -821,9 +657,9 @@ def create_restoration_sampling_ui(model_config):
                                 if "restored_metrics" in metrics and isinstance(metrics["restored_metrics"], dict):
                                     LOG.info(f"Restored metrics: {list(metrics['restored_metrics'].keys())}")
                             else:
-                                LOG.warning(f"No metrics available from generate_cond_restoration for effect {current_effect}")
+                                LOG.warning(f"No metrics available from generate_restoration for effect {current_effect}")
                             
-                            # Restructure metrics if needed - the metrics from generate_cond_restoration may be flat, not nested
+                            # Restructure metrics if needed - the metrics from generate_restoration may be flat, not nested
                             degraded_metrics = {}
                             restored_metrics = {}
                             
@@ -942,7 +778,7 @@ def create_restoration_sampling_ui(model_config):
                         
                         # Get metrics from the model via metrics (from final_metrics)
                         if metrics and isinstance(metrics, dict):
-                            LOG.info(f"Available metrics keys from generate_cond_restoration: {list(metrics.keys())}")
+                            LOG.info(f"Available metrics keys from generate_restoration: {list(metrics.keys())}")
                             
                             # Check if metrics already have a nested structure
                             if "degraded_metrics" in metrics and "restored_metrics" in metrics:
@@ -969,7 +805,7 @@ def create_restoration_sampling_ui(model_config):
                                         clean_key = key.replace('restored_', '').replace('restoration_', '').replace('demo_', '')
                                         detailed_metrics["restored_metrics"][clean_key] = value
                         else:
-                            LOG.warning("No metrics available from generate_cond_restoration!")
+                            LOG.warning("No metrics available from generate_restoration!")
                             
                         # Load metrics from the JSON file as a fallback
                         metrics_file = os.path.join(batch_processing_dir, "equalizer_metrics.json")
@@ -1175,19 +1011,9 @@ def create_restoration_sampling_ui(model_config):
         return output_audios_list, output_spectrograms_list, plots
 
     def generate_with_plots(*args):
-        if is_audio_restoration:
-            try:
-                audios, spectrograms, plots = generate_multiple_with_plots(*args)
-                first_audio = audios[0] if audios else None
-                return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots
-            except Exception as e:
-                LOG.error(f"Error in generate_with_plots: {str(e)}")
-                import traceback
-                LOG.error(traceback.format_exc())
-                raise gr.Error(f"Error processing audios: {str(e)}")
-        else:
-            audio, spectrograms = generate_cond(*args)
-            return gr.update(choices=[audio], value=audio), audio, spectrograms, gr.update(value=None, visible=False)
+        audios, spectrograms, plots = generate_multiple_with_plots(*args)
+        first_audio = audios[0] if audios else None
+        return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots
 
     generate_button.click(
         fn=generate_with_plots,
@@ -1201,27 +1027,26 @@ def create_restoration_sampling_ui(model_config):
     
     output_audio_dropdown.change(fn=select_audio, inputs=output_audio_dropdown, outputs=output_audio_player)
 
-    if is_audio_restoration:
-        def update_degraded_dropdown(files):
-            if not files:
-                return gr.update(choices=[], value=None), None
-            
-            choices = [(os.path.basename(f.name), f.name) for f in files]
-            first_filepath = choices[0][1] if choices else None
-
-            return gr.update(choices=choices, value=first_filepath), first_filepath
-
-        degraded_audio_files.upload(
-            fn=update_degraded_dropdown,
-            inputs=[degraded_audio_files],
-            outputs=[degraded_audio_dropdown, degraded_audio_player]
-        )
+    def update_degraded_dropdown(files):
+        if not files:
+            return gr.update(choices=[], value=None), None
         
-        degraded_audio_dropdown.change(
-            fn=lambda x: x, 
-            inputs=[degraded_audio_dropdown], 
-            outputs=[degraded_audio_player]
-        )
+        choices = [(os.path.basename(f.name), f.name) for f in files]
+        first_filepath = choices[0][1] if choices else None
+
+        return gr.update(choices=choices, value=first_filepath), first_filepath
+
+    degraded_audio_files.upload(
+        fn=update_degraded_dropdown,
+        inputs=[degraded_audio_files],
+        outputs=[degraded_audio_dropdown, degraded_audio_player]
+    )
+    
+    degraded_audio_dropdown.change(
+        fn=lambda x: x, 
+        inputs=[degraded_audio_dropdown], 
+        outputs=[degraded_audio_player]
+    )
 
 def create_restoration_ui(model_config, in_model, in_model_half=True):
     global model, sample_size, sample_rate, model_type, model_half
