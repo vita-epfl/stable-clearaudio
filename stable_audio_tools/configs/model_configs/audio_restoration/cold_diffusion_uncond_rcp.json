@@ -1,10 +1,11 @@
 {
-    "model_type": "diffusion_cond",
+    "model_type": "cold_diffusion_uncond",
     "sample_size": 220500,
     "sample_rate": 44100,
     "audio_channels": 2,
-    "max_epochs": 1000,
+    "max_epochs": 5000,
     "model": {
+        "type": "dit",
         "pretransform": {
             "type": "autoencoder",
             "iterate_batch": true,
@@ -40,31 +41,13 @@
                 "io_channels": 2
             }
         },
-        "conditioning": {
-            "configs": [
-                {
-                    "id": "degraded_audio",
-                    "type": "pretransform",
-                    "config": {
-                        "output_dim": 64,
-                        "sample_rate": 44100,
-                        "use_model_pretransform": true
-                    }
-                }
-            ],
-            "cond_dim": 128
-        },
         "diffusion": {
-            "input_concat_ids": ["degraded_audio"],
             "type": "dit",
             "config": {
-                "input_concat_dim": 64,
-                "io_channels": 64,
+                "in_channels": 64,
                 "embed_dim": 1536,
                 "depth": 24,
                 "num_heads": 24,
-                "cond_token_dim": 64,
-                "global_cond_dim": 1536,
                 "project_cond_tokens": false,
                 "transformer_type": "continuous_transformer"
             }
@@ -95,13 +78,12 @@
             }
         },
         "demo": {
-            "demo_every": 2000,
+            "demo_every": 64,
             "demo_steps": 250,
             "num_demos": 1,
-            "demo_cond": [
-                {"degraded_audio": "/path/to/degraded_audio.wav"}
-            ],
-            "demo_cfg_scales": [3, 6, 9]
+            "demo_cond_from_batch": true,
+            "display_audio_cond": true,
+            "demo_cfg_scales": [1]
         }
     }
 }

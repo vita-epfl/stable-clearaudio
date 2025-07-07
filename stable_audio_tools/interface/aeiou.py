@@ -179,11 +179,11 @@ def mel_spectrogram(waveform, power=2.0, sample_rate=48000, db=False, n_fft=1024
     mel_spectrogram_op = T.MelSpectrogram(
         sample_rate=sample_rate, n_fft=n_fft, win_length=win_length, 
         hop_length=hop_length, center=True, pad_mode="reflect", power=power, 
-        norm='slaney', onesided=True, n_mels=n_mels, mel_scale="htk")
+        norm='slaney', onesided=True, n_mels=n_mels, mel_scale="htk").to(waveform.device)
 
     melspec = mel_spectrogram_op(waveform.float())
     if db: 
-        amp_to_db_op = T.AmplitudeToDB()
+        amp_to_db_op = T.AmplitudeToDB().to(waveform.device)
         melspec = amp_to_db_op(melspec)
     if debug:
         print_stats(melspec, print=print) 
@@ -206,7 +206,7 @@ def spectrogram_image(
     canvas = FigureCanvasAgg(fig)
     axs = fig.add_subplot()
     spec = spec.squeeze()
-    im = axs.imshow(power_to_db(spec), origin='lower', aspect=aspect, vmin=db_range[0], vmax=db_range[1])
+    im = axs.imshow(power_to_db(spec.cpu()), origin='lower', aspect=aspect, vmin=db_range[0], vmax=db_range[1])
     if xmax:
         axs.set_xlim((0, xmax))
     if justimage:

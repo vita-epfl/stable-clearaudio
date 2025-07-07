@@ -579,8 +579,9 @@ def create_diffusion_uncond_from_config(config: tp.Dict[str, tp.Any]):
     diffusion_uncond_config = config["model"]
 
     model_type = diffusion_uncond_config.get('type', None)
-
-    diffusion_config = diffusion_uncond_config.get('config', {})
+    
+    diffusion = diffusion_uncond_config.get('diffusion', None)
+    diffusion_config = diffusion.get('config', {})
 
     assert model_type is not None, "Must specify model type in config"
 
@@ -686,7 +687,7 @@ def create_diffusion_cond_from_config(config: tp.Dict[str, tp.Any]):
 
     extra_kwargs = {}
 
-    if model_type == "diffusion_cond" or model_type == "diffusion_cond_inpaint":
+    if model_type == "diffusion_cond" or model_type == "diffusion_cond_inpaint" or model_type == "cold_diffusion_cond":
         wrapper_fn = ConditionedDiffusionModelWrapper
 
         extra_kwargs["diffusion_objective"] = diffusion_objective
