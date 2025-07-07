@@ -211,7 +211,7 @@ def generate_diffusion_uncond(
     # Now the generative AI part:
 
     # Check for cold diffusion model type from config
-    if model.model_config.get("model_type") == "cold_diffusion_uncond":
+    if model.model_config.get("model_type") == "cold_diffusion_uncond_restoration":
         # Cold diffusion sampling process
         if not degradation_ops:
             raise ValueError("Cold diffusion is enabled, but no degradation operators are loaded.")

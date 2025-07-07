@@ -1,5 +1,5 @@
 {
-    "model_type": "cold_diffusion_uncond",
+    "model_type": "cold_diffusion_uncond_restoration",
     "sample_size": 220500,
     "sample_rate": 44100,
     "audio_channels": 2,

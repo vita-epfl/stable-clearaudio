@@ -451,10 +451,8 @@ def create_ui(model_config_path=None, ckpt_path=None, pretrained_name=None, pret
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     _, model_config = load_model(model_config, ckpt_path, pretrained_name=pretrained_name, pretransform_ckpt_path=pretransform_ckpt_path, model_half=model_half, device=device)
     
-    if model_type == "diffusion_cond" or model_type == "diffusion_cond_inpaint":
-        ui = create_diffusion_cond_ui(model_config, model, in_model_half=model_half)
-    elif model_type == "diffusion_uncond":
-        ui = create_diffusion_uncond_ui(model_config)
+    if model_type == "diffusion_cond_restoration" or model_type == "cold_diffusion_uncond_restoration":
+        ui = create_restoration_ui(model_config, model, in_model_half=model_half)
     elif model_type == "autoencoder" or model_type == "diffusion_autoencoder":
         ui = create_autoencoder_ui(model_config)
     elif model_type == "diffusion_prior":

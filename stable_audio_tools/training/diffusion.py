@@ -106,7 +106,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         self.rng = torch.quasirandom.SobolEngine(1, scramble=True)
 
-        if self.model_type == 'cold_diffusion_uncond':
+        if self.model_type == 'cold_diffusion_uncond_restoration':
             self.degradation_ops = []
             if build_degraded_args:
                 LOG.info("[ColdDiffusion] Initializing degradation presets from dataset config")
@@ -203,7 +203,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         # Draw uniformly distributed continuous timesteps
         t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
 
-        if self.model_type == 'cold_diffusion_uncond':
+        if self.model_type == 'cold_diffusion_uncond_restoration':
             LOG.debug("[ColdDiffusion] Using cold diffusion")
             # For cold diffusion, degradation is applied to the raw audio waveform
             if self.degradation_ops:
@@ -360,7 +360,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
 
         with torch.amp.autocast("cuda"):
-            if self.model_type == 'cold_diffusion_uncond':
+            if self.model_type == 'cold_diffusion_uncond_restoration':
                 # For demos, we want to see how the model restores a degraded version of the clean audio
                 degradation_t = 1.0 # Start from fully degraded
 

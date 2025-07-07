@@ -50,7 +50,7 @@ if __name__ == '__main__':
             use_ema=training_config["use_ema"],
             ema_copy=ema_copy if use_ema else None
         )
-    elif model_type == 'diffusion_uncond':
+    elif model_type == 'cold_diffusion_uncond_restoration':
         from stable_audio_tools.training.diffusion import DiffusionUncondTrainingWrapper
         training_wrapper = DiffusionUncondTrainingWrapper.load_from_checkpoint(args.ckpt_path, model=model, strict=False)
 
@@ -66,7 +66,7 @@ if __name__ == '__main__':
             ema_copy.state_dict()[name].copy_(param)
 
         training_wrapper = DiffusionAutoencoderTrainingWrapper.load_from_checkpoint(args.ckpt_path, model=model, ema_copy=ema_copy, strict=False)
-    elif model_type == 'diffusion_cond':
+    elif model_type == 'diffusion_cond_restoration':
         from stable_audio_tools.training.diffusion import DiffusionCondTrainingWrapper
         
         use_ema = training_config.get("use_ema", True)
