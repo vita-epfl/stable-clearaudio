@@ -59,7 +59,7 @@ from ..models.utils import load_ckpt_state_dict
 from ..inference.utils import prepare_audio
 from ..training.utils import copy_state_dict
 
-from .interfaces.diffusion_cond import create_diffusion_cond_ui
+from .interfaces.restoration_sampling_ui import create_restoration_ui
 
 model = None
 model_type = None
@@ -287,12 +287,6 @@ def create_uncond_sampling_ui(model_config):
             audio_spectrogram_output
         ], 
         api_name="generate")
-
-def create_diffusion_uncond_ui(model_config):
-    with gr.Blocks() as ui:
-        create_uncond_sampling_ui(model_config)
-    
-    return ui
 
 def autoencoder_process(audio, latent_noise, n_quantizers):
     if torch.cuda.is_available():
