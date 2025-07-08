@@ -23,7 +23,7 @@ def prepare_audio(audio, in_sr, target_sr, target_length, target_channels, devic
     audio = audio.to(device)
 
     if in_sr != target_sr:
-        resample_tf = T.Resample(in_sr, target_sr).to(device)
+        resample_tf = T.Resample(in_sr, target_sr).to(device).to(audio.dtype)
         audio = resample_tf(audio)
 
     audio = PadCrop(target_length, randomize=False)(audio)

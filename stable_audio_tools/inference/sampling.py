@@ -242,6 +242,7 @@ def sample_cold(
     degradation_ops=None,
     pretransform=None,
     t_start=1.0,
+    callback=None,
     **extra_args
 ):
     """
@@ -279,6 +280,14 @@ def sample_cold(
 
         # Predict the clean latent from the current degraded state
         x_0_hat_latent = model(x, ts * t_now, **extra_args)
+
+        # User-provided callback (e.g. for logging metrics or previews)
+        if callback is not None:
+            try:
+                callback(x_0_hat_latent, i)
+            except TypeError:
+                # Fall back to passing a dict similar to other samplers
+                callback({'x': x, 't': t_now, 'sigma': t_now, 'i': i, 'denoised': x_0_hat_latent})
 
         if i < steps - 1:
             # Decode the clean latent to audio
