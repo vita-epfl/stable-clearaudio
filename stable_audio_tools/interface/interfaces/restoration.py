@@ -17,6 +17,10 @@ import subprocess
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
+# Suppress verbose matplotlib debug logs
+import logging as _logging
+_logging.getLogger('matplotlib').setLevel(_logging.WARNING)
+_logging.getLogger('matplotlib.font_manager').setLevel(_logging.WARNING)
 import matplotlib.pyplot as plt
 from io import BytesIO
 
@@ -321,15 +325,15 @@ def generate_restoration(
             }
             
             # Handle sample_rate and sample_size specially to ensure they're single values
-            sample_rate = final_metrics.get("sample_rate", 0)
-            if isinstance(sample_rate, list) and len(sample_rate) > 0:
-                sample_rate = sample_rate[0]
-            degraded_losses["sample_rate"] = sample_rate
+            metric_sample_rate = final_metrics.get("sample_rate", sample_rate)
+            if isinstance(metric_sample_rate, list) and len(metric_sample_rate) > 0:
+                metric_sample_rate = metric_sample_rate[0]
+            degraded_losses["sample_rate"] = metric_sample_rate
             
-            sample_size = final_metrics.get("sample_size", 0)
-            if isinstance(sample_size, list) and len(sample_size) > 0:
-                sample_size = sample_size[0]
-            degraded_losses["sample_size"] = sample_size
+            metric_sample_size = final_metrics.get("sample_size", sample_size)
+            if isinstance(metric_sample_size, list) and len(metric_sample_size) > 0:
+                metric_sample_size = metric_sample_size[0]
+            degraded_losses["sample_size"] = metric_sample_size
             
             # Extract only metrics with the 'degraded_' prefix but remove the prefix
             for key in final_metrics:
@@ -355,15 +359,15 @@ def generate_restoration(
             restored_losses = {}
             
             # Handle sample_rate and sample_size specially to ensure they're single values
-            sample_rate = final_metrics.get("sample_rate", 0)
-            if isinstance(sample_rate, list) and len(sample_rate) > 0:
-                sample_rate = sample_rate[0]
-            restored_losses["sample_rate"] = sample_rate
+            metric_sample_rate = final_metrics.get("sample_rate", sample_rate)
+            if isinstance(metric_sample_rate, list) and len(metric_sample_rate) > 0:
+                metric_sample_rate = metric_sample_rate[0]
+            restored_losses["sample_rate"] = metric_sample_rate
             
-            sample_size = final_metrics.get("sample_size", 0)
-            if isinstance(sample_size, list) and len(sample_size) > 0:
-                sample_size = sample_size[0]
-            restored_losses["sample_size"] = sample_size
+            metric_sample_size = final_metrics.get("sample_size", sample_size)
+            if isinstance(metric_sample_size, list) and len(metric_sample_size) > 0:
+                metric_sample_size = metric_sample_size[0]
+            restored_losses["sample_size"] = metric_sample_size
             
             # Add timestamp
             restored_losses["timestamp"] = time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -476,7 +480,14 @@ def generate_restoration(
         clean_spectrogram = None
 
     LOG.info("Audio restoration completed")
-    return (output_filename if file_format != "wav" else output_wav, [(audio_spectrogram, "Generated Audio"), (clean_spectrogram, "Clean Reference") if clean_spectrogram else None, *preview_images], final_metrics)
+    # Build gallery images, filtering out None entries to avoid Gradio errors
+    images_to_show = []
+    if audio_spectrogram is not None:
+        images_to_show.append((audio_spectrogram, "Generated Audio"))
+    if clean_spectrogram is not None:
+        images_to_show.append((clean_spectrogram, "Clean Reference"))
+    images_to_show.extend(preview_images)
+    return (output_filename if file_format != "wav" else output_wav, images_to_show, final_metrics)
 
 #  Asynchronously delete the given list of filenames after delay seconds. Sets up thread that sleeps for delay then deletes.
 def delete_files_async(filenames, delay):
