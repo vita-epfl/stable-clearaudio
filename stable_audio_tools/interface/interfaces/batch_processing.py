@@ -18,8 +18,6 @@ LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.StreamHandler())
 LOG.setLevel(logging.INFO)
 
-from .restoration import generate_restoration
-
 
 # Clean up the JSON structure before saving
 def remove_empty_structures(data):
@@ -42,7 +40,7 @@ def remove_empty_structures(data):
             del data[key]
     return data
 
-def get_metrics_spectrograms_batch_processing()(audio, degraded_audio_path, effects_files, model_name, output_dir, degraded_audio_dir, restored_audio_dir, batch_processing_dir, consolidated_results, metrics):
+def get_metrics_spectrograms_batch_processing(audio, degraded_audio_path, effects_files, model_name, output_dir, degraded_audio_dir, restored_audio_dir, batch_processing_dir, consolidated_results, metrics):
     original_filename = os.path.basename(degraded_audio_path)
     original_filename_without_ext = os.path.splitext(original_filename)[0]
     ext = os.path.splitext(audio)[1]
@@ -185,20 +183,13 @@ def get_metrics_spectrograms_batch_processing()(audio, degraded_audio_path, effe
                 effect_exists = True
                 LOG.info(f"Effect {current_effect} already processed for this audio, updating it instead")
                 
-                # We already have metrics from generate_restoration call at line 1615
-                # No need to reload them from file - just use what we have
-                LOG.info(f"Using metrics from generate_restoration for effect {current_effect}")
-                # Log available metrics types
                 if metrics and isinstance(metrics, dict):
                     LOG.info(f"Available metrics keys: {list(metrics.keys())}")
                     if "degraded_metrics" in metrics and isinstance(metrics["degraded_metrics"], dict):
                         LOG.info(f"Degraded metrics: {list(metrics['degraded_metrics'].keys())}")
                     if "restored_metrics" in metrics and isinstance(metrics["restored_metrics"], dict):
                         LOG.info(f"Restored metrics: {list(metrics['restored_metrics'].keys())}")
-                else:
-                    LOG.warning(f"No metrics available from generate_restoration for effect {current_effect}")
                 
-                # Restructure metrics if needed - the metrics from generate_restoration may be flat, not nested
                 degraded_metrics = {}
                 restored_metrics = {}
                 
@@ -316,14 +307,11 @@ def get_metrics_spectrograms_batch_processing()(audio, degraded_audio_path, effe
             }
             
             # Get metrics from the model via metrics (from final_metrics)
-            if metrics and isinstance(metrics, dict):
-                LOG.info(f"Available metrics keys from generate_restoration: {list(metrics.keys())}")
-                
+            if metrics and isinstance(metrics, dict):                
                 # Check if metrics already have a nested structure
                 if "degraded_metrics" in metrics and "restored_metrics" in metrics:
                     detailed_metrics["degraded_metrics"] = metrics["degraded_metrics"]
                     detailed_metrics["restored_metrics"] = metrics["restored_metrics"]
-                    LOG.info(f"Using nested structure from metrics directly")
                 # Otherwise, check if the metrics have a flat structure with losses
                 elif "degraded" in metrics and "restored" in metrics:
                     # Extract from nested structure with losses
@@ -344,7 +332,7 @@ def get_metrics_spectrograms_batch_processing()(audio, degraded_audio_path, effe
                             clean_key = key.replace('restored_', '').replace('restoration_', '').replace('demo_', '')
                             detailed_metrics["restored_metrics"][clean_key] = value
             else:
-                LOG.warning("No metrics available from generate_restoration!")
+                LOG.warning("No metrics available")
                 
             # Load metrics from the JSON file as a fallback
             metrics_file = os.path.join(batch_processing_dir, "equalizer_metrics.json")
