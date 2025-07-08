@@ -447,6 +447,7 @@ effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, f
             file_format=file_format,
             degraded_audio=degraded_audio_input,
             clean_audio=clean_audio,
+            effects_list=effects_list,
             batch_size=1,
             degraded_audio_filename=degraded_audio_path  # Pass the filename here
         )
@@ -628,6 +629,26 @@ def create_uncond_restoration_sampling_ui():
                             label="Effects list",
                             placeholder="Comma-separated list of effects (e.g. equalizer,bass,overdrive)",
                         )
+
+                # New row: preset selector for low-quality degradations
+                with gr.Row():
+                    # Dynamically list available preset YAMLs
+                    import os
+                    from pathlib import Path
+                    _presets_dir = Path(__file__).resolve().parent.parent.parent / "configs" / "dataset_configs" / "low_quality_effect"
+                    if _presets_dir.is_dir():
+                        _preset_files = sorted([p.stem for p in _presets_dir.glob("*.yaml")])
+                    else:
+                        _preset_files = []
+                    preset_selector = gr.CheckboxGroup(
+                        choices=_preset_files,
+                        label="Low-quality effect presets (mandatory for cold diffusion models)",
+                    )
+
+                    # Whenever presets change, update effects_list textbox as comma-separated string
+                    def _update_effects_list(selected):
+                        return ",".join(selected) if selected else ""
+                    preset_selector.change(_update_effects_list, inputs=[preset_selector], outputs=[effects_list])
 
             inputs = [
                 steps_slider,
@@ -892,6 +913,13 @@ def create_restoration_ui(model_config, in_model, in_model_half=True):
     model_type = model_config["model_type"]
 
     model_half = in_model_half
+
+    from . import restoration as _restoration_module
+    _restoration_module.model = in_model
+    _restoration_module.sample_size = sample_size
+    _restoration_module.sample_rate = sample_rate
+    _restoration_module.model_type = model_type if 'model_type' in globals() else None
+    _restoration_module.model_half = in_model_half
 
     with gr.Blocks() as ui:
         with gr.Tab("Generation"):

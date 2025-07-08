@@ -76,6 +76,7 @@ def generate_restoration(
     cfg_rescale=0.0,
     file_format="wav",
     clean_audio=None,
+    effects_list=None,
     batch_size=1,
     degraded_audio_filename=None,
     custom_output_dir=None,
@@ -106,6 +107,9 @@ def generate_restoration(
     input_sample_size = degraded_audio[1].shape[-1]
 
     if degraded_audio is not None:
+        if not isinstance(degraded_audio, tuple) or len(degraded_audio) != 2:
+            raise ValueError(f"Invalid audio format: {degraded_audio}. Expected a tuple of (sample_rate, audio_data).")
+
         in_sr, degraded_audio = degraded_audio
 
         if degraded_audio.dtype == np.float32:
@@ -258,10 +262,10 @@ def generate_restoration(
             "sample_size": input_sample_size,
             "seed": seed,
             "device": device,
-            "sampler_type": sampler_type,
             "callback": progress_callback if (preview_every is not None) else None,
             "clean_audio": clean_audio,
             "degraded_audio": degraded_audio,
+            "effects_list": effects_list,
             "output_dir": generation_dir,
             "metrics_every": metrics_every
         }

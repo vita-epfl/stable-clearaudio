@@ -5,6 +5,9 @@ import math
 from torch.nn.functional import interpolate
 from einops import rearrange
 
+from pathlib import Path
+from stable_audio_tools.transforms.signal import ColdDiffusionSoxTransform
+
 import os
 from .utils import prepare_audio
 from .sampling import sample, sample_k, sample_rf, sample_cold
@@ -236,6 +239,7 @@ def generate_cold_diffusion_uncond_restoration(
         device: str = "cuda",
         clean_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
         degraded_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
+        effects_list: tp.Optional[list] = None,
         callback = None,
         t_start: float = 1.0,
         output_dir = None,
@@ -358,14 +362,53 @@ def generate_cold_diffusion_uncond_restoration(
     # Generate audio using sample_cold
     LOG.info(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
     
-    if not hasattr(model, 'degradation_ops') or not model.degradation_ops:
-        raise ValueError("Model must have 'degradation_ops' for cold diffusion sampling.")
+    # Prepare degradation operators
+    degradation_ops = None
+    build_from_presets = effects_list is not None and len(effects_list) > 0
+
+    if build_from_presets or not (hasattr(model, 'degradation_ops') and model.degradation_ops):
+        degradation_ops = []
+        if build_from_presets:
+
+            # Accept comma-separated string or list/tuple
+            if isinstance(effects_list, str):
+                preset_names = [n.strip() for n in effects_list.split(',') if n.strip()]
+            else:
+                preset_names = [str(n).strip() for n in effects_list if str(n).strip()]
+
+            # Default directory containing preset yamls
+            effects_dir = Path(__file__).resolve().parent.parent / 'configs' / 'dataset_configs' / 'low_quality_effect'
+
+            LOG.info(f"[ColdDiffusion] Loading degradation presets from {effects_dir}")
+            for preset_name in preset_names:
+                preset_path = effects_dir / f"{preset_name}.yaml"
+                if preset_path.exists():
+                    try:
+                        op = ColdDiffusionSoxTransform.from_preset(preset_path, sample_rate, seed=seed)
+                        degradation_ops.append(op)
+                        LOG.info(f"[ColdDiffusion] Added preset: {preset_path}")
+                    except Exception as e:
+                        LOG.warning(f"[ColdDiffusion] Failed to load preset {preset_path}: {e}")
+                else:
+                    LOG.warning(f"[ColdDiffusion] Preset file not found: {preset_path}")
+
+        # Fall back to model.degradation_ops if none built
+        if not degradation_ops:
+            if hasattr(model, 'degradation_ops') and model.degradation_ops:
+                degradation_ops = model.degradation_ops
+            else:
+                raise ValueError("For cold diffusion, please select low quality effects presets.")
+
+        # Ensure model has degradation_ops populated for downstream code
+        model.degradation_ops = degradation_ops
+    else:
+        degradation_ops = model.degradation_ops
 
     fake_latent = sample_cold(
         model,
         x_latent,
         steps,
-        degradation_ops=model.degradation_ops,
+        degradation_ops=degradation_ops,
         pretransform=model.pretransform,
         t_start=t_start,
         callback=callback,
