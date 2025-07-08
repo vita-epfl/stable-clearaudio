@@ -27,6 +27,8 @@ model_half = True
 from .restoration import generate_restoration
 
 def create_restoration_sampling_ui():
+    global model, sample_rate, model_type, model_half
+    
     diffusion_objective = model.diffusion_objective
 
     is_rf = diffusion_objective == "rectified_flow"
@@ -1060,5 +1062,5 @@ def create_restoration_ui(model_config, in_model, in_model_half=True):
 
     with gr.Blocks() as ui:
         with gr.Tab("Generation"):
-            create_restoration_sampling_ui(model_config)
+            create_restoration_sampling_ui()
     return ui
