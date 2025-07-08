@@ -684,8 +684,8 @@ def create_uncond_restoration_sampling_ui():
 
 def create_cond_restoration_sampling_ui():
     global model, sample_rate, model_type, model_half
-    
-    diffusion_objective = model.diffusion_objective
+
+    diffusion_objective = getattr(model, 'diffusion_objective', None)
 
     is_rf = diffusion_objective == "rectified_flow"
     
