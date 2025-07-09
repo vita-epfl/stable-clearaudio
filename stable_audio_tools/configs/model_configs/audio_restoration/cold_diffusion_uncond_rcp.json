@@ -44,7 +44,7 @@
         "diffusion": {
             "type": "dit",
             "config": {
-                "in_channels": 64,
+                "io_channels": 64,
                 "embed_dim": 1536,
                 "depth": 24,
                 "num_heads": 24,
@@ -78,7 +78,7 @@
             }
         },
         "demo": {
-            "demo_every": 64,
+            "demo_every": 32,
             "demo_steps": 250,
             "num_demos": 1,
             "demo_cond_from_batch": true,
