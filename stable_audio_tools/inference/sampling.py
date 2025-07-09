@@ -14,6 +14,10 @@ LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
+# Silence overly verbose third-party HTTP libraries
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # Define the noise schedule and sampling loop
 def get_alphas_sigmas(t):
