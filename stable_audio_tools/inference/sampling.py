@@ -11,7 +11,7 @@ import k_diffusion as K
 LOG = logging.getLogger(__name__)
 
 # Logging configuration
-logging.basicConfig(level=logging.DEBUG, 
+logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
 # Silence overly verbose third-party HTTP libraries
@@ -272,6 +272,10 @@ def sample_cold(
         **extra_args: Additional arguments for the model.
     """
 
+    # Re-degrade the clean prediction to get the input for the next step
+    op = random.choice(degradation_ops)
+    op = op.to(x.device)
+
     # Make tensor of ones to broadcast the single t values
     ts = x.new_ones([x.shape[0]])
 
@@ -296,10 +300,6 @@ def sample_cold(
         if i < steps - 1:
             # Decode the clean latent to audio
             x_0_hat_audio = pretransform.decode(x_0_hat_latent)
-
-            # Re-degrade the clean prediction to get the input for the next step
-            op = random.choice(degradation_ops)
-            op = op.to(x.device)
             
             # Apply degradation in audio space
             redegraded_audio = op.apply(x_0_hat_audio, t_next)
