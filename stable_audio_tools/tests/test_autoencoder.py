@@ -2,6 +2,11 @@ import torch
 import torchaudio
 import json
 import os
+import sys
+from pathlib import Path
+# Ensure local project root is first in Python path so tests use local sources
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
 import argparse
 from stable_audio_tools.models import create_model_from_config
 from stable_audio_tools.models.utils import load_ckpt_state_dict
