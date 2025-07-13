@@ -149,86 +149,6 @@ def _calculate_metrics(
     
     return metrics_dict
 
-def generate_diffusion_uncond(
-        model,
-        steps: int = 250,
-        batch_size: int = 1,
-        sample_size: int = 2097152,
-        seed: int = -1,
-        device: str = "cuda",
-        init_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
-        init_noise_level: float = 1.0,
-        return_latents = False,
-        degradation_ops: tp.Optional[list] = None,
-        **sampler_kwargs
-        ) -> torch.Tensor:
-    
-    # The length of the output in audio samples 
-    audio_sample_size = sample_size
-
-    # If this is latent diffusion, change sample_size instead to the downsampled latent size
-    if model.pretransform is not None:
-        sample_size = sample_size // model.pretransform.downsampling_ratio
-        
-    # Seed
-    # The user can explicitly set the seed to deterministically generate the same output. Otherwise, use a random seed.
-    seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1, dtype=np.uint32)
-    print(seed)
-    torch.manual_seed(seed)
-    # Define the initial noise immediately after setting the seed
-    noise = torch.randn([batch_size, model.io_channels, sample_size], device=device)
-
-    if init_audio is not None:
-        # The user supplied some initial audio (for inpainting or variation). Let us prepare the input audio.
-        in_sr, init_audio = init_audio
-
-        io_channels = model.io_channels
-
-        # For latent models, set the io_channels to the autoencoder's io_channels
-        if model.pretransform is not None:
-            io_channels = model.pretransform.io_channels
-
-        # Prepare the initial audio for use by the model
-        init_audio = prepare_audio(init_audio, in_sr=in_sr, target_sr=model.sample_rate, target_length=audio_sample_size, target_channels=io_channels, device=device)
-
-        # For latent models, encode the initial audio into latents
-        if model.pretransform is not None:
-            init_audio = model.pretransform.encode(init_audio)
-
-        init_audio = init_audio.repeat(batch_size, 1, 1)
-    else:
-        # The user did not supply any initial audio for inpainting or variation. Generate new output from scratch. 
-        init_audio = None
-        init_noise_level = None
-
-    # Inpainting mask
-    
-    if init_audio is not None:
-        # variations
-        sampler_kwargs["sigma_max"] = init_noise_level
-        mask = None 
-    else:
-        mask = None
-
-    # Now the generative AI part:
-
-    # Check for cold diffusion model type from config
-    if model.model_config.get("model_type") == "cold_diffusion_uncond_restoration":
-        # Cold diffusion sampling process
-        if not degradation_ops:
-            raise ValueError("Cold diffusion is enabled, but no degradation operators are loaded.")
-        sampled = sample_cold(model.model, noise, steps, degradation_ops=degradation_ops, **sampler_kwargs)
-    else:
-        raise ValueError("Unknown model type: " + model.model_config.get("model_type"))
-
-    # Denoising process done. 
-    # If this is latent diffusion, decode latents back into audio
-    if model.pretransform is not None and not return_latents:
-        sampled = model.pretransform.decode(sampled)
-
-    # Return audio
-    return sampled
-
 def generate_cold_diffusion_uncond_restoration(
         model,
         steps: int = 250,
@@ -275,16 +195,16 @@ def generate_cold_diffusion_uncond_restoration(
         sample_size = sample_size // model.pretransform.downsampling_ratio
         LOG.info(f"Using latent diffusion, adjusted sample_size to {sample_size}")
 
+    # Seed
+    seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
+    LOG.info(f"Using seed: {seed}")
+    torch.manual_seed(seed)
+
     # Set up torch backend for reproducibility
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
     torch.backends.cudnn.benchmark = False
-
-    # Seed
-    seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
-    LOG.info(f"Using seed: {seed}")
-    torch.manual_seed(seed)
     
     # Prepare initial tensor x
     if degraded_audio is not None:
@@ -307,6 +227,8 @@ def generate_cold_diffusion_uncond_restoration(
     if model.pretransform is not None:
         x_latent = model.pretransform.encode(x_audio)
     else:
+        # log warning
+        LOG.warning("No pretransform found, using audio as is.")
         x_latent = x_audio
 
     # Convert to model dtype
@@ -402,6 +324,7 @@ def generate_cold_diffusion_uncond_restoration(
         # Ensure model has degradation_ops populated for downstream code
         model.degradation_ops = degradation_ops
     else:
+        LOG.warning("No degradation_ops found, using model.degradation_ops.")
         degradation_ops = model.degradation_ops
 
     fake_latent = sample_cold(
