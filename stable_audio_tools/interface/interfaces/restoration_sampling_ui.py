@@ -541,7 +541,7 @@ def create_uncond_restoration_sampling_ui():
                 with gr.Row():
                     # Seed
                     seed_textbox = gr.Textbox(
-                        label="Seed (set to -1 for random seed)", value="-1"
+                        label="Seed (set to -1 for random seed)", value="42"
                     )
 
                 with gr.Row():
@@ -607,11 +607,8 @@ def create_uncond_restoration_sampling_ui():
                         degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play", interactive=True)
                     with gr.Column(scale=1):
                         degraded_audio_player = gr.Audio(label="Degraded audio player")
-                
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        gr.Markdown("### Batch Processing Options")
-                    
+            
+            with gr.Accordion("Batch Processing Options", open=False):                    
                 with gr.Row():
                     process_folder_path = gr.Textbox(
                         label="Audio Folder",
@@ -629,11 +626,9 @@ def create_uncond_restoration_sampling_ui():
                             label="Effects list",
                             placeholder="Comma-separated list of effects (e.g. equalizer,bass,overdrive)",
                         )
-
+            with gr.Accordion("Cold diffusion parameters", open=True):
                 # New row: preset selector for low-quality degradations
                 with gr.Row():
-                    # Dynamically list available preset YAMLs
-                    import os
                     from pathlib import Path
                     _presets_dir = Path(__file__).resolve().parent.parent.parent / "configs" / "dataset_configs" / "low_quality_effect"
                     if _presets_dir.is_dir():
