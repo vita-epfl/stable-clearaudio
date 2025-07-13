@@ -78,8 +78,8 @@
             }
         },
         "demo": {
-            "demo_every": 32,
-            "demo_steps": 250,
+            "demo_every": 16,
+            "demo_steps": 20,
             "num_demos": 1,
             "demo_cond_from_batch": true,
             "display_audio_cond": true,
