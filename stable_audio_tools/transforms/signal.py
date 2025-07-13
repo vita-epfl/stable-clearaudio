@@ -16,7 +16,7 @@ import yaml
 LOG = logging.getLogger(__name__)
 
 # Logging configuration
-logging.basicConfig(level=logging.DEBUG, 
+logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
 
@@ -37,7 +37,6 @@ def resample_signal(waveform: Tensor, sample_rate: int, resample_rate: int) -> T
 
     resampled_waveform = resampler.forward(waveform)
     return resampled_waveform, resample_rate
-
 
 def signal_to_mono(waveform: Tensor) -> Tensor:
     if waveform is None:

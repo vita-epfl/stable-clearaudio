@@ -213,8 +213,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                     op = op.to(self.device)
                     degraded_reals[i] = op.apply(reals[i], t[i].item())
             else:
-                LOG.debug("No degradation ops specified, using clean audio as input")
-                degraded_reals = reals
+                raise ValueError("For cold diffusion, please select low quality effects presets.")
 
             # The model's target is the clean audio (or its latent representation)
             targets = reals
