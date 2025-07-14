@@ -84,7 +84,8 @@ def generate_restoration(
     batch_size=1,
     degraded_audio_filename=None,
     custom_output_dir=None,
-    t_start=1.0,
+    t_start: float = 1.0,
+    schedule: str = "linear",
 ):
     LOG.info("Starting audio restoration")
     
@@ -273,7 +274,8 @@ def generate_restoration(
             "effects_list": effects_list,
             "output_dir": generation_dir,
             "metrics_every": metrics_every,
-            "t_start": t_start
+            "t_start": t_start,
+            "schedule": schedule,
         }
         audio, final_metrics = generate_cold_diffusion_uncond_restoration(**generate_args)
     else:

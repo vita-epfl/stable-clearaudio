@@ -316,7 +316,7 @@ def create_metric_plots(metrics_data_list, labels):
         LOG.error(f"Error creating metric plots: {str(e)}", exc_info=True)
         return None
 
-def generate_multiple_with_plots(steps, t_start, preview_every, metrics_every, seed, sampler_type, 
+def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metrics_every, seed, sampler_type, 
 degraded_audio_files, clean_audio, process_folder_path=None, model_name=None, 
 effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, file_format=None):
     """
@@ -451,6 +451,7 @@ effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, f
             batch_size=1,
             degraded_audio_filename=degraded_audio_path,
             t_start=t_start,
+            schedule=schedule,
         )
         
         # Process based on whether we're using effects list or standard folder processing
@@ -636,7 +637,20 @@ def create_uncond_restoration_sampling_ui():
                         step=0.01,
                         value=1.0,
                     )
-                    
+
+                with gr.Row():
+                    schedule_dropdown = gr.Dropdown(
+                        [
+                            "linear",
+                            "cosine",
+                            "squaredcos_cap0",
+                            "squaredcos_cap1",
+                            "sigmoid",
+                        ],
+                        label="Schedule",
+                        value="linear",
+                    )
+
                 with gr.Row():
                     from pathlib import Path
                     _presets_dir = Path(__file__).resolve().parent.parent.parent / "configs" / "dataset_configs" / "low_quality_effect"
@@ -656,6 +670,7 @@ def create_uncond_restoration_sampling_ui():
             inputs = [
                 steps_slider,
                 t_start_slider,
+                schedule_dropdown,
                 preview_every_slider,
                 metrics_every_slider,
                 seed_textbox,

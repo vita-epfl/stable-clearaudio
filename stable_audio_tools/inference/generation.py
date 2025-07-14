@@ -162,6 +162,7 @@ def generate_cold_diffusion_uncond_restoration(
         effects_list: tp.Optional[list] = None,
         callback = None,
         t_start: float = 1.0,
+        schedule: str = "linear",
         output_dir = None,
         metrics_every: int = 0,
         **sampler_kwargs
@@ -181,6 +182,7 @@ def generate_cold_diffusion_uncond_restoration(
             for the audio to be restored. If None, generation will start from noise.
         t_start (float): The starting time for the reverse process. Should correspond to the degradation
             level of the input audio. Defaults to 1.0 (fully degraded).
+        schedule (str): Time schedule type passed to `sample_cold` ("linear", "sqrt", "cosine").
         output_dir (str): The directory to save the generated audio and metrics to.
         metrics_every (int): The number of steps between each metric calculation. If 0, metrics are only calculated at the end.
         **sampler_kwargs: Additional arguments for the sampler.
@@ -334,6 +336,7 @@ def generate_cold_diffusion_uncond_restoration(
         degradation_ops=degradation_ops,
         pretransform=model.pretransform,
         t_start=t_start,
+        schedule=schedule,
         callback=callback,
         **sampler_kwargs
     )
@@ -441,6 +444,8 @@ def generate_diffusion_cond_restoration(
     seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
     LOG.info(f"Using seed: {seed}")
     torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
     # Define the initial noise
     noise = torch.randn([batch_size, model.io_channels, sample_size], device=device)
