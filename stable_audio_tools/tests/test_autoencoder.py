@@ -2,6 +2,11 @@ import torch
 import torchaudio
 import json
 import os
+import sys
+from pathlib import Path
+# Ensure local project root is first in Python path so tests use local sources
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
 import argparse
 from stable_audio_tools.models import create_model_from_config
 from stable_audio_tools.models.utils import load_ckpt_state_dict
@@ -13,6 +18,7 @@ def main():
     parser.add_argument("--input", type=str, required=True, help="Path to the input clean audio file (.wav)")
     parser.add_argument("--output", type=str, required=True, help="Path to save the reconstructed audio file (.wav)")
     parser.add_argument("--ckpt_path", type=str, default=None, help="Optional path to the pretransform checkpoint (.ckpt)")
+    parser.add_argument("--pretrained_ckpt_path", type=str, default=None, help="Optional path to the pretrained checkpoint (.ckpt)")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to use (cuda or cpu)")
 
     args = parser.parse_args()
@@ -45,6 +51,13 @@ def main():
         copy_state_dict(ae, load_ckpt_state_dict(args.ckpt_path))
     else:
         print("No pretransform checkpoint provided, using initialized weights.")
+
+    # Load pretrained checkpoint if provided
+    if args.pretrained_ckpt_path:
+        print(f"Loading pretrained checkpoint from {args.pretrained_ckpt_path}")
+        copy_state_dict(model, load_ckpt_state_dict(args.pretrained_ckpt_path))
+    else:
+        print("No pretrained checkpoint provided, using initialized weights.")
 
     # Load audio
     print(f"Loading audio from {args.input}")

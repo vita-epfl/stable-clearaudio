@@ -245,7 +245,8 @@ def sample_cold(
     steps,
     degradation_ops=None,
     pretransform=None,
-    t_start=1.0,
+    t_start: float = 1.0,
+    schedule: str = "linear",
     callback=None,
     **extra_args
 ):
@@ -269,6 +270,7 @@ def sample_cold(
         degradation_ops: A list of degradation operators.
         pretransform: The autoencoder model to decode/encode latents.
         t_start (float, optional): The starting time for the reverse process. Defaults to 1.0.
+        schedule (str, optional): Time schedule type: "linear" (default), "sqrt", or "cosine".
         **extra_args: Additional arguments for the model.
     """
 
@@ -280,7 +282,17 @@ def sample_cold(
     ts = x.new_ones([x.shape[0]])
 
     # Create the time schedule for the reverse process
-    time_schedule = torch.linspace(t_start, 0, steps + 1, device=x.device)
+    if schedule == "linear":
+        time_schedule = torch.linspace(t_start, 0, steps + 1, device=x.device)
+    elif schedule == "sqrt":
+        time_schedule = torch.linspace(t_start ** 2, 0, steps + 1, device=x.device).sqrt()
+    elif schedule == "cosine":
+        # Map t in [0,1] to theta in [0, π/2] and use cosine ramp
+        theta_start = t_start * (torch.pi / 2)
+        theta = torch.linspace(theta_start, 0, steps + 1, device=x.device)
+        time_schedule = torch.cos(theta)
+    else:
+        raise ValueError(f"Unknown schedule type: {schedule}")
 
     for i in trange(steps, disable=None):
         t_now = time_schedule[i]
