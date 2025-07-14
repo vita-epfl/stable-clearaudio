@@ -629,6 +629,15 @@ def create_uncond_restoration_sampling_ui():
                         )
             with gr.Accordion("Cold diffusion parameters", open=True):
                 with gr.Row():
+                    t_start_slider = gr.Slider(
+                        label="T start",
+                        minimum=0.0,
+                        maximum=1.0,
+                        step=0.01,
+                        value=1.0,
+                    )
+                    
+                with gr.Row():
                     from pathlib import Path
                     _presets_dir = Path(__file__).resolve().parent.parent.parent / "configs" / "dataset_configs" / "low_quality_effect"
                     if _presets_dir.is_dir():
@@ -644,15 +653,6 @@ def create_uncond_restoration_sampling_ui():
                     def _update_effects_list(selected):
                         return ",".join(selected) if selected else ""
                     preset_selector.change(_update_effects_list, inputs=[preset_selector], outputs=[effects_list])
-
-                with gr.Row():
-                    t_start_slider = gr.Slider(
-                        label="T start",
-                        minimum=0.0,
-                        maximum=1.0,
-                        step=0.01,
-                        value=1.0,
-                    )
             inputs = [
                 steps_slider,
                 t_start_slider,
