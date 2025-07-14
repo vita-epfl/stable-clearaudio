@@ -78,8 +78,36 @@ def load_model(model_config=None, model_ckpt_path=None, pretrained_name=None, pr
 
         print(f"Loading model checkpoint from {model_ckpt_path}")
         # Load checkpoint
-        copy_state_dict(model, load_ckpt_state_dict(model_ckpt_path))
-        #model.load_state_dict(load_ckpt_state_dict(model_ckpt_path))
+        # Load checkpoint with EMA fallback
+        state_dict = load_ckpt_state_dict(model_ckpt_path)
+        # If checkpoint comes from a Lightning training run, it may contain EMA weights under
+        # the prefix 'diffusion_ema.ema_model.'. Remap those keys to match the inference
+        # model's expected 'model.' prefix so that EMA parameters are used for sampling.
+        if any(k.startswith("diffusion_ema.ema_model.") for k in state_dict.keys()):
+            print("Found EMA weights in checkpoint – remapping to model.* keys")
+            remapped_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith("diffusion_ema.ema_model."):
+                    print("Found EMA weights in checkpoint – remapping to model.* keys")
+                    # Map 'diffusion_ema.ema_model.xxx' -> 'model.xxx'
+                    new_key = k.replace("diffusion_ema.ema_model.", "model.")
+                    remapped_state_dict[new_key] = v
+                elif k.startswith("diffusion.model."):
+                    print("Found EMA weights in checkpoint – remapping to model.* keys")
+                    # Map 'diffusion.model.xxx' -> 'model.xxx' (non-EMA online weights fallback)
+                    new_key = k.replace("diffusion.", "")
+                    remapped_state_dict[new_key] = v
+                elif k.startswith("diffusion."):
+                    print("Found EMA weights in checkpoint – remapping to model.* keys")
+                    # Strip leading 'diffusion.' for other sub-modules (e.g. pretransform)
+                    new_key = k[len("diffusion."):]
+                    remapped_state_dict[new_key] = v
+                else:
+                    print("Found EMA weights in checkpoint – remapping to model.* keys")
+                    remapped_state_dict[k] = v
+            state_dict = remapped_state_dict
+        copy_state_dict(model, state_dict)
+
 
     sample_rate = model_config["sample_rate"]
     sample_size = model_config["sample_size"]
@@ -88,7 +116,6 @@ def load_model(model_config=None, model_ckpt_path=None, pretrained_name=None, pr
     if pretransform_ckpt_path is not None:
         print(f"Loading pretransform checkpoint from {pretransform_ckpt_path}")
         model.pretransform.load_state_dict(load_ckpt_state_dict(pretransform_ckpt_path), strict=False)
-        print(f"Done loading pretransform")
 
     model.to(device).eval().requires_grad_(False)
 
