@@ -38,10 +38,12 @@ def main():
     # Create model and extract pretransform (autoencoder)
     print("Creating model...")
     model = create_model_from_config(model_config)
-    if not hasattr(model, 'pretransform') or model.pretransform is None:
-        raise AttributeError("Model created from config does not have a 'pretransform' attribute.")
-    
-    ae = model.pretransform
+    # Determine which object should be treated as the autoencoder
+    if hasattr(model, 'pretransform') and model.pretransform is not None:
+        ae = model.pretransform
+    else:
+        print("Model has no 'pretransform' attribute; assuming the model itself is the autoencoder.")
+        ae = model
     ae = ae.to(args.device)
     ae.eval()
 
