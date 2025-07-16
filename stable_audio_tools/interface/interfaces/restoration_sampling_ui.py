@@ -518,7 +518,7 @@ effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, f
 def generate_with_plots(*args):
     audios, spectrograms, plots = generate_multiple_with_plots(*args)
     first_audio = audios[0] if audios else None
-    return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots
+    return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots, first_audio
 
 def create_uncond_restoration_sampling_ui():
     global model, sample_rate, model_type, model_half
@@ -536,7 +536,7 @@ def create_uncond_restoration_sampling_ui():
                 # Steps slider
                 default_steps = 30
                 steps_slider = gr.Slider(
-                    minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
+                    minimum=0, maximum=500, step=1, value=default_steps, label="Steps"
                 )
 
             with gr.Accordion("Sampler params", open=False):
@@ -686,6 +686,7 @@ def create_uncond_restoration_sampling_ui():
         with gr.Column():
             output_audio_dropdown = gr.Dropdown(label="Select generated audio")
             output_audio_player = gr.Audio(label="Audio player")
+            download_audio_file = gr.File(label="Download output audio")
             audio_spectrogram_output = gr.Gallery(label="Output spectrograms", show_label=True, elem_id="spectrogram_gallery", columns=2, height=400)
             
             # Add metrics display section
@@ -703,7 +704,7 @@ def create_uncond_restoration_sampling_ui():
     generate_button.click(
         fn=generate_with_plots,
         inputs=inputs,
-        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots],
+        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file],
         api_name="generate",
     )
     
@@ -888,6 +889,7 @@ def create_cond_restoration_sampling_ui():
         with gr.Column():
             output_audio_dropdown = gr.Dropdown(label="Select generated audio")
             output_audio_player = gr.Audio(label="Audio player")
+            download_audio_file = gr.File(label="Download output audio")
             audio_spectrogram_output = gr.Gallery(label="Output spectrograms", show_label=True, elem_id="spectrogram_gallery", columns=2, height=400)
             
             # Add metrics display section
@@ -905,7 +907,7 @@ def create_cond_restoration_sampling_ui():
     generate_button.click(
         fn=generate_with_plots,
         inputs=inputs,
-        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots],
+        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file],
         api_name="generate",
     )
     
