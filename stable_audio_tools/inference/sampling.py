@@ -4,7 +4,6 @@ import math
 from tqdm import trange, tqdm
 import torch.distributions as dist
 from tqdm.auto import trange
-import random
 
 import k_diffusion as K
 
@@ -243,7 +242,7 @@ def sample_cold(
     model,
     x,
     steps,
-    degradation_ops=None,
+    op=None,
     pretransform=None,
     t_start: float = 1.0,
     schedule: str = "linear",
@@ -275,7 +274,6 @@ def sample_cold(
     """
 
     # Re-degrade the clean prediction to get the input for the next step
-    op = random.choice(degradation_ops)
     op = op.to(x.device)
 
     # Make tensor of ones to broadcast the single t values
