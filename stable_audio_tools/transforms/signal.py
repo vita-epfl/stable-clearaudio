@@ -300,6 +300,15 @@ class ColdDiffusionSoxTransform(nn.Module):
             LOG.error(traceback.format_exc())
             return cls(f"error_preset_{os.path.basename(preset_path)}", [], sample_rate, seed=seed)
 
+    @classmethod
+    def identity(cls, sample_rate: int):
+        """Return a no-op transform that performs no degradation.
+        This is handy for debugging the diffusion model by completely
+        bypassing the degradation operator while still keeping the
+        same interface.
+        """
+        return cls("identity", [], sample_rate)
+
     def _interpolate(self, value, t):
         """Linearly interpolates a value if it's a list of two numbers."""
         if isinstance(value, (list, tuple)) and len(value) == 2:
