@@ -381,12 +381,12 @@ class DiffusionUncondDemoCallback(pl.Callback):
                     if module.diffusion.pretransform is not None:
                         degraded_latent = module.diffusion.pretransform.encode(degraded_latent)
 
-                    # Sample using only the chosen degradation op
+                    # Sample using only the chosen degradation
                     fake_latent = sample_cold(
                         module.diffusion_ema,
                         degraded_latent,
                         self.demo_steps,
-                        degradation_ops=[op], # Pass only the selected op
+                        op=op,  # Pass the selected degradation operator
                         pretransform=module.diffusion.pretransform,
                         t_start=degradation_t
                     )
