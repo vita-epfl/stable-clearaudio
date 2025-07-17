@@ -2,8 +2,7 @@ from enum import Enum
 import typing as tp
 
 from .diffusion import ConditionedDiffusionModelWrapper
-from ..inference.generation import generate_diffusion_cond
-from ..inference.utils import prepare_audio
+from ..inference.generation import generate_diffusion_cond_restoration
 
 import torch
 from torch.nn import functional as F
@@ -66,7 +65,7 @@ class MonoToStereoDiffusionPrior(DiffusionPrior):
 
         conditioning = {"source": [dual_mono]}
 
-        stereo_audio = generate_diffusion_cond(
+        stereo_audio = generate_diffusion_cond_restoration(
             self, 
             conditioning_tensors=conditioning,
             steps=steps,

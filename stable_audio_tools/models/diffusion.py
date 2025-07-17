@@ -10,7 +10,7 @@ from .conditioners import MultiConditioner, create_multi_conditioner_from_condit
 from .dit import DiffusionTransformer
 from .factory import create_pretransform_from_config
 from .pretransforms import Pretransform
-from ..inference.generation import generate_diffusion_cond
+from ..inference.generation import generate_diffusion_cond_restoration
 from ..inference.sampling import DistributionShift
 
 from time import time
@@ -48,12 +48,14 @@ class DiffusionModelWrapper(nn.Module):
                 sample_rate,
                 min_input_length,
                 pretransform: tp.Optional[Pretransform] = None,
+                diffusion_objective: tp.Optional[str] = None,
     ):
         super().__init__()
         self.io_channels = io_channels
         self.sample_size = sample_size
         self.sample_rate = sample_rate
         self.min_input_length = min_input_length
+        self.diffusion_objective = diffusion_objective
 
         self.model = model
 
@@ -215,7 +217,7 @@ class ConditionedDiffusionModelWrapper(nn.Module):
         return self.model(x, t, **self.get_conditioning_inputs(cond), **kwargs)
 
     def generate(self, *args, **kwargs):
-        return generate_diffusion_cond(self, *args, **kwargs)
+        return generate_diffusion_cond_restoration(self, *args, **kwargs)
 
 class UNetCFG1DWrapper(ConditionedDiffusionModel):
     def __init__(
@@ -558,15 +560,18 @@ class DiTWrapper(ConditionedDiffusionModel):
 class DiTUncondWrapper(DiffusionModel):
     def __init__(
         self,
-        in_channels,
+        # in_channels,
         *args,
         **kwargs
     ):
         super().__init__()
 
-        self.model = DiffusionTransformer(io_channels=in_channels, *args, **kwargs)
+        print("Initializing DiTUncondWrapper")
 
-        self.io_channels = in_channels
+        self.model = DiffusionTransformer(*args, **kwargs)
+        # self.model = DiffusionTransformer(io_channels=in_channels, *args, **kwargs)
+
+        # self.io_channels = in_channels
 
         with torch.no_grad():
             for param in self.model.parameters():
@@ -576,16 +581,29 @@ class DiTUncondWrapper(DiffusionModel):
         return self.model(x, t, **kwargs)
 
 def create_diffusion_uncond_from_config(config: tp.Dict[str, tp.Any]):
-    diffusion_uncond_config = config["model"]
+    model_config = config["model"]
 
-    model_type = diffusion_uncond_config.get('type', None)
-    
-    diffusion = diffusion_uncond_config.get('diffusion', None)
-    diffusion_config = diffusion.get('config', {})
-
+    model_type = config.get('model_type', None)
     assert model_type is not None, "Must specify model type in config"
+    
+    diffusion_config = model_config.get('diffusion', None)
+    assert diffusion_config is not None, "Must specify diffusion config"
 
-    pretransform = diffusion_uncond_config.get("pretransform", None)
+    diffusion_objective = diffusion_config.get('diffusion_objective', 'v')
+
+    diffusion_model_type = diffusion_config.get('type', None)
+    assert diffusion_model_type is not None, "Must specify diffusion model type"
+
+    diffusion_model_config = diffusion_config.get('config', None)
+    assert diffusion_model_config is not None, "Must specify diffusion model config"
+
+    io_channels = model_config.get('io_channels', None)
+    assert io_channels is not None, "Must specify io_channels in model config"
+
+    sample_rate = config.get('sample_rate', None)
+    assert sample_rate is not None, "Must specify sample_rate in config"
+
+    pretransform = model_config.get("pretransform", None)
 
     sample_size = config.get("sample_size", None)
     assert sample_size is not None, "Must specify sample size in config"
@@ -599,38 +617,43 @@ def create_diffusion_uncond_from_config(config: tp.Dict[str, tp.Any]):
     else:
         min_input_length = 1
 
-    if model_type == 'DAU1d':
+    if diffusion_model_type == 'DAU1d':
 
         model = DiffusionAttnUnet1D(
-            **diffusion_config
+            **diffusion_model_config
         )
     
-    elif model_type == "adp_uncond_1d":
+    elif diffusion_model_type == "adp_uncond_1d":
 
         model = UNet1DUncondWrapper(
-            **diffusion_config
+            **diffusion_model_config
         )
 
-    elif model_type == "dit":
+    elif diffusion_model_type == "dit":
         model = DiTUncondWrapper(
-            **diffusion_config
+            diffusion_objective=diffusion_objective,
+            **diffusion_model_config
         )
 
     else:
-        raise NotImplementedError(f'Unknown model type: {model_type}')
+        raise NotImplementedError(f'Unknown model type: {diffusion_model_type}')
 
-    return DiffusionModelWrapper(model,
-                                io_channels=model.io_channels,
-                                sample_size=sample_size,
-                                sample_rate=sample_rate,
-                                pretransform=pretransform,
-                                min_input_length=min_input_length)
+    return DiffusionModelWrapper(
+        model,
+        io_channels=pretransform.io_channels if pretransform is not None else model_config["io_channels"],
+        sample_size=sample_size,
+        sample_rate=sample_rate,
+        min_input_length=min_input_length,
+        pretransform=pretransform,
+        diffusion_objective=diffusion_objective
+    )
 
 def create_diffusion_cond_from_config(config: tp.Dict[str, tp.Any]):
 
     model_config = config["model"]
 
     model_type = config["model_type"]
+    assert model_type is not None, "Must specify model type in config"
 
     diffusion_config = model_config.get('diffusion', None)
     assert diffusion_config is not None, "Must specify diffusion config"
@@ -687,7 +710,7 @@ def create_diffusion_cond_from_config(config: tp.Dict[str, tp.Any]):
 
     extra_kwargs = {}
 
-    if model_type == "diffusion_cond" or model_type == "diffusion_cond_inpaint" or model_type == "cold_diffusion_cond":
+    if model_type == "diffusion_cond_restoration":
         wrapper_fn = ConditionedDiffusionModelWrapper
 
         extra_kwargs["diffusion_objective"] = diffusion_objective

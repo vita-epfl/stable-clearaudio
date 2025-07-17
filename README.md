@@ -205,7 +205,7 @@ The model config file defines all of the information needed to load a model for 
 The following properties are defined in the top level of the model configuration:
 
 - `model_type`
-  - The type of model being defined, currently limited to one of `"autoencoder", "diffusion_uncond", "diffusion_cond", "diffusion_cond_inpaint", "diffusion_autoencoder", "lm"`.
+  - The type of model being defined, currently limited to one of `"autoencoder", "diffusion_autoencoder", "lm", "diffusion_cond_restoration", "cold_diffusion_uncond_restoration"`.
 - `sample_size`
   - The length of the audio provided to the model during training, in samples. For diffusion models, this is also the raw audio sample length used for inference.
 - `sample_rate`

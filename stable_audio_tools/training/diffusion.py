@@ -25,7 +25,7 @@ from torch.nn import functional as F
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 from ..interface.aeiou import pca_point_cloud, audio_spectrogram_image, tokens_spectrogram_image
-from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, truncated_logistic_normal_rescaled
+from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, truncated_logistic_normal_rescaled, sample_discrete_euler
 from ..models.diffusion import DiffusionModelWrapper, ConditionedDiffusionModelWrapper
 from ..models.diffusion_prior import DiffusionPrior
 from ..models.autoencoders import DiffusionAutoencoder
@@ -106,7 +106,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         self.rng = torch.quasirandom.SobolEngine(1, scramble=True)
 
-        if self.model_type == 'cold_diffusion_uncond':
+        if self.model_type == 'cold_diffusion_uncond_restoration':
             self.degradation_ops = []
             if build_degraded_args:
                 LOG.info("[ColdDiffusion] Initializing degradation presets from dataset config")
@@ -203,7 +203,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         # Draw uniformly distributed continuous timesteps
         t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
 
-        if self.model_type == 'cold_diffusion_uncond':
+        if self.model_type == 'cold_diffusion_uncond_restoration':
             LOG.debug("[ColdDiffusion] Using cold diffusion")
             # For cold diffusion, degradation is applied to the raw audio waveform
             if self.degradation_ops:
@@ -213,8 +213,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                     op = op.to(self.device)
                     degraded_reals[i] = op.apply(reals[i], t[i].item())
             else:
-                LOG.debug("No degradation ops specified, using clean audio as input")
-                degraded_reals = reals
+                raise ValueError("For cold diffusion, please select low quality effects presets.")
 
             # The model's target is the clean audio (or its latent representation)
             targets = reals
@@ -302,7 +301,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                  num_demos=8,
                  sample_size=65536,
                  demo_steps=250,
-                 sample_rate=48000,
+                 sample_rate=44100,
                  model_type: str = 'diffusion_uncond'
     ):
         super().__init__()
@@ -360,7 +359,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
 
         with torch.amp.autocast("cuda"):
-            if self.model_type == 'cold_diffusion_uncond':
+            if self.model_type == 'cold_diffusion_uncond_restoration':
                 # For demos, we want to see how the model restores a degraded version of the clean audio
                 degradation_t = 1.0 # Start from fully degraded
 
@@ -382,12 +381,12 @@ class DiffusionUncondDemoCallback(pl.Callback):
                     if module.diffusion.pretransform is not None:
                         degraded_latent = module.diffusion.pretransform.encode(degraded_latent)
 
-                    # Sample using only the chosen degradation op
+                    # Sample using only the chosen degradation
                     fake_latent = sample_cold(
                         module.diffusion_ema,
                         degraded_latent,
                         self.demo_steps,
-                        degradation_ops=[op], # Pass only the selected op
+                        op=op,  # Pass the selected degradation operator
                         pretransform=module.diffusion.pretransform,
                         t_start=degradation_t
                     )

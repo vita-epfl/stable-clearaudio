@@ -4,16 +4,19 @@ import math
 from tqdm import trange, tqdm
 import torch.distributions as dist
 from tqdm.auto import trange
-import random
 
 import k_diffusion as K
 
 LOG = logging.getLogger(__name__)
 
 # Logging configuration
-logging.basicConfig(level=logging.DEBUG, 
+logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     force=True)
+# Silence overly verbose third-party HTTP libraries
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # Define the noise schedule and sampling loop
 def get_alphas_sigmas(t):
@@ -239,9 +242,11 @@ def sample_cold(
     model,
     x,
     steps,
-    degradation_ops=None,
+    op=None,
     pretransform=None,
-    t_start=1.0,
+    t_start: float = 1.0,
+    schedule: str = "linear",
+    callback=None,
     **extra_args
 ):
     """
@@ -264,14 +269,28 @@ def sample_cold(
         degradation_ops: A list of degradation operators.
         pretransform: The autoencoder model to decode/encode latents.
         t_start (float, optional): The starting time for the reverse process. Defaults to 1.0.
+        schedule (str, optional): Time schedule type: "linear" (default), "sqrt", or "cosine".
         **extra_args: Additional arguments for the model.
     """
+
+    # Re-degrade the clean prediction to get the input for the next step
+    op = op.to(x.device)
 
     # Make tensor of ones to broadcast the single t values
     ts = x.new_ones([x.shape[0]])
 
     # Create the time schedule for the reverse process
-    time_schedule = torch.linspace(t_start, 0, steps + 1, device=x.device)
+    if schedule == "linear":
+        time_schedule = torch.linspace(t_start, 0, steps + 1, device=x.device)
+    elif schedule == "sqrt":
+        time_schedule = torch.linspace(t_start ** 2, 0, steps + 1, device=x.device).sqrt()
+    elif schedule == "cosine":
+        # Map t in [0,1] to theta in [0, π/2] and use cosine ramp
+        theta_start = t_start * (torch.pi / 2)
+        theta = torch.linspace(theta_start, 0, steps + 1, device=x.device)
+        time_schedule = torch.cos(theta)
+    else:
+        raise ValueError(f"Unknown schedule type: {schedule}")
 
     for i in trange(steps, disable=None):
         t_now = time_schedule[i]
@@ -280,17 +299,27 @@ def sample_cold(
         # Predict the clean latent from the current degraded state
         x_0_hat_latent = model(x, ts * t_now, **extra_args)
 
+        # User-provided callback (e.g. for logging metrics or previews)
+        if callback is not None:
+            try:
+                callback(x_0_hat_latent, i)
+            except TypeError:
+                # Fall back to passing a dict similar to other samplers
+                callback({'x': x, 't': t_now, 'sigma': t_now, 'i': i, 'denoised': x_0_hat_latent})
+
         if i < steps - 1:
             # Decode the clean latent to audio
             x_0_hat_audio = pretransform.decode(x_0_hat_latent)
-
-            # Re-degrade the clean prediction to get the input for the next step
-            op = random.choice(degradation_ops)
-            op = op.to(x.device)
             
             # Apply degradation in audio space
             redegraded_audio = op.apply(x_0_hat_audio, t_next)
             
+            # Ensure the re-degraded audio tensor has the same dtype as the autoencoder to avoid
+            # mismatches (e.g. float32 vs float16) during the convolution inside encode_audio.
+            model_dtype = next(pretransform.model.parameters()).dtype
+            if redegraded_audio.dtype != model_dtype:
+                redegraded_audio = redegraded_audio.to(model_dtype)
+
             # Encode the re-degraded audio back to latent
             x = pretransform.encode(redegraded_audio)
         else:

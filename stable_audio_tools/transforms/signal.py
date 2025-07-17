@@ -38,7 +38,6 @@ def resample_signal(waveform: Tensor, sample_rate: int, resample_rate: int) -> T
     resampled_waveform = resampler.forward(waveform)
     return resampled_waveform, resample_rate
 
-
 def signal_to_mono(waveform: Tensor) -> Tensor:
     if waveform is None:
         return None
