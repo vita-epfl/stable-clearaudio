@@ -1,9 +1,10 @@
 {
     "model_type": "cold_diffusion_uncond_restoration",
-    "sample_size": 220500,
+    "sample_size_old": 2097152,
+    "sample_size": 65536,
     "sample_rate": 44100,
     "audio_channels": 2,
-    "max_epochs": 5000,
+    "max_epochs": 1000,
     "model": {
         "type": "dit",
         "pretransform": {
@@ -79,11 +80,8 @@
         },
         "demo": {
             "demo_every": 16,
-            "demo_steps": 20,
-            "num_demos": 1,
-            "demo_cond_from_batch": true,
-            "display_audio_cond": true,
-            "demo_cfg_scales": [1]
+            "demo_steps": 10,
+            "num_demos": 1
         }
     }
 }
