@@ -156,7 +156,7 @@ def generate_cold_diffusion_uncond_restoration(
         steps: int = 250,
         batch_size: int = 1,
         sample_size: int = 2097152,
-        sample_rate: int = 48000,
+        sample_rate: int = 44100,
         seed: int = -1,
         device: str = "cuda",
         clean_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
