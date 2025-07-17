@@ -172,6 +172,11 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         self.pre_encoded = pre_encoded
 
+        # Validation configuration
+        self.validation_timesteps = kwargs.get('validation_timesteps', [0.1, 0.3, 0.5, 0.7, 0.9])
+        # Buffers to accumulate per-timestep losses during an epoch
+        self.validation_step_outputs = {f'val/loss_{ts:.1f}': [] for ts in self.validation_timesteps}
+
     def configure_optimizers(self):
         if self.optimizer_configs is None:
             return optim.Adam([*self.diffusion.parameters()], lr=self.lr)
@@ -282,6 +287,100 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         self.log_dict(log_dict, prog_bar=True, on_step=True)
         return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation logic supporting both standard and cold diffusion objectives."""
+        reals = batch[0]
+
+        # Handle extra batch dimension inserted by DataLoader when num_workers>0
+        if reals.ndim == 4 and reals.shape[0] == 1:
+            reals = reals[0]
+
+        device = self.device
+
+        # ---------------- Standard unconditional diffusion ---------------- #
+        if self.model_type != 'cold_diffusion_uncond_restoration':
+            diffusion_input = reals
+
+            # Apply pre-transform if present
+            if self.diffusion.pretransform is not None:
+                self.diffusion.pretransform.to(device)
+                if not self.pre_encoded:
+                    with torch.no_grad():
+                        diffusion_input = self.diffusion.pretransform.encode(diffusion_input)
+                else:
+                    if hasattr(self.diffusion.pretransform, "scale") and self.diffusion.pretransform.scale != 1.0:
+                        diffusion_input = diffusion_input / self.diffusion.pretransform.scale
+
+            for ts in self.validation_timesteps:
+                t = torch.full((reals.shape[0],), ts, device=device)
+                # Diffusion noise schedule
+                alphas, sigmas = get_alphas_sigmas(t)
+                alphas = alphas[:, None, None]
+                sigmas = sigmas[:, None, None]
+                noise = torch.randn_like(diffusion_input)
+                noised_inputs = diffusion_input * alphas + noise * sigmas
+                targets = noise * alphas - diffusion_input * sigmas
+
+                with torch.cuda.amp.autocast(), torch.no_grad():
+                    output = self.diffusion(noised_inputs, t)
+                    val_loss = F.mse_loss(output, targets)
+
+                self.validation_step_outputs[f'val/loss_{ts:.1f}'].append(val_loss.item())
+
+        # ---------------- Cold diffusion restoration --------------------- #
+        else:
+            if not self.degradation_ops:
+                raise ValueError("[ColdDiffusion] Validation requires degradation presets but none were loaded.")
+
+            for ts in self.validation_timesteps:
+                t = torch.full((reals.shape[0],), ts, device=device)
+                degraded_audio = torch.zeros_like(reals)
+                # Apply a random degradation operator to every sample
+                for i in range(reals.shape[0]):
+                    op = random.choice(self.degradation_ops).to(device)
+                    degraded_audio[i] = op.apply(reals[i], ts)
+
+                targets = reals  # Clean audio is the target
+                inputs = degraded_audio
+
+                # Encode with pre-transform if any
+                if self.diffusion.pretransform is not None:
+                    self.diffusion.pretransform.to(device)
+                    with torch.no_grad():
+                        targets = self.diffusion.pretransform.encode(targets)
+                        inputs = self.diffusion.pretransform.encode(inputs)
+
+                with torch.cuda.amp.autocast(), torch.no_grad():
+                    output = self.diffusion(inputs, t)
+                    val_loss = F.mse_loss(output, targets)
+
+                self.validation_step_outputs[f'val/loss_{ts:.1f}'].append(val_loss.item())
+
+    def on_validation_epoch_end(self):
+        """Aggregate and log validation losses collected in validation_step."""
+        # Log per-timestep losses
+        for ts in self.validation_timesteps:
+            key = f'val/loss_{ts:.1f}'
+            if len(self.validation_step_outputs[key]) == 0:
+                continue  # Can happen if dataloader length < num_batches
+            val_loss = sum(self.validation_step_outputs[key]) / len(self.validation_step_outputs[key])
+            # Synchronise across ranks
+            val_loss = self.all_gather(torch.tensor(val_loss, device=self.device)).mean().item()
+            log_metric(self.logger, key, val_loss, step=self.global_step)
+            self.log(key, val_loss, sync_dist=True)
+
+        # Compute average loss across all timesteps
+        losses = [sum(v)/len(v) for v in self.validation_step_outputs.values() if len(v) > 0]
+        if losses:
+            val_loss_avg = torch.tensor(losses, device=self.device).mean()
+            val_loss_avg = self.all_gather(val_loss_avg).mean().item()
+            log_metric(self.logger, 'val/avg_loss', val_loss_avg, step=self.global_step)
+            self.log('val/avg_loss', val_loss_avg, sync_dist=True)
+
+        # Reset buffers for next epoch
+        for ts in self.validation_timesteps:
+            self.validation_step_outputs[f'val/loss_{ts:.1f}'] = []
 
     def on_before_zero_grad(self, *args, **kwargs):
         self.diffusion_ema.update()
