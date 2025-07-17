@@ -306,12 +306,6 @@ def generate_cold_diffusion_uncond_restoration(
             effects_dir = Path(__file__).resolve().parent.parent / 'configs' / 'dataset_configs' / 'low_quality_effect'
 
             LOG.info(f"[ColdDiffusion] Loading degradation presets from {effects_dir}")
-            # Special-case "identity" preset to bypass degradation entirely
-            if "identity" in preset_names:
-                LOG.info("[ColdDiffusion] Using identity (no-op) degradation operator for debugging.")
-                degradation_ops.append(ColdDiffusionSoxTransform.identity(sample_rate))
-                # remove it to avoid file lookup warning
-                preset_names = [n for n in preset_names if n != "identity"]
 
             for preset_name in preset_names:
                 preset_path = effects_dir / f"{preset_name}.yaml"
