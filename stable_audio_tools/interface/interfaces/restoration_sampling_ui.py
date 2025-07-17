@@ -10,6 +10,8 @@ import torchaudio
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from io import BytesIO
 
 import logging
 
@@ -287,7 +289,8 @@ def create_metric_plots(metrics_data_list, labels):
                     
                     ax.set_xlabel('Step')
                     ax.set_ylabel('Value')
-                    ax.set_title(f'NRS for {labels[i]}')
+                    title = f'NRS for {labels[i]}' if i < len(labels) else f'NRS for Audio {i+1}'
+                    ax.set_title(title)
                     ax.grid(True)
                     plot_idx += 1
 
