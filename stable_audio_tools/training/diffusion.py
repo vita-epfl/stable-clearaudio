@@ -301,7 +301,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                  num_demos=8,
                  sample_size=65536,
                  demo_steps=250,
-                 sample_rate=48000,
+                 sample_rate=44100,
                  model_type: str = 'diffusion_uncond'
     ):
         super().__init__()
