@@ -263,6 +263,7 @@ def generate_restoration(
     elif model_type == "cold_diffusion_uncond_restoration":
         generate_args = {
             "model": model,
+            "sample_rate": sample_rate,
             "steps": steps,
             "batch_size": batch_size,
             "sample_size": input_sample_size,
