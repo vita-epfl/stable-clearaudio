@@ -317,6 +317,7 @@ def sample_cold(
 
             # Interpolate between the fully degraded and the clean audio based on the next timestep
             redegraded_audio = t_next * fully_degraded_audio + (1 - t_next) * x_0_hat_audio
+            LOG.debug(f"[sample_cold] Interpolated degradation with t={t_next.item():.4f}")
 
             # Ensure the re-degraded audio tensor has the same dtype as the autoencoder to avoid
             # mismatches (e.g. float32 vs float16) during the convolution inside encode_audio.
