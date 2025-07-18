@@ -465,41 +465,42 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
         with torch.amp.autocast("cuda"):
             if self.model_type == 'cold_diffusion_uncond_restoration':
+                LOG.debug("Generating demo for cold_diffusion_uncond_restoration")
                 # For demos, we want to see how the model restores a degraded version of the clean audio
                 degradation_t = 1.0 # Start from fully degraded
 
                 degraded_audio = torch.zeros_like(original_audio_inputs)
-                fakes = torch.zeros_like(original_audio_inputs) # Initialize fakes tensor for the batch
+                fakes = torch.zeros_like(original_audio_inputs)
 
+                # Create a batch of degraded audio, each with a different random degradation
                 for i in range(original_audio_inputs.shape[0]):
-                    # For each demo, pick one degradation and stick with it for the whole sampling process
                     op = random.choice(module.degradation_ops)
-                    LOG.debug(f"Applying degradation: {op.name} for demo sample {i}")
                     op = op.to(module.device)
+                    degraded_audio[i] = op.apply(original_audio_inputs[i], degradation_t)
 
-                    # Apply degradation to the single item
-                    current_degraded_audio = op.apply(original_audio_inputs[i], degradation_t)
-                    degraded_audio[i] = current_degraded_audio
+                # Encode the whole batch of degraded audio at once
+                degraded_latents = module.diffusion.pretransform.encode(degraded_audio)
 
-                    # Process the single degraded audio through pretransform if available
-                    degraded_latent = current_degraded_audio.unsqueeze(0) # Add batch dimension
-                    if module.diffusion.pretransform is not None:
-                        degraded_latent = module.diffusion.pretransform.encode(degraded_latent)
+                # Generate the restored audio
+                # Note: The `op` here is just for the sampling loop, which now expects one.
+                # The initial degradation is already applied above.
+                op = random.choice(module.degradation_ops).to(module.device)
 
-                    # Sample using only the chosen degradation
-                    fake_latent = sample_cold(
-                        module.diffusion_ema,
-                        degraded_latent,
-                        self.demo_steps,
-                        op=op,  # Pass the selected degradation operator
-                        pretransform=module.diffusion.pretransform,
-                        t_start=degradation_t
-                    )
+                fake_latents = sample_cold(
+                    module.diffusion_ema,
+                    degraded_latents,
+                    self.demo_steps,
+                    op=op,  # Pass a representative degradation operator
+                    pretransform=module.diffusion.pretransform,
+                    t_start=degradation_t
+                )
 
-                    # Decode the result right here if necessary
-                    if module.diffusion.pretransform is not None:
-                        fakes[i] = module.diffusion.pretransform.decode(fake_latent).squeeze(0)
+                fakes = module.diffusion.pretransform.decode(fake_latents)
 
+            else:
+                LOG.debug("Generating demo for other model types")
+                noise = torch.randn([self.num_demos, module.diffusion.model.in_channels, demo_samples]).to(module.device)
+                fakes = sample(module.diffusion_ema, noise, self.demo_steps, 0)
         # Create demos directory in a location with write permissions
         project_root = osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__))))
         
