@@ -312,8 +312,12 @@ def sample_cold(
             x_0_hat_audio = pretransform.decode(x_0_hat_latent)
             
             # Apply degradation in audio space
-            redegraded_audio = op.apply(x_0_hat_audio, t_next)
-            
+            # Get a fully degraded version of the clean prediction
+            fully_degraded_audio = op.apply(x_0_hat_audio, 1.0)
+
+            # Interpolate between the fully degraded and the clean audio based on the next timestep
+            redegraded_audio = t_next * fully_degraded_audio + (1 - t_next) * x_0_hat_audio
+
             # Ensure the re-degraded audio tensor has the same dtype as the autoencoder to avoid
             # mismatches (e.g. float32 vs float16) during the convolution inside encode_audio.
             model_dtype = next(pretransform.model.parameters()).dtype
