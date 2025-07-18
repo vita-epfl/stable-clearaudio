@@ -190,28 +190,28 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         # Save degraded audio
         degraded_path = Path(config.degraded_output_dir) / output_filename
         torchaudio.save(degraded_path, degraded_audio, sr)
-        LOG.info(f"Saved degraded audio to {degraded_path}")
+        LOG.debug(f"Saved degraded audio to {degraded_path}")
         
         # Generate frequency visualization for degraded audio
         degraded_viz_path = degraded_path.parent / f"{base_filename}_degraded_freq_analysis.png"
         generate_frequency_visualization(degraded_audio, sr, degraded_viz_path)
-        LOG.info(f"Saved degraded frequency visualization to {degraded_viz_path}")
+        LOG.debug(f"Saved degraded frequency visualization to {degraded_viz_path}")
         
         # Save clean audio if requested
         if config.build_clean_dataset:
             clean_path = Path(config.clean_output_dir) / f"{base_filename}_clean.wav"
             torchaudio.save(clean_path, audio, sr)
-            LOG.info(f"Saved clean audio to {clean_path}")
+            LOG.debug(f"Saved clean audio to {clean_path}")
             
             # Generate frequency visualization for clean audio
             clean_viz_path = clean_path.parent / f"{base_filename}_freq_analysis.png"
             generate_frequency_visualization(audio, sr, clean_viz_path)
-            LOG.info(f"Saved clean frequency visualization to {clean_viz_path}")
+            LOG.debug(f"Saved clean frequency visualization to {clean_viz_path}")
             
             # Generate comparative frequency visualization between clean and degraded audio
             comparison_path = degraded_path.parent / f"{base_filename}_freq_comparison.png"
             generate_comparative_visualization(audio, degraded_audio, sr, comparison_path)
-            LOG.info(f"Saved comparative frequency visualization to {comparison_path}")
+            LOG.debug(f"Saved comparative frequency visualization to {comparison_path}")
 
 
 def generate_frequency_visualization(audio: torch.Tensor, sr: int, output_path: Path):
@@ -423,7 +423,7 @@ def main():
 
     # If a configuration file is provided, load it
     if args.config:
-        cfg_file = Path(__file__).parent / args.config
+        cfg_file = Path(args.config)
     else:
         # Use the default JSON configuration file in the same directory
         cfg_file = Path(__file__).parent / "build_degraded_config_workstation.json"
