@@ -216,7 +216,13 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 for i in range(reals.shape[0]):
                     op = random.choice(self.degradation_ops)
                     op = op.to(self.device)
-                    degraded_reals[i] = op.apply(reals[i], t[i].item())
+                    # Get a fully degraded version of the clean audio
+                    fully_degraded_audio = op.apply(reals[i], 1.0)
+
+                    # Interpolate between the fully degraded and the clean audio based on the timestep
+                    ti = t[i].item()
+                    degraded_reals[i] = ti * fully_degraded_audio + (1 - ti) * reals[i]
+                    LOG.debug(f"[training_step] Interpolated degradation with t={ti:.4f}")
             else:
                 raise ValueError("For cold diffusion, please select low quality effects presets.")
 
