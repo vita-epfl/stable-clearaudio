@@ -242,42 +242,14 @@ def sample_cold(
     model,
     x,
     steps,
-    op=None,
-    pretransform=None,
     t_start: float = 1.0,
     schedule: str = "linear",
     callback=None,
     **extra_args
 ):
-    """
-    Cold Diffusion sampling process.
-
-    For generation from a degraded signal:
-    - x: The degraded signal (latent).
-    - t_start: The time corresponding to the degradation level of x.
-
-    For generation from noise:
-    - The caller is responsible for creating an initial degraded signal.
-      For example, by applying a degradation_op to a noise tensor at t=1.0.
-    - x: The initial degraded signal (e.g., degraded noise).
-    - t_start: Should be 1.0.
-    
-    Args:
-        model: The diffusion model.
-        x: The initial degraded latent at t=t_start.
-        steps: The number of sampling steps.
-        degradation_ops: A list of degradation operators.
-        pretransform: The autoencoder model to decode/encode latents.
-        t_start (float, optional): The starting time for the reverse process. Defaults to 1.0.
-        schedule (str, optional): Time schedule type: "linear" (default), "sqrt", or "cosine".
-        **extra_args: Additional arguments for the model.
-    """
-
-    # Re-degrade the clean prediction to get the input for the next step
-    op = op.to(x.device)
-
-    # Make tensor of ones to broadcast the single t values
-    ts = x.new_ones([x.shape[0]])
+    """ Cold diffusion sampler operating in latent space. """
+    # The initial degraded latent at t=1
+    x_1_latent = x
 
     # Create the time schedule for the reverse process
     if schedule == "linear":
@@ -292,43 +264,28 @@ def sample_cold(
     else:
         raise ValueError(f"Unknown schedule type: {schedule}")
 
+    # The sampling loop
     for i in trange(steps, disable=None):
         t_now = time_schedule[i]
         t_next = time_schedule[i+1]
 
         # Predict the clean latent from the current degraded state
-        x_0_hat_latent = model(x, ts * t_now, **extra_args)
+        # Note: The model's input `x` is the noisy latent from the previous step
+        # Expand t_now to match the batch size of x, as the model expects a batch of timesteps
+        t_now_batch = t_now.expand(x.shape[0])
 
-        # User-provided callback (e.g. for logging metrics or previews)
+        x_0_hat_latent = model(x, t_now_batch, **extra_args)
+
+        # User-provided callback
         if callback is not None:
-            try:
-                callback(x_0_hat_latent, i)
-            except TypeError:
-                # Fall back to passing a dict similar to other samplers
-                callback({'x': x, 't': t_now, 'sigma': t_now, 'i': i, 'denoised': x_0_hat_latent})
+            callback({'x': x, 't': t_now, 'sigma': t_now, 'i': i, 'denoised': x_0_hat_latent})
 
         if i < steps - 1:
-            # Decode the clean latent to audio
-            x_0_hat_audio = pretransform.decode(x_0_hat_latent)
-            
-            # Apply degradation in audio space
-            # Get a fully degraded version of the clean prediction
-            fully_degraded_audio = op.apply(x_0_hat_audio, 1.0)
-
-            # Interpolate between the fully degraded and the clean audio based on the next timestep
-            redegraded_audio = t_next * fully_degraded_audio + (1 - t_next) * x_0_hat_audio
-            LOG.debug(f"[sample_cold] Interpolated degradation with t={t_next.item():.4f}")
-
-            # Ensure the re-degraded audio tensor has the same dtype as the autoencoder to avoid
-            # mismatches (e.g. float32 vs float16) during the convolution inside encode_audio.
-            model_dtype = next(pretransform.model.parameters()).dtype
-            if redegraded_audio.dtype != model_dtype:
-                redegraded_audio = redegraded_audio.to(model_dtype)
-
-            # Encode the re-degraded audio back to latent
-            x = pretransform.encode(redegraded_audio)
+            # Interpolate in latent space
+            t_next_latent = t_next.view(-1, 1, 1)
+            x = t_next_latent * x_1_latent + (1 - t_next_latent) * x_0_hat_latent
         else:
-            # Last step, the output is the final clean prediction (latent)
+            # Last step, the output is the final clean prediction
             x = x_0_hat_latent
 
     return x

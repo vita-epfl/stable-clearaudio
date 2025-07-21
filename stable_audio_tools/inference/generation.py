@@ -288,59 +288,10 @@ def generate_cold_diffusion_uncond_restoration(
     # Generate audio using sample_cold
     LOG.debug(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
     
-    # Prepare degradation operators
-    degradation_ops = None
-    build_from_presets = effects_list is not None and len(effects_list) > 0
-
-    if build_from_presets or not (hasattr(model, 'degradation_ops') and model.degradation_ops):
-        degradation_ops = []
-        if build_from_presets:
-
-            # Accept comma-separated string or list/tuple
-            if isinstance(effects_list, str):
-                preset_names = [n.strip() for n in effects_list.split(',') if n.strip()]
-            else:
-                preset_names = [str(n).strip() for n in effects_list if str(n).strip()]
-
-            # Default directory containing preset yamls
-            effects_dir = Path(__file__).resolve().parent.parent / 'configs' / 'dataset_configs' / 'low_quality_effect'
-
-            LOG.debug(f"[ColdDiffusion] Loading degradation presets from {effects_dir}")
-
-            for preset_name in preset_names:
-                preset_path = effects_dir / f"{preset_name}.yaml"
-                if preset_path.exists():
-                    try:
-                        op = ColdDiffusionSoxTransform.from_preset(preset_path, sample_rate, seed=seed)
-                        degradation_ops.append(op)
-                        LOG.debug(f"[ColdDiffusion] Added preset: {preset_path}")
-                    except Exception as e:
-                        LOG.warning(f"[ColdDiffusion] Failed to load preset {preset_path}: {e}")
-                else:
-                    LOG.warning(f"[ColdDiffusion] Preset file not found: {preset_path}")
-
-        # Fall back to model.degradation_ops if none built
-        if not degradation_ops:
-            if hasattr(model, 'degradation_ops') and model.degradation_ops:
-                degradation_ops = model.degradation_ops
-            else:
-                raise ValueError("For cold diffusion, please select low quality effects presets.")
-
-        # Ensure model has degradation_ops populated for downstream code
-        model.degradation_ops = degradation_ops
-    else:
-        LOG.warning("No degradation_ops found, using model.degradation_ops.")
-        degradation_ops = model.degradation_ops
-
-    if len(degradation_ops) > 0:
-        degradation_op = random.choice(degradation_ops)
-
     fake_latent = sample_cold(
-        model,
+        model.model,
         x_latent,
         steps,
-        op=degradation_op,
-        pretransform=model.pretransform,
         t_start=t_start,
         schedule=schedule,
         callback=callback,

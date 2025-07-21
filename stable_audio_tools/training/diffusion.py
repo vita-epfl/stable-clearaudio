@@ -219,23 +219,26 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                     # Get a fully degraded version of the clean audio
                     fully_degraded_audio = op.apply(reals[i], 1.0)
 
-                    # Interpolate between the fully degraded and the clean audio based on the timestep
-                    ti = t[i].item()
-                    degraded_reals[i] = ti * fully_degraded_audio + (1 - ti) * reals[i]
-                    LOG.debug(f"[training_step] Interpolated degradation with t={ti:.4f}")
+                    degraded_reals[i] = fully_degraded_audio
             else:
                 raise ValueError("For cold diffusion, please select low quality effects presets.")
 
-            # The model's target is the clean audio (or its latent representation)
-            targets = reals
-            # The model's input is the degraded audio (or its latent representation)
-            model_input = degraded_reals
-
-            # Encode both if a pretransform (autoencoder) is being used
+            # The model's target is the clean audio's latent representation
             if self.diffusion.pretransform is not None:
                 with torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
-                    targets = self.diffusion.pretransform.encode(targets)
-                    model_input = self.diffusion.pretransform.encode(model_input)
+                    # Encode clean and degraded audio to latent space first
+                    clean_latents = self.diffusion.pretransform.encode(reals)
+                    degraded_latents = self.diffusion.pretransform.encode(degraded_reals)
+
+                # Interpolate in latent space
+                t_latent = t.view(-1, 1, 1)
+                model_input = t_latent * degraded_latents + (1 - t_latent) * clean_latents
+                targets = clean_latents
+            else:
+                # If no pretransform, interpolation happens in audio space (as before)
+                t_audio = t.view(-1, 1, 1)
+                model_input = t_audio * degraded_reals + (1 - t_audio) * reals
+                targets = reals
             
             loss_info["reals"] = targets
 
@@ -484,14 +487,10 @@ class DiffusionUncondDemoCallback(pl.Callback):
                 # Generate the restored audio
                 # Note: The `op` here is just for the sampling loop, which now expects one.
                 # The initial degradation is already applied above.
-                op = random.choice(module.degradation_ops).to(module.device)
-
                 fake_latents = sample_cold(
                     module.diffusion_ema,
                     degraded_latents,
                     self.demo_steps,
-                    op=op,  # Pass a representative degradation operator
-                    pretransform=module.diffusion.pretransform,
                     t_start=degradation_t
                 )
 
