@@ -1,5 +1,8 @@
-# stable-audio-tools
-Training and inference code for audio generation models
+# Stable ClearAudio
+
+This repository is a fork of Stability AI's [stable-audio-tools](https://github.com/stability-AI/stable-audio-tools), adapted for the purpose of audio restoration for music. Our focus is on developing and training models for tasks like denoising, de-reverberation, and enhancing the quality of musical recordings.
+
+While the core functionalities from the original repository are preserved, this fork introduces specific configurations and models tailored for audio restoration.
 
 # Install
 
@@ -27,9 +30,9 @@ Development for the repo is done in Python 3.8.10
 
 A basic Gradio interface is provided to test out trained models. 
 
-For example, to create an interface for the [`stable-audio-open-1.0`](https://huggingface.co/stabilityai/stable-audio-open-1.0) model, once you've accepted the terms for the model on Hugging Face, you can run:
+For example, to create an interface for an audio restoration model, you can run:
 ```bash
-$ python3 ./run_gradio.py --pretrained-name stabilityai/stable-audio-open-1.0
+$ python3 ./run_gradio.py --model-config /path/to/your/restoration/model/config.json --ckpt-path /path/to/your/model.ckpt
 ```
 
 The `run_gradio.py` script accepts the following command line arguments:
@@ -68,10 +71,10 @@ $ wandb login
 ## Start training
 To start a training run, run the `train.py` script in the repo root with:
 ```bash
-$ python3 ./train.py --dataset-config /path/to/dataset/config --model-config /path/to/model/config --name harmonai_train
+$ python3 ./train.py --dataset-config /path/to/dataset/config --model-config /path/to/model/config --name clearaudio_train
 ```
 
-The `--name` parameter will set the project name for your Weights and Biases run.
+The `--name` parameter will set the project name for your Weights and Biases run. The example above uses `clearaudio_train`.
 
 ## Training wrappers and model unwrapping
 `stable-audio-tools` uses PyTorch Lightning to facilitate multi-GPU and multi-node training. 
@@ -84,7 +87,7 @@ The checkpoint files created during training include this training wrapper, whic
 
 That can be run with from the repo root with:
 ```bash
-$ python3 ./unwrap_model.py --model-config /path/to/model/config --ckpt-path /path/to/wrapped/ckpt --name model_unwrap
+$ python3 ./unwrap_model.py --model-config /path/to/model/config --ckpt-path /path/to/wrapped/ckpt --name unwrapped_clearaudio_model
 ```
 
 Unwrapped model checkpoints are required for:
