@@ -1,7 +1,6 @@
 {
     "model_type": "cold_diffusion_uncond_restoration",
-    "sample_size_old": 2097152,
-    "sample_size": 65536,
+    "sample_size": 220500,
     "sample_rate": 44100,
     "audio_channels": 2,
     "max_epochs": 1000,

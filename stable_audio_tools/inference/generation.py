@@ -26,7 +26,7 @@ import random
 LOG = logging.getLogger(__name__)
 # handler
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.DEBUG)
+LOG.setLevel(logging.INFO)
 
 def _calculate_metrics(
     sampled_waveform,
@@ -39,7 +39,7 @@ def _calculate_metrics(
     device,
     steps
 ):
-    LOG.info(f"Calculating metrics for {steps} steps")
+    LOG.debug(f"Calculating metrics for {steps} steps")
     
     from ..training.losses.metrics import (
         LogSpectralDistance,
@@ -197,7 +197,7 @@ def generate_cold_diffusion_uncond_restoration(
     # If this is latent diffusion, change sample_size instead to the downsampled latent size
     if model.pretransform is not None:
         sample_size = sample_size // model.pretransform.downsampling_ratio
-        LOG.info(f"Using latent diffusion, adjusted sample_size to {sample_size}")
+        LOG.debug(f"Using latent diffusion, adjusted sample_size to {sample_size}")
 
     # Seed
     seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
@@ -212,7 +212,7 @@ def generate_cold_diffusion_uncond_restoration(
     
     # Prepare initial tensor x
     if degraded_audio is not None:
-        LOG.info("Using provided degraded audio as input.")
+        LOG.debug("Using provided degraded audio as input.")
         in_sr, x_audio = degraded_audio
         x_audio = prepare_audio(
             x_audio,
@@ -246,7 +246,7 @@ def generate_cold_diffusion_uncond_restoration(
     degraded_audio_latent = None
 
     if clean_audio is not None:
-        LOG.info("Preparing audio for metrics calculation.")
+        LOG.debug("Preparing audio for metrics calculation.")
         in_sr, clean_audio_tensor = clean_audio
         clean_audio_tensor = prepare_audio(
             clean_audio_tensor,
@@ -267,7 +267,7 @@ def generate_cold_diffusion_uncond_restoration(
         if metrics_every > 0:
             def metrics_callback(x_0_hat_latent, i):
                 if (i + 1) % metrics_every == 0 or i == steps - 1:
-                    LOG.info(f"Calculating metrics at step {i+1}/{steps}")
+                    LOG.debug(f"Calculating metrics at step {i+1}/{steps}")
                     metrics_at_step = _calculate_metrics(
                         model.pretransform.decode(x_0_hat_latent) if model.pretransform else x_0_hat_latent,
                         x_0_hat_latent if model.pretransform else None,
@@ -286,7 +286,7 @@ def generate_cold_diffusion_uncond_restoration(
             callback = metrics_callback
 
     # Generate audio using sample_cold
-    LOG.info(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
+    LOG.debug(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
     
     # Prepare degradation operators
     degradation_ops = None
@@ -305,7 +305,7 @@ def generate_cold_diffusion_uncond_restoration(
             # Default directory containing preset yamls
             effects_dir = Path(__file__).resolve().parent.parent / 'configs' / 'dataset_configs' / 'low_quality_effect'
 
-            LOG.info(f"[ColdDiffusion] Loading degradation presets from {effects_dir}")
+            LOG.debug(f"[ColdDiffusion] Loading degradation presets from {effects_dir}")
 
             for preset_name in preset_names:
                 preset_path = effects_dir / f"{preset_name}.yaml"
@@ -313,7 +313,7 @@ def generate_cold_diffusion_uncond_restoration(
                     try:
                         op = ColdDiffusionSoxTransform.from_preset(preset_path, sample_rate, seed=seed)
                         degradation_ops.append(op)
-                        LOG.info(f"[ColdDiffusion] Added preset: {preset_path}")
+                        LOG.debug(f"[ColdDiffusion] Added preset: {preset_path}")
                     except Exception as e:
                         LOG.warning(f"[ColdDiffusion] Failed to load preset {preset_path}: {e}")
                 else:
@@ -349,14 +349,14 @@ def generate_cold_diffusion_uncond_restoration(
 
     # Decode if needed
     if model.pretransform is not None:
-        LOG.info("Decoding final latents to audio.")
+        LOG.debug("Decoding final latents to audio.")
         fakes = model.pretransform.decode(fake_latent)
     else:
         fakes = fake_latent
 
     # Calculate final metrics if not already done by callback
     if clean_audio is not None and (metrics_every == 0 or steps % metrics_every != 0):
-        LOG.info("Calculating final metrics.")
+        LOG.debug("Calculating final metrics.")
         metrics_at_step = _calculate_metrics(
             fakes,
             fake_latent if model.pretransform else None,
@@ -379,13 +379,13 @@ def generate_cold_diffusion_uncond_restoration(
             clean_audio_filename = os.path.join(output_dir, "clean_audio.wav")
             clean_audio_save = rearrange(clean_audio_tensor, 'b d n -> d (b n)').to(torch.float32).clamp(-1, 1).mul(32767).to(torch.int16).cpu()
             torchaudio.save(clean_audio_filename, clean_audio_save, sample_rate)
-            LOG.info(f"Clean audio saved to {clean_audio_filename}")
+            LOG.debug(f"Clean audio saved to {clean_audio_filename}")
 
             # Save degraded audio
             degraded_audio_filename = os.path.join(output_dir, "degraded_audio.wav")
             degraded_audio_save = rearrange(degraded_audio_tensor, 'b d n -> d (b n)').to(torch.float32).clamp(-1, 1).mul(32767).to(torch.int16).cpu()
             torchaudio.save(degraded_audio_filename, degraded_audio_save, sample_rate)
-            LOG.info(f"Degraded audio saved to {degraded_audio_filename}")
+            LOG.debug(f"Degraded audio saved to {degraded_audio_filename}")
         except Exception as e:
             LOG.warning(f"Failed to save audio files: {e}")
 
@@ -444,7 +444,7 @@ def generate_diffusion_cond_restoration(
     # If this is latent diffusion, change sample_size instead to the downsampled latent size
     if model.pretransform is not None:
         sample_size = sample_size // model.pretransform.downsampling_ratio
-        LOG.info(f"Using latent diffusion, adjusted sample_size to {sample_size}")
+        LOG.debug(f"Using latent diffusion, adjusted sample_size to {sample_size}")
 
     # Seed
     seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
@@ -520,7 +520,7 @@ def generate_diffusion_cond_restoration(
 
     # Generate audio
     diff_objective = model.diffusion_objective
-    LOG.info(f"Using diffusion objective: {diff_objective}")
+    LOG.debug(f"Using diffusion objective: {diff_objective}")
 
     # Optionally run metrics loop
     if clean_audio is not None and metrics_every > 0:
@@ -550,7 +550,7 @@ def generate_diffusion_cond_restoration(
                 degraded_audio_latent = None
 
             for i, steps_i in enumerate(step_milestones):
-                LOG.info(f"[{i+1}/{len(step_milestones)}] Running diffusion for {steps_i} steps to calculate metrics")
+                LOG.debug(f"[{i+1}/{len(step_milestones)}] Running diffusion for {steps_i} steps to calculate metrics")
                 
                 # Run sampler
                 if diff_objective == "v":
@@ -623,7 +623,7 @@ def generate_diffusion_cond_restoration(
 
     # Calculate metrics if clean audio is provided
     if clean_audio is not None:
-        LOG.info("Calculating metrics between generated and clean audio")
+        LOG.debug("Calculating metrics between generated and clean audio")
 
         # Check if we can actually calculate restoration metrics
         can_calculate_metrics = isinstance(conditioning, list) and len(conditioning) > 0 and 'degraded_audio' in conditioning[0]
@@ -667,7 +667,7 @@ def generate_diffusion_cond_restoration(
                         clean_audio_save = clean_audio_save.div(torch.max(torch.abs(clean_audio_save)))
                     clean_audio_save = clean_audio_save.mul(32767).to(torch.int16).cpu()
                     torchaudio.save(clean_audio_filename, clean_audio_save, model.sample_rate)
-                    LOG.info(f"Clean audio saved to {clean_audio_filename}")
+                    LOG.debug(f"Clean audio saved to {clean_audio_filename}")
 
                 # Save degraded audio
                 degraded_audio_filename = os.path.join(output_dir, "degraded_audio.wav")
@@ -676,7 +676,7 @@ def generate_diffusion_cond_restoration(
                     degraded_audio_save = degraded_audio_save.div(torch.max(torch.abs(degraded_audio_save)))
                 degraded_audio_save = degraded_audio_save.mul(32767).to(torch.int16).cpu()
                 torchaudio.save(degraded_audio_filename, degraded_audio_save, model.sample_rate)
-                LOG.info(f"Degraded audio saved to {degraded_audio_filename}")
+                LOG.debug(f"Degraded audio saved to {degraded_audio_filename}")
             except Exception as e:
                 LOG.warning(f"Failed to save audio files: {e}")
 
@@ -856,7 +856,7 @@ def generate_diffusion_cond_inpaint(
 
     # v-diffusion: 
     #sampled = sample(model.model, noise, steps, 0, **conditioning_tensors, embedding_scale=cfg_scale)
-    LOG.info("Sampling completed, cleaning up")
+    LOG.debug("Sampling completed, cleaning up")
     del noise
     del conditioning_tensors
     del conditioning_inputs

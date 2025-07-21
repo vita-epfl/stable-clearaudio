@@ -308,10 +308,10 @@ def generate_restoration(
             if degraded_audio_filename is not None:
                 # Use the filename that was passed as a parameter
                 metrics_filename = f"{os.path.splitext(os.path.basename(degraded_audio_filename))[0]}_metrics.json"
-                LOG.info(f"Using provided filename for metrics: {metrics_filename}")
+                LOG.debug(f"Using provided filename for metrics: {metrics_filename}")
             else:
                 metrics_filename = "detailed_metrics.json"
-                LOG.info("No filename provided for metrics, using default: detailed_metrics.json")
+                LOG.debug("No filename provided for metrics, using default: detailed_metrics.json")
             
             # Save detailed metrics file only
             detailed_metrics_file = os.path.join(generation_dir, metrics_filename)
@@ -408,7 +408,7 @@ def generate_restoration(
             # Save the detailed metrics file
             with open(detailed_metrics_file, 'w') as f:
                 json.dump(detailed_metrics, f, indent=4, cls=NumpyEncoder)
-            LOG.info(f"Detailed metrics saved to {detailed_metrics_file}")
+            LOG.debug(f"Detailed metrics saved to {detailed_metrics_file}")
             
         except Exception as e:
             LOG.error(f"Error saving metrics to file: {e}")
@@ -440,7 +440,7 @@ def generate_restoration(
     
     try:
         torchaudio.save(output_wav, audio, sample_rate)
-        LOG.info(f"Saved WAV file to {output_wav}")
+        LOG.debug(f"Saved WAV file to {output_wav}")
     except Exception as e:
         LOG.error(f"Error saving WAV file {output_wav}: {e}")
         return (None, preview_images, final_metrics)
@@ -465,7 +465,7 @@ def generate_restoration(
             cmd += " -loglevel error"  # make output less verbose in the cmd window
             try:
                 subprocess.run(cmd, shell=True, check=True)
-                LOG.info(f"Converted to {file_format} format: {output_filename}")
+                LOG.debug(f"Converted to {file_format} format: {output_filename}")
             except Exception as e:
                 LOG.error(f"Error converting to {file_format}: {e}")
                 return (output_wav, preview_images, final_metrics)
