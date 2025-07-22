@@ -342,26 +342,32 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
             if not self.degradation_ops:
                 raise ValueError("[ColdDiffusion] Validation requires degradation presets but none were loaded.")
 
+            # Create fully degraded audio by applying a random degradation with t=1.0
+            degraded_reals = torch.zeros_like(reals)
+            for i in range(reals.shape[0]):
+                op = random.choice(self.degradation_ops).to(device)
+                degraded_reals[i] = op.apply(reals[i], 1.0) # Always fully degrade
+
+            # Encode both clean and degraded audio to latent space
+            with torch.no_grad():
+                clean_latents = self.diffusion.pretransform.encode(reals)
+                degraded_latents = self.diffusion.pretransform.encode(degraded_reals)
+
+            # Iterate through validation timesteps to calculate loss at different noise levels
             for ts in self.validation_timesteps:
-                t = torch.full((reals.shape[0],), ts, device=device)
-                degraded_audio = torch.zeros_like(reals)
-                # Apply a random degradation operator to every sample
-                for i in range(reals.shape[0]):
-                    op = random.choice(self.degradation_ops).to(device)
-                    degraded_audio[i] = op.apply(reals[i], ts)
+                # Create a batch of timesteps
+                t = torch.full((reals.shape[0],), ts, device=device, dtype=torch.float32)
+                
+                # Interpolate between clean and degraded latents to create model input
+                t_latent = t.view(-1, 1, 1)
+                model_input = t_latent * degraded_latents + (1 - t_latent) * clean_latents
 
-                targets = reals  # Clean audio is the target
-                inputs = degraded_audio
+                # The target is always the clean latent
+                targets = clean_latents
 
-                # Encode with pre-transform if any
-                if self.diffusion.pretransform is not None:
-                    self.diffusion.pretransform.to(device)
-                    with torch.no_grad():
-                        targets = self.diffusion.pretransform.encode(targets)
-                        inputs = self.diffusion.pretransform.encode(inputs)
-
+                # Get model output and calculate loss
                 with torch.cuda.amp.autocast(), torch.no_grad():
-                    output = self.diffusion(inputs, t)
+                    output = self.diffusion(model_input, t)
                     val_loss = F.mse_loss(output, targets)
 
                 self.validation_step_outputs[f'val/loss_{ts:.1f}'].append(val_loss.item())
