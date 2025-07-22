@@ -1,0 +1,74 @@
+transform_type: sox_audio_effect
+
+available_effects: ["intense_eq_1", "intense_eq_2", "intense_eq_3", "intense_eq_4", "intense_eq_5", "intense_eq_6"]
+randomise_effects: false # If false, applies all the effects in available_effects
+
+min_effects: 1
+max_effects: 6
+
+effects:
+  - name: intense_eq_1
+    effect_type: equalizer
+    param_sets:
+      - freq_min: 50
+        freq_max: 100
+        gain_min: -40
+        gain_max: 0
+        q_min: 1.0
+        q_max: 1.5
+    weight: 1
+
+  - name: intense_eq_2
+    effect_type: equalizer
+    param_sets:
+      - freq_min: 250
+        freq_max: 350
+        gain_min: 0
+        gain_max: 40
+        q_min: 1.0
+        q_max: 1.5
+    weight: 1
+
+  - name: intense_eq_3
+    effect_type: equalizer
+    param_sets:
+      - freq_min: 1000
+        freq_max: 1200
+        gain_min: -35
+        gain_max: 0
+        q_min: 1.0
+        q_max: 1.5
+    weight: 1
+
+  - name: intense_eq_4
+    effect_type: equalizer
+    param_sets:
+      - freq_min: 3000
+        freq_max: 3500
+        gain_min: 0
+        gain_max: 50
+        q_min: 1.0
+        q_max: 1.5
+    weight: 1
+
+  - name: intense_eq_5
+    effect_type: equalizer
+    param_sets:
+      - freq_min: 6000
+        freq_max: 6500
+        gain_min: -45
+        gain_max: 0
+        q_min: 1.0
+        q_max: 1.5
+    weight: 1
+
+  - name: intense_eq_6
+    effect_type: equalizer
+    param_sets:
+      - freq_min: 15000
+        freq_max: 16000
+        gain_min: 0
+        gain_max: 60
+        q_min: 1.0
+        q_max: 1.5
+    weight: 1
