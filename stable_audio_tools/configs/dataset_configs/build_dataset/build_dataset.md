@@ -55,9 +55,14 @@ To avoid `ModuleNotFoundError`, it is recommended to run the script as a module 
     python -m stable_audio_tools.configs.dataset_configs.build_dataset.build_degraded_dataset --config [PATH_TO_CONFIG_JSON]
     ```
 
-    **Example:**
+    **Example (workstation):**
     ```bash
     python -m stable_audio_tools.configs.dataset_configs.build_dataset.build_degraded_dataset --config stable_audio_tools/configs/dataset_configs/build_dataset/build_degraded_config_workstation.json
+    ```
+
+    **Example (RCP):**
+    ```bash
+    python -m stable_audio_tools.configs.dataset_configs.build_dataset.build_degraded_dataset --config stable_audio_tools/configs/dataset_configs/build_dataset/build_degraded_config_RCP.json
     ```
 
 ## Outputs
