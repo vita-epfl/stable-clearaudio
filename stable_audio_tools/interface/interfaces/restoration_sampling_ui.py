@@ -214,11 +214,13 @@ def create_metric_plots(metrics_data_list, labels):
             return None
 
         # Determine the set of all metric keys across all files
+        # Determine the set of all metric keys across all files
+        EXCLUDED_KEYS = ["steps", "timestamp", "sample_rate", "sample_size", "generation_params", "best_step_recommendation"]
         plottable_metrics = sorted(list(set(
-        k for metrics_data in metrics_data_list 
-        for k in metrics_data.keys() 
-        if k != 'best_step_recommendation' and isinstance(metrics_data[k], list)
-    )))
+            k for metrics_data in metrics_data_list 
+            for k in metrics_data.keys() 
+            if k not in EXCLUDED_KEYS and isinstance(metrics_data[k], list)
+        )))
         
         # Exclude all degraded_ metrics from plotting
         filtered_metric_keys = [k for k in plottable_metrics if not k.startswith('degraded_')]
@@ -715,8 +717,9 @@ def create_uncond_restoration_sampling_ui():
             with gr.Accordion("Restoration Metrics", open=True):
                 metrics_plots = gr.Image(label="Metrics Plots", type="numpy")
                 best_step_textbox = gr.Textbox(label="Best Step Recommendation", value="", interactive=False)
-                best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
-                best_step_table = gr.DataFrame(label="Best Step Table", interactive=False)
+                with gr.Accordion("Best Step Details", open=False):
+                    best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
+                    best_step_table = gr.DataFrame(label="Best Step Table", interactive=False)
             
             # Use different target based on model type
             send_to_init_button = gr.Button("Send to degraded audio", scale=1)
@@ -920,8 +923,9 @@ def create_cond_restoration_sampling_ui():
             with gr.Accordion("Restoration Metrics", open=True):
                 metrics_plots = gr.Image(label="Metrics Plots", type="numpy")
                 best_step_textbox = gr.Textbox(label="Best Step Recommendation", value="", interactive=False)
-                best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
-                best_step_table = gr.DataFrame(label="Best Step Table", interactive=False)
+                with gr.Accordion("Best Step Details", open=False):
+                    best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
+                    best_step_table = gr.DataFrame(label="Best Step Table", interactive=False)
             
             # Use different target based on model type
             send_to_init_button = gr.Button("Send to degraded audio", scale=1)
