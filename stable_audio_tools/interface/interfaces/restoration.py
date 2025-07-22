@@ -181,13 +181,23 @@ def generate_restoration(
             clean_audio = resample_tf(clean_audio)
 
         audio_length = clean_audio.shape[-1]
-        if audio_length > input_sample_size:
-            clean_audio = clean_audio[:, :input_sample_size]
+        # Truncate clean_audio to match the degraded_audio's length *after* processing
+        degraded_audio_len = degraded_audio[1].shape[-1]
+        if clean_audio.shape[-1] > degraded_audio_len:
+            LOG.warning(f"Truncating clean audio to match degraded audio length: {clean_audio.shape[-1]} -> {degraded_audio_len}")
+            clean_audio = clean_audio[:, :degraded_audio_len]
         
         if clean_audio.shape[0] == 1:
             clean_audio = clean_audio.repeat(2, 1)
         
         clean_audio = (sample_rate, clean_audio)
+
+    # Final check to ensure audio lengths match
+    if clean_audio is not None and degraded_audio is not None:
+        LOG.info(f"Truncating audio to match lengths: {clean_audio[1].shape[-1]} -> {degraded_audio[1].shape[-1]}")
+        min_len = min(degraded_audio[1].shape[-1], clean_audio[1].shape[-1])
+        degraded_audio = (degraded_audio[0], degraded_audio[1][:, :min_len])
+        clean_audio = (clean_audio[0], clean_audio[1][:, :min_len])
 
     def progress_callback(callback_info):
         global preview_images
