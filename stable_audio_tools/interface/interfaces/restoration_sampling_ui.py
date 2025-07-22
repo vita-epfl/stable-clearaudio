@@ -599,7 +599,7 @@ def create_uncond_restoration_sampling_ui():
                         minimum=0,
                         maximum=100,
                         step=1,
-                        value=30,
+                        value=1,
                         label="Compute Metrics Every N Steps"
                     )
             with gr.Accordion("Audio Inputs", open=True):
