@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import os
 import gc
 import glob
@@ -7,7 +8,6 @@ import shutil
 import gradio as gr
 import logging
 import torchaudio
-import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -214,13 +214,16 @@ def create_metric_plots(metrics_data_list, labels):
             return None
 
         # Determine the set of all metric keys across all files
-        all_metric_keys = set()
-        for metrics_data in metrics_data_list:
-            if metrics_data:
-                all_metric_keys.update(k for k in metrics_data.keys() if k not in ["steps", "timestamp", "sample_rate", "sample_size", "generation_params"])
-
+        # Determine the set of all metric keys across all files
+        EXCLUDED_KEYS = ["steps", "timestamp", "sample_rate", "sample_size", "generation_params", "best_step_recommendation"]
+        plottable_metrics = sorted(list(set(
+            k for metrics_data in metrics_data_list 
+            for k in metrics_data.keys() 
+            if k not in EXCLUDED_KEYS and isinstance(metrics_data[k], list)
+        )))
+        
         # Exclude all degraded_ metrics from plotting
-        filtered_metric_keys = [k for k in all_metric_keys if not k.startswith('degraded_')]
+        filtered_metric_keys = [k for k in plottable_metrics if not k.startswith('degraded_')]
         
         # Now separate the remaining metrics into restoration and main categories
         restoration_metrics_keys = sorted([k for k in filtered_metric_keys if k.startswith('restoration_success_')])
@@ -516,16 +519,34 @@ effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, f
     else:
         plots = None
     
-    return output_audios_list, output_spectrograms_list, plots
+    best_step_info = all_metrics[0].get('best_step_recommendation') if all_metrics else None
+    best_step_str = ""
+    best_step_plot_data = None
+    best_step_df_data = None
+
+    if best_step_info:
+        best_step = best_step_info.get('best_step')
+        best_step_str = f"Recommended best step: {best_step}"
+        
+        scores = best_step_info.get('scores', [])
+        steps_list = best_step_info.get('steps_list', [])
+        if scores and steps_list:
+            best_step_df_data = pd.DataFrame({
+                'Step': steps_list,
+                'Score': scores
+            })
+            best_step_plot_data = best_step_df_data
+
+    return output_audios_list, output_spectrograms_list, plots, best_step_str, best_step_plot_data, best_step_df_data
 
 def generate_with_plots(*args):
-    audios, spectrograms, plots = generate_multiple_with_plots(*args)
+    audios, spectrograms, plots, best_step_str, best_step_plot_data, best_step_df_data = generate_multiple_with_plots(*args)
     first_audio = audios[0] if audios else None
-    return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots, first_audio
+    return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots, first_audio, best_step_str, best_step_plot_data, best_step_df_data
 
 def create_uncond_restoration_sampling_ui():
     global model, sample_rate, model_type, model_half
-    
+
     diffusion_objective = model.diffusion_objective
 
     is_rf = diffusion_objective == "rectified_flow"
@@ -695,6 +716,10 @@ def create_uncond_restoration_sampling_ui():
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True):
                 metrics_plots = gr.Image(label="Metrics Plots", type="numpy")
+                best_step_textbox = gr.Textbox(label="Best Step Recommendation", value="", interactive=False)
+                with gr.Accordion("Best Step Details", open=False):
+                    best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
+                    best_step_table = gr.DataFrame(label="Best Step Table", interactive=False)
             
             # Use different target based on model type
             send_to_init_button = gr.Button("Send to degraded audio", scale=1)
@@ -707,7 +732,7 @@ def create_uncond_restoration_sampling_ui():
     generate_button.click(
         fn=generate_with_plots,
         inputs=inputs,
-        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file],
+        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file, best_step_textbox, best_step_plot, best_step_table],
         api_name="generate",
     )
     
@@ -724,7 +749,6 @@ def create_uncond_restoration_sampling_ui():
         inputs=[degraded_audio_dropdown], 
         outputs=[degraded_audio_player]
     )
-
 
 def create_cond_restoration_sampling_ui():
     global model, sample_rate, model_type, model_half
@@ -898,6 +922,10 @@ def create_cond_restoration_sampling_ui():
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True):
                 metrics_plots = gr.Image(label="Metrics Plots", type="numpy")
+                best_step_textbox = gr.Textbox(label="Best Step Recommendation", value="", interactive=False)
+                with gr.Accordion("Best Step Details", open=False):
+                    best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
+                    best_step_table = gr.DataFrame(label="Best Step Table", interactive=False)
             
             # Use different target based on model type
             send_to_init_button = gr.Button("Send to degraded audio", scale=1)
@@ -910,7 +938,7 @@ def create_cond_restoration_sampling_ui():
     generate_button.click(
         fn=generate_with_plots,
         inputs=inputs,
-        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file],
+        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file, best_step_textbox, best_step_plot, best_step_table],
         api_name="generate",
     )
     
