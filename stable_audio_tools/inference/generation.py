@@ -137,6 +137,12 @@ def _calculate_metrics(
     
     sampled_metrics_waveform = rearrange(sampled_waveform, 'b d n -> d (b n)')
 
+    # Final check to ensure audio lengths match before metric calculation
+    min_len = min(sampled_metrics_waveform.shape[-1], clean_audio_tensor_rearranged.shape[-1], degraded_audio_tensor_rearranged.shape[-1])
+    sampled_metrics_waveform = sampled_metrics_waveform[..., :min_len]
+    clean_audio_tensor_rearranged = clean_audio_tensor_rearranged[..., :min_len]
+    degraded_audio_tensor_rearranged = degraded_audio_tensor_rearranged[..., :min_len]
+
     # Calculate metrics between generated and clean audio
     for name, metric in metrics.items():
         # Calculate demo metric (generated vs clean)
