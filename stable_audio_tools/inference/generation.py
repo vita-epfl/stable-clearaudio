@@ -265,7 +265,9 @@ def generate_cold_diffusion_uncond_restoration(
             degraded_audio_latent = model.pretransform.encode(degraded_audio_tensor)
 
         if metrics_every > 0:
-            def metrics_callback(x_0_hat_latent, i):
+            def metrics_callback(callback_args):
+                i = callback_args['i']
+                x_0_hat_latent = callback_args['denoised']
                 if (i + 1) % metrics_every == 0 or i == steps - 1:
                     LOG.debug(f"Calculating metrics at step {i+1}/{steps}")
                     metrics_at_step = _calculate_metrics(
