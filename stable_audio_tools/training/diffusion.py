@@ -173,7 +173,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         self.pre_encoded = pre_encoded
 
         # Validation configuration
-        self.validation_timesteps = kwargs.get('validation_timesteps', [0.1, 0.3, 0.5, 0.7, 0.9])
+        self.validation_timesteps = kwargs.get('validation_timesteps', [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5])
         # Buffers to accumulate per-timestep losses during an epoch
         self.validation_step_outputs = {f'val/loss_{ts:.1f}': [] for ts in self.validation_timesteps}
 
