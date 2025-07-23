@@ -411,6 +411,8 @@ def sample_rf(
     if sigma_max > 1:
         sigma_max = 1
 
+    denoiser = model_fn
+
     if cond_fn is not None:
         denoiser = make_cond_model_fn(denoiser, cond_fn)
 
