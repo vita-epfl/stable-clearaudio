@@ -5,23 +5,15 @@ import math
 from torch.nn.functional import interpolate
 from einops import rearrange
 
-from pathlib import Path
-from stable_audio_tools.transforms.signal import ColdDiffusionSoxTransform
-
 import os
 from .utils import prepare_audio
 from .sampling import sample, sample_k, sample_rf, sample_cold
-from ..data.utils import PadCrop
 
 import logging
-import gc
-import json
 import os
 import time
 import torchaudio
 import torch.nn.functional as F
-
-import random
 
 LOG = logging.getLogger(__name__)
 # handler
@@ -234,7 +226,6 @@ def generate_cold_diffusion_uncond_restoration(
         batch_size: int = 1,
         sample_size: int = 2097152,
         sample_rate: int = 44100,
-        seed: int = -1,
         device: str = "cuda",
         clean_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
         degraded_audio: tp.Optional[tp.Tuple[int, torch.Tensor]] = None,
@@ -255,7 +246,6 @@ def generate_cold_diffusion_uncond_restoration(
         batch_size (int): The number of samples to generate.
         sample_size (int): The length of the generated audio in samples.
         sample_rate (int): The sample rate of the generated audio.
-        seed (int): The random seed.
         device (str): The device to use for generation.
         degraded_audio (tp.Optional[tp.Tuple[int, torch.Tensor]]): A tuple of (sample_rate, audio_tensor)
             for the audio to be restored. If None, generation will start from noise.
@@ -275,11 +265,6 @@ def generate_cold_diffusion_uncond_restoration(
     if model.pretransform is not None:
         sample_size = sample_size // model.pretransform.downsampling_ratio
         LOG.debug(f"Using latent diffusion, adjusted sample_size to {sample_size}")
-
-    # Seed
-    seed = seed if seed != -1 else np.random.randint(0, 2**32 - 1)
-    LOG.info(f"Using seed: {seed}")
-    torch.manual_seed(seed)
 
     # Set up torch backend for reproducibility
     torch.backends.cuda.matmul.allow_tf32 = False
