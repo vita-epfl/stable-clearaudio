@@ -290,12 +290,12 @@ class ColdDiffusionSoxTransform(nn.Module):
                 total_weight = sum(weights)
                 random_config['weights'] = [w / total_weight for w in weights]
 
-            return cls(os.path.basename(preset_path), effects_template, sample_rate, random_config=random_config, seed=seed)
+            return cls(os.path.basename(preset_path), effects_template, sample_rate, random_config=random_config)
         except Exception as e:
             LOG.error(f"[ColdDiffusion] Error loading preset {preset_path}: {str(e)}")
             import traceback
             LOG.error(traceback.format_exc())
-            return cls(f"error_preset_{os.path.basename(preset_path)}", [], sample_rate, seed=seed)
+            return cls(f"error_preset_{os.path.basename(preset_path)}", [], sample_rate)
 
     def _interpolate(self, value, t):
         """Linearly interpolates a value if it's a list of two numbers."""
