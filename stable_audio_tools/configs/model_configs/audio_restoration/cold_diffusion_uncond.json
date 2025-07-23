@@ -79,7 +79,7 @@
         },
         "demo": {
             "demo_every": 16,
-            "demo_steps": 10,
+            "demo_steps": 5,
             "num_demos": 1
         }
     }
