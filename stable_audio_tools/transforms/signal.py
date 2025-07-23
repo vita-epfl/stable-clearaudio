@@ -157,18 +157,15 @@ class ColdDiffusionSoxTransform(nn.Module):
       - name: rate
         args: [[48000, 8000]] # Interpolates the sample rate
     """
-    def __init__(self, name, effects_template, sample_rate, random_config=None, seed=None):
+    def __init__(self, name, effects_template, sample_rate, random_config=None):
         super().__init__()
         self.name = name
         self.effects_template = effects_template
         self.sample_rate = sample_rate
         self.random_config = random_config or {}
-        self.seed = seed
         LOG.debug(f"[ColdDiffusion] Initialized transform '{name}' with {len(effects_template)} effects at {sample_rate}Hz")
         if len(effects_template) > 0:
             LOG.debug(f"[ColdDiffusion] Effects template: {effects_template}")
-        if self.seed is not None:
-            LOG.debug(f"[ColdDiffusion] Using fixed seed: {self.seed}")
 
     @classmethod
     def from_sox_transform(cls, sox_transform, name, sample_rate):
@@ -315,16 +312,16 @@ class ColdDiffusionSoxTransform(nn.Module):
             LOG.debug(f"[ColdDiffusion] Using constant value {value} (not interpolatable)")
             return value
 
-    def apply(self, audio_tensor: torch.Tensor, t: float) -> torch.Tensor:
+    def apply(self, audio_tensor: torch.Tensor, t: float, degradation_seed: int = None) -> torch.Tensor:
         """
         Builds the effects chain with interpolated parameters for a given timestep 't'
         and applies it to the audio tensor.
         """
         LOG.debug(f"[ColdDiffusion] Applying effects with timestep t={t:.4f} to tensor shape={audio_tensor.shape}")
 
-        if self.seed is not None:
-            np.random.seed(self.seed) # Ensure deterministic degradation
-            LOG.debug(f"[ColdDiffusion] Applied seed {self.seed} for deterministic degradation.")
+        if degradation_seed is not None:
+            np.random.seed(degradation_seed) # Ensure deterministic degradation
+            LOG.debug(f"[ColdDiffusion] Applied seed {degradation_seed} for deterministic degradation.")
         
         if not self.effects_template:
             LOG.warning(f"[ColdDiffusion] No effects template found for {self.name}")

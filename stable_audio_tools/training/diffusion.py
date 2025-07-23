@@ -113,10 +113,6 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
                 effects_dir = build_degraded_args.get('low_quality_effects_dir')
                 preset_names = build_degraded_args.get('degradation_presets', [])
-                degradation_seed = build_degraded_args.get('degradation_seed')
-
-                if degradation_seed is not None:
-                    LOG.info(f"[ColdDiffusion] Using degradation seed: {degradation_seed}")
 
                 if not effects_dir or not preset_names:
                     LOG.warning("[ColdDiffusion] 'low_quality_effects_dir' or 'degradation_presets' not found in config. No degradations will be applied.")
@@ -138,7 +134,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                         for preset_name in preset_names:
                             preset_path = os.path.join(effects_dir, f"{preset_name}.yaml")
                             if os.path.exists(preset_path):
-                                op = ColdDiffusionSoxTransform.from_preset(preset_path, self.diffusion.sample_rate, seed=degradation_seed)
+                                op = ColdDiffusionSoxTransform.from_preset(preset_path, self.diffusion.sample_rate)
                                 self.degradation_ops.append(op)
                                 LOG.info(f"[ColdDiffusion] Found and added preset: {preset_path}")
                             else:
@@ -213,11 +209,12 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
             # For cold diffusion, degradation is applied to the raw audio waveform
             if self.degradation_ops:
                 degraded_reals = torch.zeros_like(reals)
+                degradation_seed = random.randint(0, 2**32 - 1)
                 for i in range(reals.shape[0]):
                     op = random.choice(self.degradation_ops)
                     op = op.to(self.device)
                     # Get a fully degraded version of the clean audio
-                    fully_degraded_audio = op.apply(reals[i], 1.0)
+                    fully_degraded_audio = op.apply(reals[i], 1.0, degradation_seed=degradation_seed)
 
                     degraded_reals[i] = fully_degraded_audio
             else:
@@ -344,9 +341,10 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
             # Create fully degraded audio by applying a random degradation with t=1.0
             degraded_reals = torch.zeros_like(reals)
+            degradation_seed = random.randint(0, 2**32 - 1)
             for i in range(reals.shape[0]):
                 op = random.choice(self.degradation_ops).to(device)
-                degraded_reals[i] = op.apply(reals[i], 1.0) # Always fully degrade
+                degraded_reals[i] = op.apply(reals[i], 1.0, degradation_seed=degradation_seed) # Always fully degrade
 
             # Encode both clean and degraded audio to latent space
             with torch.no_grad():
@@ -482,10 +480,11 @@ class DiffusionUncondDemoCallback(pl.Callback):
                 fakes = torch.zeros_like(original_audio_inputs)
 
                 # Create a batch of degraded audio, each with a different random degradation
+                degradation_seed = random.randint(0, 2**32 - 1)
                 for i in range(original_audio_inputs.shape[0]):
                     op = random.choice(module.degradation_ops)
                     op = op.to(module.device)
-                    degraded_audio[i] = op.apply(original_audio_inputs[i], degradation_t)
+                    degraded_audio[i] = op.apply(original_audio_inputs[i], degradation_t, degradation_seed=degradation_seed)
 
                 # Encode the whole batch of degraded audio at once
                 degraded_latents = module.diffusion.pretransform.encode(degraded_audio)

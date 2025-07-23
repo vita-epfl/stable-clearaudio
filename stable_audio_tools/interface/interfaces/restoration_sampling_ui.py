@@ -322,7 +322,7 @@ def create_metric_plots(metrics_data_list, labels):
         LOG.error(f"Error creating metric plots: {str(e)}", exc_info=True)
         return None
 
-def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metrics_every, seed, sampler_type, 
+def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metrics_every, sampler_type, 
 degraded_audio_files, clean_audio, process_folder_path=None, model_name=None, 
 effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, file_format=None):
     """
@@ -332,7 +332,6 @@ effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, f
         steps (int): Number of steps to generate audio.
         preview_every (int): Preview every N steps.
         metrics_every (int): Compute metrics every N steps.
-        seed (int): Seed for random number generator.
         sampler_type (str): Type of sampler to use.
         sigma_min (float): Minimum sigma value.
         sigma_max (float): Maximum sigma value.
@@ -444,7 +443,6 @@ effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, f
             steps=steps,
             preview_every=preview_every,
             metrics_every=metrics_every,
-            seed=seed,
             sampler_type=sampler_type,
             sigma_min=sigma_min,
             sigma_max=sigma_max,
@@ -564,12 +562,6 @@ def create_uncond_restoration_sampling_ui():
                 )
 
             with gr.Accordion("Sampler params", open=False):
-                with gr.Row():
-                    # Seed
-                    seed_textbox = gr.Textbox(
-                        label="Seed (set to -1 for random seed)", value="42"
-                    )
-
                 with gr.Row():
                     # Sampler params
                     if is_rf:
@@ -697,7 +689,6 @@ def create_uncond_restoration_sampling_ui():
                 schedule_dropdown,
                 preview_every_slider,
                 metrics_every_slider,
-                seed_textbox,
                 sampler_type_dropdown,
                 degraded_audio_files,
                 clean_audio,
@@ -770,12 +761,6 @@ def create_cond_restoration_sampling_ui():
                 )
 
             with gr.Accordion("Sampler params", open=False):
-                with gr.Row():
-                    # Seed
-                    seed_textbox = gr.Textbox(
-                        label="Seed (set to -1 for random seed)", value="-1"
-                    )
-
                 with gr.Row():
                     cfg_rescale_slider = gr.Slider(
                         minimum=0.0,
@@ -899,7 +884,6 @@ def create_cond_restoration_sampling_ui():
                 steps_slider,
                 preview_every_slider,
                 metrics_every_slider,
-                seed_textbox,
                 sampler_type_dropdown,
                 degraded_audio_files,
                 clean_audio,

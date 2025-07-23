@@ -74,7 +74,6 @@ def generate_restoration(
     steps=250,
     preview_every=None,
     metrics_every=0,
-    seed=-1,
     sampler_type="dpmpp-3m-sde",
     sigma_min=0.03,
     sigma_max=1000,
@@ -105,12 +104,6 @@ def generate_restoration(
 
     # Get the device from the model
     device = next(model.parameters()).device
-
-    seed = int(seed)
-    # if seed is -1, define the seed value now, randomly, so we can save it in the filename
-    if seed == -1:
-        seed = np.random.randint(0, 2**32 - 1, dtype=np.uint32)
-    LOG.info(f"Using seed: {seed}")
 
     input_sample_size = degraded_audio[1].shape[-1]
 
@@ -259,7 +252,6 @@ def generate_restoration(
             "steps": steps,
             "batch_size": batch_size,
             "sample_size": input_sample_size,
-            "seed": seed,
             "device": device,
             "sampler_type": sampler_type,
             "sigma_min": sigma_min,
@@ -279,7 +271,6 @@ def generate_restoration(
             "steps": steps,
             "batch_size": batch_size,
             "sample_size": input_sample_size,
-            "seed": seed,
             "device": device,
             "callback": progress_callback if (preview_every is not None) else None,
             "clean_audio": clean_audio,
