@@ -90,13 +90,14 @@ def get_audio_files(dataset_path: str, num_files: int = -1) -> List[Path]:
     
     LOG.info(f"Found {len(audio_files)} audio files in {dataset_path}")
     
-    # Sort files to ensure reproducibility
-    audio_files.sort()
-    
     # Limit the number of files if specified
     if num_files > 0 and num_files < len(audio_files):
-        audio_files = audio_files[:num_files]
-        LOG.info(f"Limited to {len(audio_files)} audio files")
+        # Get random files from the folder
+        audio_files = random.sample(audio_files, num_files)
+        LOG.info(f"Limited to {len(audio_files)} audio files (randomly selected)")
+
+    # Sort files to ensure reproducibility
+    audio_files.sort()
     
     return audio_files
 
