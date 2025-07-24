@@ -524,35 +524,34 @@ class DiffusionUncondDemoCallback(pl.Callback):
         os.makedirs(demos_dir, exist_ok=True)
         
         # Use a generic filename for unconditional generation
-        base_filename = f'demo_{trainer.global_step:08}'
-
-        # Save fake audio
-        filename_fake = f'{base_filename}_fake.wav'
+        filename_fake = f'demo_{trainer.global_step:08}_fake.wav'
         filepath_fake = osp.join(demos_dir, filename_fake)
+        
+        # Save fake audio
         fakes_for_save = fakes.to(torch.float32).div(torch.max(torch.abs(fakes))).mul(32767).to(torch.int16).cpu()
         fakes_for_log = rearrange(fakes.clone(), 'b d n -> d (b n)')
         torchaudio.save(filepath_fake, rearrange(fakes_for_save, 'b d n -> d (b n)'), self.sample_rate)
 
         # Save original audio
-        filename_original = f'{base_filename}_original.wav'
+        filename_original = f'demo_{trainer.global_step:08}_original.wav'
         filepath_original = osp.join(demos_dir, filename_original)
         original_for_save = original_audio_inputs.to(torch.float32).div(torch.max(torch.abs(original_audio_inputs))).mul(32767).to(torch.int16).cpu()
         torchaudio.save(filepath_original, rearrange(original_for_save, 'b d n -> d (b n)'), self.sample_rate)
 
         # Logging to wandb
-        log_audio(trainer.logger, f"{base_filename}_fake", filepath_fake, sample_rate=self.sample_rate, caption=f"Fake")
-        log_image(trainer.logger, f"{base_filename}_melspec_fake", audio_spectrogram_image(fakes_for_log))
-        log_audio(trainer.logger, f"{base_filename}_original", filepath_original, sample_rate=self.sample_rate, caption=f"Original")
-        log_image(trainer.logger, f"{base_filename}_melspec_original", audio_spectrogram_image(original_audio_for_log))
+        log_audio(trainer.logger, "demo_fake", filepath_fake, sample_rate=self.sample_rate, caption=f"Fake")
+        log_image(trainer.logger, f"demo_melspec_fake", audio_spectrogram_image(fakes_for_log))
+        log_audio(trainer.logger, "demo_original", filepath_original, sample_rate=self.sample_rate, caption=f"Original")
+        log_image(trainer.logger, f"demo_melspec_original", audio_spectrogram_image(original_audio_for_log))
 
         # Save degraded audio
-        filename_degraded = f'{base_filename}_degraded.wav'
+        filename_degraded = f'demo_{trainer.global_step:08}_degraded.wav'
         filepath_degraded = osp.join(demos_dir, filename_degraded)
         degraded_for_save = degraded_audio.to(torch.float32).div(torch.max(torch.abs(degraded_audio))).mul(32767).to(torch.int16).cpu()
         degraded_for_log = rearrange(degraded_audio.clone(), 'b d n -> d (b n)')
         torchaudio.save(filepath_degraded, rearrange(degraded_for_save, 'b d n -> d (b n)'), self.sample_rate)
-        log_audio(trainer.logger, f"{base_filename}_degraded", filepath_degraded, sample_rate=self.sample_rate, caption=f"Degraded")
-        log_image(trainer.logger, f"{base_filename}_melspec_degraded", audio_spectrogram_image(degraded_for_log))
+        log_audio(trainer.logger, "demo_degraded", filepath_degraded, sample_rate=self.sample_rate, caption=f"Degraded")
+        log_image(trainer.logger, f"demo_melspec_degraded", audio_spectrogram_image(degraded_for_log))
 
         # Calculate and log metrics
         # Move metrics to the correct device
