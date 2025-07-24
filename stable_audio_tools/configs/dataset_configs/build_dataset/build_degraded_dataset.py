@@ -4,6 +4,7 @@ import logging
 import argparse
 import json
 import random
+import shutil
 import torchaudio
 import torch
 import matplotlib.pyplot as plt
@@ -61,6 +62,7 @@ class BuildDatasetConfig:
     degradation_presets: List[str] = field(default_factory=list)
     noise_gain: float = 1.0
     generate_visualizations: bool = True
+    empty_output_dir: bool = False
     
 
 def load_config(config_path: str) -> BuildDatasetConfig:
@@ -156,6 +158,17 @@ def build_degraded_dataset(config: BuildDatasetConfig):
     Args:
         config: Configuration object
     """
+    # If requested, empty the output directories
+    if config.empty_output_dir:
+        LOG.info("Emptying output directories as requested.")
+        if Path(config.degraded_output_dir).exists():
+            shutil.rmtree(config.degraded_output_dir)
+            LOG.info(f"Removed directory: {config.degraded_output_dir}")
+        
+        if config.build_clean_dataset and Path(config.clean_output_dir).exists():
+            shutil.rmtree(config.clean_output_dir)
+            LOG.info(f"Removed directory: {config.clean_output_dir}")
+
     # Create output directories if they don't exist
     Path(config.degraded_output_dir).mkdir(parents=True, exist_ok=True)
     if config.build_clean_dataset:
