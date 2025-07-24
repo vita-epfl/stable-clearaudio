@@ -4,6 +4,7 @@ import logging
 import argparse
 import json
 import random
+import shutil
 import torchaudio
 import torch
 import matplotlib.pyplot as plt
@@ -11,6 +12,19 @@ import numpy as np
 from pathlib import Path
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
+import warnings
+
+# Suppress specific torchaudio deprecation warnings
+warnings.filterwarnings("ignore", message=".*torchaudio.load_with_torchcodec.*")
+warnings.filterwarnings("ignore", message=".*torchaudio.save_with_torchcodec.*")
+
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+    print(f"Added to path: {project_root}")
+else:
+    print(f"Path already in sys.path: {project_root}")
 
 # Logging configuration
 logging.basicConfig(
@@ -48,6 +62,7 @@ class BuildDatasetConfig:
     degradation_presets: List[str] = field(default_factory=list)
     noise_gain: float = 1.0
     generate_visualizations: bool = True
+    empty_output_dir: bool = False
     
 
 def load_config(config_path: str) -> BuildDatasetConfig:
@@ -143,6 +158,17 @@ def build_degraded_dataset(config: BuildDatasetConfig):
     Args:
         config: Configuration object
     """
+    # If requested, empty the output directories
+    if config.empty_output_dir:
+        LOG.info("Emptying output directories as requested.")
+        if Path(config.degraded_output_dir).exists():
+            shutil.rmtree(config.degraded_output_dir)
+            LOG.info(f"Removed directory: {config.degraded_output_dir}")
+        
+        if config.build_clean_dataset and Path(config.clean_output_dir).exists():
+            shutil.rmtree(config.clean_output_dir)
+            LOG.info(f"Removed directory: {config.clean_output_dir}")
+
     # Create output directories if they don't exist
     Path(config.degraded_output_dir).mkdir(parents=True, exist_ok=True)
     if config.build_clean_dataset:
@@ -431,6 +457,9 @@ def main():
     # If a configuration file is provided, load it
     if args.config:
         cfg_file = Path(args.config)
+        # If the path is not absolute, assume it's relative to the script's directory
+        if not cfg_file.is_absolute():
+            cfg_file = (Path(__file__).parent / cfg_file).resolve()
     else:
         # Use the default JSON configuration file in the same directory
         cfg_file = Path(__file__).parent / "build_degraded_config_workstation.json"

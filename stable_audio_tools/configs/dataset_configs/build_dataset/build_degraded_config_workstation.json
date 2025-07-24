@@ -6,6 +6,8 @@
     "low_quality_effects_dir": "/home/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/low_quality_effect",
     "build_clean_dataset": true,
     "duration": 5,
-    "num_files": 10,
-    "degradation_presets": ["intense_equalizer_strong"]
+    "num_files": 5,
+    "degradation_presets": ["lowpass_strong_ranges"],
+    "generate_visualizations": false,
+    "empty_output_dir": true
 }
