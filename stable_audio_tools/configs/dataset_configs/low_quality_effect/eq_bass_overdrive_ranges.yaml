@@ -15,7 +15,7 @@ effects:
       - freq_mean: 2000
         freq_std: 1000
         db_min: 0
-        db_max: 37
+        db_max: 15
         weight: 1
 
   - name: bass
@@ -24,7 +24,7 @@ effects:
       - freq_min: 50
         freq_max: 1500
         db_min: 0
-        db_max: 22
+        db_max: 15
         weight: 1
 
   - name: overdrive
@@ -33,5 +33,5 @@ effects:
       - color_min: 0
         color_max: 90
         gain_min: 0
-        gain_max: 25
+        gain_max: 15
         weight: 1
