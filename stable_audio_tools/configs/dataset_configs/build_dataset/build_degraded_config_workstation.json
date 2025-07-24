@@ -7,7 +7,7 @@
     "build_clean_dataset": true,
     "duration": 5,
     "num_files": 5,
-    "degradation_presets": ["eq_bass_overdrive_ranges"],
+    "degradation_presets": ["intense_equalizer"],
     "generate_visualizations": false,
     "empty_output_dir": true
 }

@@ -3,7 +3,7 @@
     "sample_size": 220500,
     "sample_rate": 44100,
     "audio_channels": 2,
-    "max_epochs": 1000,
+    "max_epochs": 650,
     "model": {
         "type": "dit",
         "pretransform": {
