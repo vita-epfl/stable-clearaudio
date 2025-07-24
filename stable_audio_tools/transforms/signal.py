@@ -12,6 +12,9 @@ import torchaudio.transforms as T
 from torch import Tensor, nn
 import torch
 import yaml
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, message=".*torchaudio.sox_effects.sox_effects.apply_effects_tensor has been deprecated.*")
 
 LOG = logging.getLogger(__name__)
 
