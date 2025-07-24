@@ -12,6 +12,14 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
 
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+    print(f"Added to path: {project_root}")
+else:
+    print(f"Path already in sys.path: {project_root}")
+
 # Logging configuration
 logging.basicConfig(
     level=logging.INFO,
@@ -431,6 +439,9 @@ def main():
     # If a configuration file is provided, load it
     if args.config:
         cfg_file = Path(args.config)
+        # If the path is not absolute, assume it's relative to the script's directory
+        if not cfg_file.is_absolute():
+            cfg_file = (Path(__file__).parent / cfg_file).resolve()
     else:
         # Use the default JSON configuration file in the same directory
         cfg_file = Path(__file__).parent / "build_degraded_config_workstation.json"
