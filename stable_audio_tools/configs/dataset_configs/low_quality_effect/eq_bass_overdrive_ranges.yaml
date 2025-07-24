@@ -1,10 +1,10 @@
 transform_type: sox_audio_effect
 
-randomise_effects: true # If false, applies all the effects in available_effects
+randomise_effects: false # If false, applies all the effects in available_effects
 
 # If randomise_effects is true, the number of effects is randomised between min_effects and max_effects
 min_effects: 1
-max_effects: 1
+max_effects: 3
 
 available_effects: ["equalizer", "bass", "overdrive"]
 
@@ -13,8 +13,8 @@ effects:
     effect_type: equalizer # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
       - freq_mean: 2000
-        freq_std: 700
-        db_min: 25
+        freq_std: 1000
+        db_min: 0
         db_max: 37
         weight: 1
 
@@ -23,15 +23,15 @@ effects:
     param_sets:
       - freq_min: 50
         freq_max: 1500
-        db_min: 12
+        db_min: 0
         db_max: 22
         weight: 1
 
   - name: overdrive
     effect_type: overdrive # Attack and decay times, transfer function points, gain, initial delay, release time
     param_sets:
-      - color_min: 80
+      - color_min: 0
         color_max: 90
-        gain_min: 20
+        gain_min: 0
         gain_max: 25
         weight: 1
