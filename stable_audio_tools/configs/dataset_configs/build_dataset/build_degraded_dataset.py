@@ -11,6 +11,11 @@ import numpy as np
 from pathlib import Path
 from typing import List, Optional, Tuple
 from dataclasses import dataclass, field
+import warnings
+
+# Suppress specific torchaudio deprecation warnings
+warnings.filterwarnings("ignore", message=".*torchaudio.load_with_torchcodec.*")
+warnings.filterwarnings("ignore", message=".*torchaudio.save_with_torchcodec.*")
 
 # Add the project root to the Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
