@@ -61,7 +61,7 @@ def process_folder_files(process_folder_path, model_name, effects_list):
                     
                     # Reformat existing data to ensure correct structure
                     # Fix audio paths and losses format for all existing entries
-                    if "data" in consolidated_results:
+                    if "data" in consolidated_results: # TODO: We shouldn't make a difference between light standard strong
                         for audio_name, audio_data in list(consolidated_results["data"].items()):
                             if audio_name not in ["light", "standard", "strong", "unknown"]:
                                 for duration, duration_data in list(audio_data.items()):
@@ -625,40 +625,25 @@ def create_uncond_restoration_sampling_ui():
                         degraded_audio_dropdown = gr.Dropdown(label="Select degraded audio to play", interactive=True)
                     with gr.Column(scale=1):
                         degraded_audio_player = gr.Audio(label="Degraded audio player")
-            
-            with gr.Accordion("Batch Processing Options", open=False):                    
-                with gr.Row():
-                    process_folder_path = gr.Textbox(
-                        label="Audio Folder",
-                        placeholder="Path to folder where the algorithm should search for audio files (e.g. audio/degraded/MIDI-Unprocessed_01_R1_2011_MID--AUDIO_R1-D1_04_Track04_wav)",
-                    )
-                
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        model_name = gr.Textbox(
-                            label="Model name",
-                            placeholder="Name of the model for results file (e.g. intense_equalizer)",
-                        )
-                    with gr.Column(scale=1):
-                        effects_list = gr.Textbox(
-                            label="Effects list",
-                            placeholder="Comma-separated list of effects (e.g. equalizer,bass,overdrive)",
-                        )
+
+            effects_list = gr.Textbox(visible=False)
+
             with gr.Accordion("Cold diffusion parameters", open=True):
-                with gr.Row():
-                    t_start_slider = gr.Slider(
-                        label="T start",
-                        minimum=0.0,
-                        maximum=1.0,
-                        step=0.01,
-                        value=1.0,
-                    )
 
                 with gr.Row():
-                    schedule_dropdown = gr.Dropdown(
-                        [
-                            "linear",
-                            "cosine",
+                    with gr.Column(scale=1):
+                        t_start_slider = gr.Slider(
+                            label="T start",
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.01,
+                            value=1.0,
+                        )
+                    with gr.Column(scale=1):
+                        schedule_dropdown = gr.Dropdown(
+                            [
+                                "linear",
+                                "cosine",
                             "squaredcos_cap0",
                             "squaredcos_cap1",
                             "sigmoid",
@@ -667,22 +652,34 @@ def create_uncond_restoration_sampling_ui():
                         value="linear",
                     )
 
-                with gr.Row():
-                    from pathlib import Path
-                    _presets_dir = Path(__file__).resolve().parent.parent.parent / "configs" / "dataset_configs" / "low_quality_effect"
-                    if _presets_dir.is_dir():
-                        _preset_files = sorted([p.stem for p in _presets_dir.glob("*.yaml")])
-                    else:
-                        _preset_files = []
-                    preset_selector = gr.CheckboxGroup(
-                        choices=_preset_files,
-                        label="Low-quality effect presets (mandatory for cold diffusion models)",
-                    )
+                from pathlib import Path
+                _presets_dir = Path(__file__).resolve().parent.parent.parent / "configs" / "dataset_configs" / "low_quality_effect"
+                if _presets_dir.is_dir():
+                    _preset_files = sorted([p.stem for p in _presets_dir.glob("*.yaml")])
+                else:
+                    _preset_files = []
+                preset_selector = gr.CheckboxGroup(
+                    choices=_preset_files,
+                    label="Low-quality effect presets (mandatory for cold diffusion models or for batch processing. Should be the same than the ones used for training)",
+                )
 
-                    # Whenever presets change, update effects_list textbox as comma-separated string
-                    def _update_effects_list(selected):
-                        return ",".join(selected) if selected else ""
-                    preset_selector.change(_update_effects_list, inputs=[preset_selector], outputs=[effects_list])
+                # Whenever presets change, update effects_list textbox as comma-separated string
+                preset_selector.change(lambda s: ",".join(s) if s else "", inputs=[preset_selector], outputs=[effects_list])
+            
+                with gr.Accordion("Batch Processing Options", open=False):                    
+                    with gr.Row():
+                        process_folder_path = gr.Textbox(
+                            label="Audio Folder",
+                            placeholder="Path to folder where the algorithm should search for audio files (e.g. audio/degraded/MIDI-Unprocessed_01_R1_2011_MID--AUDIO_R1-D1_04_Track04_wav)",
+                        )
+                    
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            model_name = gr.Textbox(
+                                label="Model name",
+                                placeholder="Name of the model for results file (e.g. intense_equalizer)",
+                            )
+
             inputs = [
                 steps_slider,
                 t_start_slider,
