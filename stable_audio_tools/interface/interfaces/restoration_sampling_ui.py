@@ -24,7 +24,7 @@ model = None
 model_type = None
 sample_size = 2097152
 sample_rate = 44100
-model_half = True
+model_half = False
 
 from .restoration import generate_restoration
 from .batch_processing import get_metrics_spectrograms_batch_processing
