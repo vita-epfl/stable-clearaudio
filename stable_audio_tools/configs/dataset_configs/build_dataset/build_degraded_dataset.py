@@ -179,7 +179,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
     
     # Process each audio file
     for file_idx, file_path in enumerate(audio_files):
-        LOG.info(f"Processing file {file_idx+1}/{len(audio_files)}: {file_path.name}")
+        LOG.info(f"Processing file {file_idx+1}/{len(audio_files)}: {file_path.name} with degradations: {config.degradation_presets}")
         
         # Load and trim audio
         audio, sr = process_audio_file(file_path, config)
@@ -202,8 +202,6 @@ def build_degraded_dataset(config: BuildDatasetConfig):
             "degradation_presets": config.degradation_presets,
             "low_quality_effects_dir": config.low_quality_effects_dir,
         }
-
-        LOG.debug(f"Building degraded audio with {build_degraded_args}")
         
         # Get degraded audio using get_metadata_on_the_fly
         degraded_result = get_metadata_on_the_fly(info, audio, build_degraded_args)
@@ -245,6 +243,8 @@ def build_degraded_dataset(config: BuildDatasetConfig):
                 comparison_path = degraded_path.parent / f"{base_filename}_freq_comparison.png"
                 generate_comparative_visualization(audio, degraded_audio, sr, comparison_path)
                 LOG.debug(f"Saved comparative frequency visualization to {comparison_path}")
+
+        LOG.info("Finished")
 
 
 def generate_frequency_visualization(audio: torch.Tensor, sr: int, output_path: Path):
