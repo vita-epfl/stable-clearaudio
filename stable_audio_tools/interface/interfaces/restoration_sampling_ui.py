@@ -280,7 +280,7 @@ def create_metric_plots(metrics_data_list, labels):
                     if clean_metric_key in metrics_data:
                         clean_value = metrics_data[clean_metric_key]
                         ax.axhline(y=clean_value, color='green', linestyle='--', 
-                                   label=f'Clean Reference ({clean_metric_key})')
+                                   label=f'Clean Reference')
             
             ax.set_xlabel('Step')
             ax.set_ylabel('Value')
@@ -288,8 +288,7 @@ def create_metric_plots(metrics_data_list, labels):
             ax.grid(True)
             ax.legend(loc='best')
             plot_idx += 1
-        
-        # Plot restoration success metrics, one plot per file
+            # Plot restoration success metrics, one plot per file
         if restoration_metrics_keys:
             # Create a single legend for all restoration plots
             legend_handles = []
@@ -300,10 +299,36 @@ def create_metric_plots(metrics_data_list, labels):
 
                 if file_restoration_metrics and "steps" in metrics_data and metrics_data["steps"]:
                     ax = axes[plot_idx]
-                    steps = metrics_data["steps"]
+                    # Get the steps from the metrics data
+                    original_steps = metrics_data["steps"]
+                    
+                    # Check once if we need to include step 0, before looping through metrics
+                    has_step_0 = "step_0" in metrics_data
+                    include_step_0 = has_step_0 and 0 not in original_steps
+                    
+                    # Create a consistent steps list that includes step 0 if needed
+                    if include_step_0:
+                        steps_with_zero = [0] + original_steps
+                    else:
+                        steps_with_zero = original_steps.copy()
+                        
+                    # Include step 0 in NRS plots if available
                     for metric_name in file_restoration_metrics:
+                        # Get the values for this metric
+                        values = metrics_data[metric_name].copy()  # Make a copy to avoid modifying original data
+                        
+                        # Use the consistent steps list and update values accordingly
+                        if include_step_0 and metric_name in metrics_data["step_0"]:
+                            plot_steps = steps_with_zero
+                            plot_values = [metrics_data["step_0"][metric_name]] + values
+                        else:
+                            # If we don't have step 0 data for this metric, use original steps
+                            plot_steps = original_steps
+                            plot_values = values
+                        
+                        # Plot NRS values (don't include clean reference lines for NRS)
                         label = metric_name.replace('restoration_success_', '')
-                        line = ax.plot(steps, metrics_data[metric_name], '-o', label=label, markersize=4)[0]
+                        line = ax.plot(plot_steps, plot_values, '-o', label=label, markersize=4)[0]
                         if i == 0:  # Only collect handles and labels from first plot
                             legend_handles.append(line)
                             legend_labels.append(label)
