@@ -232,7 +232,11 @@ def create_metric_plots(metrics_data_list, labels):
         # Now separate the remaining metrics into restoration and main categories
         restoration_metrics_keys = sorted([k for k in filtered_metric_keys if k.startswith('restoration_success_')])
         # Also filter out clean_* metrics which are now single values, not arrays
-        main_metrics_keys = sorted([k for k in filtered_metric_keys if k not in restoration_metrics_keys and not k.startswith('clean_')])
+        # Additionally filter out the step_0 graph as requested
+        main_metrics_keys = sorted([k for k in filtered_metric_keys 
+                               if k not in restoration_metrics_keys and 
+                               not k.startswith('clean_') and 
+                               k != 'step_0'])
 
         if not main_metrics_keys and not restoration_metrics_keys:
             LOG.warning("No metrics found to plot.")
@@ -328,17 +332,13 @@ def create_metric_plots(metrics_data_list, labels):
                     # Get the steps from the metrics data
                     original_steps = metrics_data["steps"]
                     
-                    # Check once if we need to include step 0, before looping through metrics
-                    has_step_0 = "step_0" in metrics_data
-                    include_step_0 = has_step_0 and 0 not in original_steps
+                    # NRS plots should not include step 0 as requested by user
+                    include_step_0 = False
                     
-                    # Create a consistent steps list that includes step 0 if needed
-                    if include_step_0:
-                        steps_with_zero = [0] + original_steps
-                    else:
-                        steps_with_zero = original_steps.copy()
-                        
-                    # Include step 0 in NRS plots if available
+                    # Just use the original steps without step 0
+                    steps_with_zero = original_steps.copy()
+                    
+                    # Don't include step 0 in NRS plots
                     for metric_name in file_restoration_metrics:
                         # Get the values for this metric
                         values = metrics_data[metric_name].copy()  # Make a copy to avoid modifying original data
@@ -354,7 +354,9 @@ def create_metric_plots(metrics_data_list, labels):
                         
                         # Plot NRS values (don't include clean reference lines for NRS)
                         label = metric_name.replace('restoration_success_', '')
-                        line = ax.plot(plot_steps, plot_values, '-o', label=label, markersize=4)[0]
+                        # Don't use green color for lsd in NRS to avoid confusion with clean reference lines
+                        color = None  # Let matplotlib assign colors automatically
+                        line = ax.plot(plot_steps, plot_values, '-o', label=label, markersize=4, color=color)[0]
                         if i == 0:  # Only collect handles and labels from first plot
                             legend_handles.append(line)
                             legend_labels.append(label)
