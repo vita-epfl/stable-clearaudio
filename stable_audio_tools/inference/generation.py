@@ -523,12 +523,28 @@ def generate_cold_diffusion_uncond_restoration(
             LOG.warning(f"Failed to save audio files: {e}")
 
 
+    # Log the keys and types in all_metrics before returning
+    LOG.debug(f"Final metrics keys: {list(all_metrics.keys())}")
+    for k, v in all_metrics.items():
+        if k.startswith('clean_'):
+            LOG.debug(f"Clean metric {k} type: {type(v)}, value: {v}")
+            
+    # Copy clean metrics from clean_metrics dictionary to all_metrics dictionary
+    for k, v in clean_metrics.items():
+        all_metrics[k] = v
+
     # After all metrics are collected, calculate the best step
     if clean_audio is not None and metrics_every > 0:
         steps_list = sorted(list(set(all_metrics.get('steps', []))))
         if steps_list:
             best_step_info = _calculate_best_step(all_metrics, steps_list)
             all_metrics['best_step_recommendation'] = best_step_info
+    
+    # Add clean metrics to all_metrics as scalar values (not lists) for plotting as reference lines
+    if clean_metrics:
+        for clean_key, clean_value in clean_metrics.items():
+            all_metrics[clean_key] = clean_value
+            LOG.debug(f"Added clean metric {clean_key} = {clean_value}")
 
     return fakes, all_metrics
 

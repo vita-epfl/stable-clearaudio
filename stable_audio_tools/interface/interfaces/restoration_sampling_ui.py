@@ -214,12 +214,16 @@ def create_metric_plots(metrics_data_list, labels):
             return None
 
         # Determine the set of all metric keys across all files
-        # Determine the set of all metric keys across all files
         EXCLUDED_KEYS = ["steps", "timestamp", "sample_rate", "sample_size", "generation_params", "best_step_recommendation"]
+        
+        # Debug: Print all available metrics
+        LOG.debug(f"Available metrics in data: {[k for metrics_data in metrics_data_list for k in metrics_data.keys()]}")
+        
+        # Fix: Don't require metrics to be a list, just exclude the specific non-plottable keys
         plottable_metrics = sorted(list(set(
             k for metrics_data in metrics_data_list 
             for k in metrics_data.keys() 
-            if k not in EXCLUDED_KEYS and isinstance(metrics_data[k], list)
+            if k not in EXCLUDED_KEYS
         )))
         
         # Exclude all degraded_ metrics from plotting
@@ -264,9 +268,8 @@ def create_metric_plots(metrics_data_list, labels):
                     # Include step 0 in the plot if available
                     steps = metrics_data["steps"]
                     
-                    # Skip if this is a clean metric with only one value
-                    # (our fix to prevent clean metrics from being added to step arrays)
-                    if isinstance(metrics_data[metric_name], list) and len(metrics_data[metric_name]) > 1:
+                    # Handle regular metric plotting (excluding clean metrics)
+                    if isinstance(metrics_data[metric_name], list):
                         values = metrics_data[metric_name]
                         
                         # Check if we have step_0 data to include
@@ -279,13 +282,31 @@ def create_metric_plots(metrics_data_list, labels):
                         # Plot the values
                         label = labels[i] if i < len(labels) else f'Audio {i+1}'
                         ax.plot(steps, values, '-o', label=label, markersize=4)
+                    
+                    # Look for and plot clean reference metric as horizontal line
+                    # The clean metric name format is "clean_" + base metric name
+                    base_metric = metric_name
+                    if base_metric.startswith('demo_'):
+                        base_metric = base_metric[5:] # Remove 'demo_' prefix
                         
-                        # If we have clean metrics available, plot them as a horizontal line
-                        clean_metric_key = f"clean_{metric_name}"
+                    # Only attempt to plot clean reference if we have successfully plotted regular metrics
+                    # This ensures the plot has valid x/y limits and prevents shape mismatch errors
+                    if isinstance(metrics_data[metric_name], list) and len(metrics_data[metric_name]) > 0:
+                        clean_metric_key = f"clean_{base_metric}"
+                        LOG.debug(f"Looking for clean metric {clean_metric_key} in {list(metrics_data.keys())}")
+                        
                         if clean_metric_key in metrics_data:
-                            clean_value = metrics_data[clean_metric_key]
-                            ax.axhline(y=clean_value, color='green', linestyle='--', 
-                                      label=f'Clean Reference')
+                            try:
+                                clean_value = metrics_data[clean_metric_key]
+                                if isinstance(clean_value, (int, float)) and not isinstance(clean_value, bool):
+                                    LOG.debug(f"Found clean value for {clean_metric_key}: {clean_value}")
+                                    # Use plt.axhline which is more reliable than ax.axhline for edge cases
+                                    ax.axhline(y=float(clean_value), color='green', linestyle='--', 
+                                              label=f'Clean Reference')
+                                else:
+                                    LOG.warning(f"Clean value for {clean_metric_key} is not a number: {clean_value}")
+                            except Exception as e:
+                                LOG.warning(f"Error plotting clean reference line for {clean_metric_key}: {e}")
             
             ax.set_xlabel('Step')
             ax.set_ylabel('Value')
