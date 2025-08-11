@@ -456,7 +456,9 @@ def generate_cold_diffusion_uncond_restoration(
                     for k, v in metrics_at_step.items():
                         if k not in all_metrics:
                             all_metrics[k] = []
-                        all_metrics[k].append(v)
+                        # Don't append clean metrics to the per-step arrays
+                        if not k.startswith('clean_'):
+                            all_metrics[k].append(v)
             callback = metrics_callback
     else:
         # No clean audio provided, no metrics callback needed
@@ -484,7 +486,7 @@ def generate_cold_diffusion_uncond_restoration(
 
     # Calculate final metrics if not already done by callback
     if clean_audio is not None and (metrics_every == 0 or steps % metrics_every != 0):
-        LOG.debug("Calculating final metrics.")
+        # Only store the final metrics
         metrics_at_step = _calculate_metrics(
             fakes,
             fake_latent if model.pretransform else None,
@@ -494,12 +496,15 @@ def generate_cold_diffusion_uncond_restoration(
             degraded_audio_latent,
             model,
             device,
-            steps
+            steps,
+            clean_metrics=clean_metrics  # Use pre-calculated clean metrics
         )
         for k, v in metrics_at_step.items():
             if k not in all_metrics:
                 all_metrics[k] = []
-            all_metrics[k].append(v)
+            # Don't append clean metrics to the per-step arrays
+            if not k.startswith('clean_'):
+                all_metrics[k].append(v)
 
     if output_dir and clean_audio is not None:
         try:

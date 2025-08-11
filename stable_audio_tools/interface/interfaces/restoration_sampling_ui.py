@@ -227,7 +227,8 @@ def create_metric_plots(metrics_data_list, labels):
         
         # Now separate the remaining metrics into restoration and main categories
         restoration_metrics_keys = sorted([k for k in filtered_metric_keys if k.startswith('restoration_success_')])
-        main_metrics_keys = sorted([k for k in filtered_metric_keys if k not in restoration_metrics_keys])
+        # Also filter out clean_* metrics which are now single values, not arrays
+        main_metrics_keys = sorted([k for k in filtered_metric_keys if k not in restoration_metrics_keys and not k.startswith('clean_')])
 
         if not main_metrics_keys and not restoration_metrics_keys:
             LOG.warning("No metrics found to plot.")
@@ -262,25 +263,29 @@ def create_metric_plots(metrics_data_list, labels):
                 if metrics_data and metric_name in metrics_data and "steps" in metrics_data and metrics_data["steps"]:
                     # Include step 0 in the plot if available
                     steps = metrics_data["steps"]
-                    values = metrics_data[metric_name]
                     
-                    # Check if we have step_0 data to include
-                    if "step_0" in metrics_data and metric_name in metrics_data["step_0"]:
-                        # Add step 0 (degraded input) to the beginning of steps and values
-                        if 0 not in steps:
-                            steps = [0] + steps
-                            values = [metrics_data["step_0"][metric_name]] + values
-                    
-                    # Plot the values
-                    label = labels[i] if i < len(labels) else f'Audio {i+1}'
-                    ax.plot(steps, values, '-o', label=label, markersize=4)
-                    
-                    # If we have clean metrics available, plot them as a horizontal line
-                    clean_metric_key = f"clean_{metric_name}"
-                    if clean_metric_key in metrics_data:
-                        clean_value = metrics_data[clean_metric_key]
-                        ax.axhline(y=clean_value, color='green', linestyle='--', 
-                                   label=f'Clean Reference')
+                    # Skip if this is a clean metric with only one value
+                    # (our fix to prevent clean metrics from being added to step arrays)
+                    if isinstance(metrics_data[metric_name], list) and len(metrics_data[metric_name]) > 1:
+                        values = metrics_data[metric_name]
+                        
+                        # Check if we have step_0 data to include
+                        if "step_0" in metrics_data and metric_name in metrics_data["step_0"]:
+                            # Add step 0 (degraded input) to the beginning of steps and values
+                            if 0 not in steps:
+                                steps = [0] + steps
+                                values = [metrics_data["step_0"][metric_name]] + values
+                        
+                        # Plot the values
+                        label = labels[i] if i < len(labels) else f'Audio {i+1}'
+                        ax.plot(steps, values, '-o', label=label, markersize=4)
+                        
+                        # If we have clean metrics available, plot them as a horizontal line
+                        clean_metric_key = f"clean_{metric_name}"
+                        if clean_metric_key in metrics_data:
+                            clean_value = metrics_data[clean_metric_key]
+                            ax.axhline(y=clean_value, color='green', linestyle='--', 
+                                      label=f'Clean Reference')
             
             ax.set_xlabel('Step')
             ax.set_ylabel('Value')
