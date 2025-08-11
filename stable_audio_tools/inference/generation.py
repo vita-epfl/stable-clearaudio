@@ -100,7 +100,8 @@ def _calculate_metrics(
     degraded_audio_latent,
     model,
     device,
-    steps
+    steps,
+    clean_metrics=None
 ):
     LOG.debug(f"Calculating metrics for {steps} steps")
     
@@ -124,10 +125,29 @@ def _calculate_metrics(
 
     metrics_dict = {}
     
-    clean_audio_tensor_rearranged = rearrange(clean_audio_tensor, 'b d n -> d (b n)')
-    degraded_audio_tensor_rearranged = rearrange(degraded_audio_tensor, 'b d n -> d (b n)')
+    # Handle tensor shape variations for clean audio
+    if len(clean_audio_tensor.shape) == 3:  # Shape is [batch, channels, samples]
+        clean_audio_tensor_rearranged = rearrange(clean_audio_tensor, 'b d n -> d (b n)')
+    elif len(clean_audio_tensor.shape) == 2:  # Shape is [channels, samples]
+        clean_audio_tensor_rearranged = clean_audio_tensor
+    else:
+        raise ValueError(f"Unexpected shape for clean_audio_tensor: {clean_audio_tensor.shape}")
     
-    sampled_metrics_waveform = rearrange(sampled_waveform, 'b d n -> d (b n)')
+    # Handle tensor shape variations for degraded audio
+    if len(degraded_audio_tensor.shape) == 3:  # Shape is [batch, channels, samples]
+        degraded_audio_tensor_rearranged = rearrange(degraded_audio_tensor, 'b d n -> d (b n)')
+    elif len(degraded_audio_tensor.shape) == 2:  # Shape is [channels, samples]
+        degraded_audio_tensor_rearranged = degraded_audio_tensor
+    else:
+        raise ValueError(f"Unexpected shape for degraded_audio_tensor: {degraded_audio_tensor.shape}")
+    
+    # Handle tensor shape variations for sampled waveform
+    if len(sampled_waveform.shape) == 3:  # Shape is [batch, channels, samples]
+        sampled_metrics_waveform = rearrange(sampled_waveform, 'b d n -> d (b n)')
+    elif len(sampled_waveform.shape) == 2:  # Shape is [channels, samples]
+        sampled_metrics_waveform = sampled_waveform
+    else:
+        raise ValueError(f"Unexpected shape for sampled_waveform: {sampled_waveform.shape}")
 
     # Final check to ensure audio lengths match before metric calculation
     min_len = min(sampled_metrics_waveform.shape[-1], clean_audio_tensor_rearranged.shape[-1], degraded_audio_tensor_rearranged.shape[-1])
@@ -146,8 +166,34 @@ def _calculate_metrics(
         # Store degraded metrics explicitly so they can be saved separately
         metrics_dict[f'degraded_{name}'] = degraded_metric
         
-        # Calculate clean metric (clean vs clean)
-        clean_metric = metric(clean_audio_tensor_rearranged, model.pretransform.decode(model.pretransform.encode(clean_audio_tensor)).squeeze()).item()
+        # Use pre-calculated clean metrics if provided, otherwise calculate them
+        if clean_metrics and f'clean_{name}' in clean_metrics:
+            clean_metric = clean_metrics[f'clean_{name}']
+            # Store clean metrics for graph display
+            metrics_dict[f'clean_{name}'] = clean_metric
+        else:
+            # Fall back to calculating clean metrics if not provided
+            # This code path shouldn't be used if clean_metrics are passed correctly
+            LOG.debug("Calculating clean metrics - this should only happen at step 0")
+            encoded_clean = model.pretransform.encode(clean_audio_tensor)
+            decoded_clean = model.pretransform.decode(encoded_clean).squeeze()
+            
+            # Handle different tensor shapes depending on batch dimension
+            if len(decoded_clean.shape) == 3:  # Shape is [batch, channels, samples]
+                # Then rearrange and truncate to match dimensions
+                decoded_clean_rearranged = rearrange(decoded_clean, 'b d n -> d (b n)')
+            elif len(decoded_clean.shape) == 2:  # Shape is [channels, samples]
+                # Already in the right format, no need to rearrange
+                decoded_clean_rearranged = decoded_clean
+            else:
+                raise ValueError(f"Unexpected shape for decoded_clean: {decoded_clean.shape}")
+                
+            # Make sure sizes match before computing metric
+            min_len_clean = min(clean_audio_tensor_rearranged.shape[-1], decoded_clean_rearranged.shape[-1])
+            clean_metric = metric(clean_audio_tensor_rearranged[..., :min_len_clean], 
+                                decoded_clean_rearranged[..., :min_len_clean]).item()
+            # Store clean metrics explicitly so they can be added to graphs
+            metrics_dict[f'clean_{name}'] = clean_metric
         
         # Calculate restoration success metric
         numerator = degraded_metric - demo_metric
@@ -326,6 +372,69 @@ def generate_cold_diffusion_uncond_restoration(
             # clean_audio_tensor = model.pretransform.decode(clean_audio_latent)
             degraded_audio_latent = model.pretransform.encode(degraded_audio_tensor)
 
+        LOG.debug(f"Calculating metrics at step 0/{steps} (clean audio)")
+        metrics_at_step_0 = _calculate_metrics(
+            clean_audio_tensor,
+            clean_audio_latent,
+            clean_audio_tensor,
+            clean_audio_latent,
+            degraded_audio_tensor,
+            degraded_audio_latent,
+            model,
+            device,
+            0
+        )
+        all_metrics["step_0"] = metrics_at_step_0
+
+        # Calculate clean metrics once here - these won't change during the restoration process
+        clean_metrics = {}
+        if model.pretransform:
+            # First encode and decode clean audio through the pretransform to get clean metrics
+            encoded_clean = model.pretransform.encode(clean_audio_tensor)
+            decoded_clean = model.pretransform.decode(encoded_clean).squeeze()
+            
+            from ..training.losses.metrics import (
+                LogSpectralDistance,
+                LTASDistance,
+                SISDRMetric,
+                SNRMetric,
+                STFTDistance,
+                MelDistance
+            )
+            
+            metrics = {
+                'lsd': LogSpectralDistance().to(device),
+                'ltas': LTASDistance().to(device),
+                'sisdr': SISDRMetric().to(device),
+                'snr': SNRMetric().to(device),
+                'stft': STFTDistance().to(device),
+                'mel': MelDistance(sample_rate=model.sample_rate).to(device)
+            }
+            
+            # Handle different tensor shapes depending on batch dimension
+            if len(clean_audio_tensor.shape) == 3:  # Shape is [batch, channels, samples]
+                clean_audio_tensor_rearranged = rearrange(clean_audio_tensor, 'b d n -> d (b n)')
+            elif len(clean_audio_tensor.shape) == 2:  # Shape is [channels, samples]
+                clean_audio_tensor_rearranged = clean_audio_tensor
+            else:
+                raise ValueError(f"Unexpected shape for clean_audio_tensor: {clean_audio_tensor.shape}")
+                
+            if len(decoded_clean.shape) == 3:  # Shape is [batch, channels, samples]
+                decoded_clean_rearranged = rearrange(decoded_clean, 'b d n -> d (b n)')
+            elif len(decoded_clean.shape) == 2:  # Shape is [channels, samples]
+                decoded_clean_rearranged = decoded_clean
+            else:
+                raise ValueError(f"Unexpected shape for decoded_clean: {decoded_clean.shape}")
+                
+            # Make sure sizes match before computing metric
+            min_len_clean = min(clean_audio_tensor_rearranged.shape[-1], decoded_clean_rearranged.shape[-1])
+            
+            # Calculate clean metrics (clean vs clean) once
+            for name, metric in metrics.items():
+                clean_metric = metric(clean_audio_tensor_rearranged[..., :min_len_clean], 
+                                      decoded_clean_rearranged[..., :min_len_clean]).item()
+                clean_metrics[f'clean_{name}'] = clean_metric
+            
         if metrics_every > 0:
             def metrics_callback(callback_args):
                 i = callback_args['i']
@@ -341,13 +450,19 @@ def generate_cold_diffusion_uncond_restoration(
                         degraded_audio_latent,
                         model,
                         device,
-                        i + 1
+                        i + 1,
+                        clean_metrics=clean_metrics  # Pass pre-calculated clean metrics
                     )
                     for k, v in metrics_at_step.items():
                         if k not in all_metrics:
                             all_metrics[k] = []
-                        all_metrics[k].append(v)
+                        # Don't append clean metrics to the per-step arrays
+                        if not k.startswith('clean_'):
+                            all_metrics[k].append(v)
             callback = metrics_callback
+    else:
+        # No clean audio provided, no metrics callback needed
+        callback = None
 
     # Generate audio using sample_cold
     LOG.debug(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
@@ -371,7 +486,7 @@ def generate_cold_diffusion_uncond_restoration(
 
     # Calculate final metrics if not already done by callback
     if clean_audio is not None and (metrics_every == 0 or steps % metrics_every != 0):
-        LOG.debug("Calculating final metrics.")
+        # Only store the final metrics
         metrics_at_step = _calculate_metrics(
             fakes,
             fake_latent if model.pretransform else None,
@@ -381,12 +496,15 @@ def generate_cold_diffusion_uncond_restoration(
             degraded_audio_latent,
             model,
             device,
-            steps
+            steps,
+            clean_metrics=clean_metrics  # Use pre-calculated clean metrics
         )
         for k, v in metrics_at_step.items():
             if k not in all_metrics:
                 all_metrics[k] = []
-            all_metrics[k].append(v)
+            # Don't append clean metrics to the per-step arrays
+            if not k.startswith('clean_'):
+                all_metrics[k].append(v)
 
     if output_dir and clean_audio is not None:
         try:
@@ -405,12 +523,28 @@ def generate_cold_diffusion_uncond_restoration(
             LOG.warning(f"Failed to save audio files: {e}")
 
 
+    # Log the keys and types in all_metrics before returning
+    LOG.debug(f"Final metrics keys: {list(all_metrics.keys())}")
+    for k, v in all_metrics.items():
+        if k.startswith('clean_'):
+            LOG.debug(f"Clean metric {k} type: {type(v)}, value: {v}")
+            
+    # Copy clean metrics from clean_metrics dictionary to all_metrics dictionary
+    for k, v in clean_metrics.items():
+        all_metrics[k] = v
+
     # After all metrics are collected, calculate the best step
     if clean_audio is not None and metrics_every > 0:
         steps_list = sorted(list(set(all_metrics.get('steps', []))))
         if steps_list:
             best_step_info = _calculate_best_step(all_metrics, steps_list)
             all_metrics['best_step_recommendation'] = best_step_info
+    
+    # Add clean metrics to all_metrics as scalar values (not lists) for plotting as reference lines
+    if clean_metrics:
+        for clean_key, clean_value in clean_metrics.items():
+            all_metrics[clean_key] = clean_value
+            LOG.debug(f"Added clean metric {clean_key} = {clean_value}")
 
     return fakes, all_metrics
 
