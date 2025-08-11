@@ -260,10 +260,28 @@ def create_metric_plots(metrics_data_list, labels):
             ax = axes[plot_idx]
             for i, metrics_data in enumerate(metrics_data_list):
                 if metrics_data and metric_name in metrics_data and "steps" in metrics_data and metrics_data["steps"]:
+                    # Include step 0 in the plot if available
                     steps = metrics_data["steps"]
-                    # Vérifier si l'index i est valide dans la liste labels
+                    values = metrics_data[metric_name]
+                    
+                    # Check if we have step_0 data to include
+                    if "step_0" in metrics_data and metric_name in metrics_data["step_0"]:
+                        # Add step 0 (degraded input) to the beginning of steps and values
+                        if 0 not in steps:
+                            steps = [0] + steps
+                            values = [metrics_data["step_0"][metric_name]] + values
+                    
+                    # Plot the values
                     label = labels[i] if i < len(labels) else f'Audio {i+1}'
-                    ax.plot(steps, metrics_data[metric_name], '-o', label=label, markersize=4)
+                    ax.plot(steps, values, '-o', label=label, markersize=4)
+                    
+                    # If we have clean metrics available, plot them as a horizontal line
+                    clean_metric_key = f"clean_{metric_name}"
+                    if clean_metric_key in metrics_data:
+                        clean_value = metrics_data[clean_metric_key]
+                        ax.axhline(y=clean_value, color='green', linestyle='--', 
+                                   label=f'Clean Reference ({clean_metric_key})')
+            
             ax.set_xlabel('Step')
             ax.set_ylabel('Value')
             ax.set_title(f'{metric_name} over steps')
