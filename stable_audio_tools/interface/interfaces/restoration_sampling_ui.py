@@ -211,7 +211,7 @@ def create_metric_plots(metrics_data_list, labels):
     try:
         if not metrics_data_list:
             LOG.warning("No metrics data provided to plot.")
-            return None
+            return []
 
         # Determine the set of all metric keys across all files
         EXCLUDED_KEYS = ["steps", "timestamp", "sample_rate", "sample_size", "generation_params", "best_step_recommendation"]
@@ -240,158 +240,84 @@ def create_metric_plots(metrics_data_list, labels):
 
         if not main_metrics_keys and not restoration_metrics_keys:
             LOG.warning("No metrics found to plot.")
-            return None
+            return []
 
-        n_plots = len(main_metrics_keys)
-        num_restoration_plots = 0
-        if restoration_metrics_keys:
-            for metrics_data in metrics_data_list:
-                if metrics_data and any(k in metrics_data for k in restoration_metrics_keys):
-                    num_restoration_plots += 1
+        # Create individual plots instead of one combined plot
+        individual_plots = []
         
-        n_plots += num_restoration_plots
-
-        if n_plots == 0:
-            return None
-        
-        n_cols = 3
-        n_rows = (n_plots + n_cols - 1) // n_cols
-
-        # Create figure with extra space for legend
-        fig = plt.figure(figsize=(15, 4 * n_rows + 1))
-        gs = plt.GridSpec(n_rows + 1, n_cols, height_ratios=[1] * n_rows + [0.2])
-        axes = [fig.add_subplot(gs[i // n_cols, i % n_cols]) for i in range(n_plots)]
-
-        plot_idx = 0
-
-        # Plot main metrics
-        for metric_name in main_metrics_keys:
-            ax = axes[plot_idx]
-            for i, metrics_data in enumerate(metrics_data_list):
-                if metrics_data and metric_name in metrics_data and "steps" in metrics_data and metrics_data["steps"]:
-                    # Include step 0 in the plot if available
-                    steps = metrics_data["steps"]
-                    
-                    # Handle regular metric plotting (excluding clean metrics)
-                    if isinstance(metrics_data[metric_name], list):
-                        values = metrics_data[metric_name]
-                        
-                        # Check if we have step_0 data to include
-                        if "step_0" in metrics_data and metric_name in metrics_data["step_0"]:
-                            # Add step 0 (degraded input) to the beginning of steps and values
-                            if 0 not in steps:
-                                steps = [0] + steps
-                                values = [metrics_data["step_0"][metric_name]] + values
-                        
-                        # Plot the values
+        # Helper function to create a single metric plot
+        def create_single_plot(metric_name, is_restoration=False):
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            if is_restoration:
+                # Plot restoration success metrics as bar chart
+                for i, metrics_data in enumerate(metrics_data_list):
+                    if metrics_data and metric_name in metrics_data:
+                        success_rate = metrics_data[metric_name]
                         label = labels[i] if i < len(labels) else f'Audio {i+1}'
-                        ax.plot(steps, values, '-o', label=label, markersize=4)
-                    
-                    # Look for and plot clean reference metric as horizontal line
-                    # The clean metric name format is "clean_" + base metric name
-                    base_metric = metric_name
-                    if base_metric.startswith('demo_'):
-                        base_metric = base_metric[5:] # Remove 'demo_' prefix
+                        ax.bar(label, success_rate, alpha=0.7)
+                ax.set_ylabel('Success Rate')
+                ax.set_title(f'{metric_name.replace("_", " ").title()}')
+                ax.set_ylim(0, 1)
+            else:
+                # Plot regular metrics as line plots
+                for i, metrics_data in enumerate(metrics_data_list):
+                    if metrics_data and metric_name in metrics_data and "steps" in metrics_data and metrics_data["steps"]:
+                        steps = metrics_data["steps"]
                         
-                    # Only attempt to plot clean reference if we have successfully plotted regular metrics
-                    # This ensures the plot has valid x/y limits and prevents shape mismatch errors
-                    if isinstance(metrics_data[metric_name], list) and len(metrics_data[metric_name]) > 0:
-                        clean_metric_key = f"clean_{base_metric}"
-                        LOG.debug(f"Looking for clean metric {clean_metric_key} in {list(metrics_data.keys())}")
-                        
-                        if clean_metric_key in metrics_data:
-                            try:
-                                clean_value = metrics_data[clean_metric_key]
-                                if isinstance(clean_value, (int, float)) and not isinstance(clean_value, bool):
-                                    LOG.debug(f"Found clean value for {clean_metric_key}: {clean_value}")
-                                    # Use plt.axhline which is more reliable than ax.axhline for edge cases
-                                    ax.axhline(y=float(clean_value), color='green', linestyle='--', 
-                                              label=f'Clean Reference')
-                                else:
-                                    LOG.warning(f"Clean value for {clean_metric_key} is not a number: {clean_value}")
-                            except Exception as e:
-                                LOG.warning(f"Error plotting clean reference line for {clean_metric_key}: {e}")
+                        if isinstance(metrics_data[metric_name], list):
+                            values = metrics_data[metric_name]
+                            
+                            # Check if we have step_0 data to include
+                            if "step_0" in metrics_data and metric_name in metrics_data["step_0"]:
+                                if 0 not in steps:
+                                    steps = [0] + steps
+                                    values = [metrics_data["step_0"][metric_name]] + values
+                            
+                            label = labels[i] if i < len(labels) else f'Audio {i+1}'
+                            ax.plot(steps, values, '-o', label=label, markersize=4)
+                            
+                            # Add clean reference line if available
+                            base_metric = metric_name
+                            if base_metric.startswith('demo_'):
+                                base_metric = base_metric[5:]
+                            
+                            if len(values) > 0:
+                                clean_metric_key = f"clean_{base_metric}"
+                                if clean_metric_key in metrics_data:
+                                    try:
+                                        clean_value = metrics_data[clean_metric_key]
+                                        if isinstance(clean_value, (int, float)):
+                                            ax.axhline(y=clean_value, color='red', linestyle='--', alpha=0.7, label=f'Clean Reference ({clean_value:.3f})')
+                                    except Exception as e:
+                                        LOG.debug(f"Could not plot clean reference for {clean_metric_key}: {e}")
+                
+                ax.set_xlabel('Step')
+                ax.set_ylabel(metric_name.replace('_', ' ').title())
+                ax.set_title(f'{metric_name.replace("_", " ").title()}')
+                ax.legend()
+                ax.grid(True, alpha=0.3)
             
-            ax.set_xlabel('Step')
-            ax.set_ylabel('Value')
-            ax.set_title(f'{metric_name} over steps')
-            ax.grid(True)
-            ax.legend(loc='best')
-            plot_idx += 1
-            # Plot restoration success metrics, one plot per file
-        if restoration_metrics_keys:
-            # Create a single legend for all restoration plots
-            legend_handles = []
-            legend_labels = []
+            plt.tight_layout()
             
-            for i, metrics_data in enumerate(metrics_data_list):
-                file_restoration_metrics = [k for k in restoration_metrics_keys if k in metrics_data] if metrics_data else []
+            # Convert to numpy array
+            buf = BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
+            plt.close(fig)
+            buf.seek(0)
+            
+            from PIL import Image
+            img = Image.open(buf)
+            return np.array(img)
 
-                if file_restoration_metrics and "steps" in metrics_data and metrics_data["steps"]:
-                    ax = axes[plot_idx]
-                    # Get the steps from the metrics data
-                    original_steps = metrics_data["steps"]
-                    
-                    # NRS plots should not include step 0 as requested by user
-                    include_step_0 = False
-                    
-                    # Just use the original steps without step 0
-                    steps_with_zero = original_steps.copy()
-                    
-                    # Don't include step 0 in NRS plots
-                    for metric_name in file_restoration_metrics:
-                        # Get the values for this metric
-                        values = metrics_data[metric_name].copy()  # Make a copy to avoid modifying original data
-                        
-                        # Use the consistent steps list and update values accordingly
-                        if include_step_0 and metric_name in metrics_data["step_0"]:
-                            plot_steps = steps_with_zero
-                            plot_values = [metrics_data["step_0"][metric_name]] + values
-                        else:
-                            # If we don't have step 0 data for this metric, use original steps
-                            plot_steps = original_steps
-                            plot_values = values
-                        
-                        # Plot NRS values (don't include clean reference lines for NRS)
-                        label = metric_name.replace('restoration_success_', '')
-                        # Don't use green color for lsd in NRS to avoid confusion with clean reference lines
-                        color = None  # Let matplotlib assign colors automatically
-                        line = ax.plot(plot_steps, plot_values, '-o', label=label, markersize=4, color=color)[0]
-                        if i == 0:  # Only collect handles and labels from first plot
-                            legend_handles.append(line)
-                            legend_labels.append(label)
-                    
-                    ax.set_xlabel('Step')
-                    ax.set_ylabel('Value')
-                    title = f'NRS for {labels[i]}' if i < len(labels) else f'NRS for Audio {i+1}'
-                    ax.set_title(title)
-                    ax.grid(True)
-                    plot_idx += 1
-
-            # Add single legend at the bottom
-            if legend_handles:
-                legend_ax = fig.add_subplot(gs[-1, :])
-                legend_ax.axis('off')
-                legend_ax.set_title('Legend for Normalized Restoration Success (NRS)')
-                legend_ax.legend(legend_handles, legend_labels, loc='center', ncol=len(legend_handles))
-
-        # Hide unused subplots
-        for i in range(plot_idx, len(axes)):
-            fig.delaxes(axes[i])
-
-        plt.tight_layout(pad=3.0)
+        # Create plots for main metrics only
+        for metric_name in main_metrics_keys:
+            individual_plots.append(create_single_plot(metric_name))
         
-        buf = BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
-        plt.close(fig)
-        buf.seek(0)
-        
-        from PIL import Image
-        img = Image.open(buf)
-        return np.array(img)
+        return individual_plots
     except Exception as e:
         LOG.error(f"Error creating metric plots: {str(e)}", exc_info=True)
-        return None
+        return []
 
 def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metrics_every, sampler_type, 
 degraded_audio_files, clean_audio, process_folder_path=None, model_name=None, 
@@ -611,7 +537,21 @@ effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, f
 def generate_with_plots(*args):
     audios, spectrograms, plots, best_step_str, best_step_plot_data, best_step_df_data = generate_multiple_with_plots(*args)
     first_audio = audios[0] if audios else None
+    # Return all plots for Gallery navigation
     return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots, first_audio, best_step_str, best_step_plot_data, best_step_df_data
+
+def navigate_plots(plots_list, current_index, direction):
+    """Navigate between metric plots"""
+    if not plots_list or len(plots_list) == 0:
+        return None, "0 / 0", 0
+    
+    if direction == "prev":
+        new_index = (current_index - 1) % len(plots_list)
+    else:  # direction == "next"
+        new_index = (current_index + 1) % len(plots_list)
+    
+    plot_info = f"{new_index + 1} / {len(plots_list)}"
+    return plots_list[new_index], plot_info, new_index
 
 def create_uncond_restoration_sampling_ui():
     global model, sample_rate, model_type, model_half
@@ -774,7 +714,7 @@ def create_uncond_restoration_sampling_ui():
             
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True):
-                metrics_plots = gr.Image(label="Metrics Plots", type="numpy")
+                metrics_plots = gr.Gallery(label="Metrics Plots", show_label=True, elem_id="metrics_gallery", columns=1, rows=1, height=600)
                 best_step_textbox = gr.Textbox(label="Best Step Recommendation", value="", interactive=False)
                 with gr.Accordion("Best Step Details", open=False):
                     best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
@@ -973,7 +913,7 @@ def create_cond_restoration_sampling_ui():
             
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True):
-                metrics_plots = gr.Image(label="Metrics Plots", type="numpy")
+                metrics_plots = gr.Gallery(label="Metrics Plots", show_label=True, elem_id="metrics_gallery", columns=1, rows=1, height=600)
                 best_step_textbox = gr.Textbox(label="Best Step Recommendation", value="", interactive=False)
                 with gr.Accordion("Best Step Details", open=False):
                     best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
