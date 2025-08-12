@@ -310,60 +310,9 @@ def create_metric_plots(metrics_data_list, labels):
             img = Image.open(buf)
             return np.array(img)
 
-        # Create plots for main metrics
+        # Create plots for main metrics only
         for metric_name in main_metrics_keys:
             individual_plots.append(create_single_plot(metric_name))
-        
-        # Create plots for restoration metrics
-        if restoration_metrics_keys:
-            for i, metrics_data in enumerate(metrics_data_list):
-                if metrics_data and any(k in metrics_data for k in restoration_metrics_keys):
-                    # Create a combined restoration plot for this audio file
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    
-                    restoration_values = []
-                    restoration_labels = []
-                    
-                    for metric_name in restoration_metrics_keys:
-                        if metric_name in metrics_data:
-                            metric_value = metrics_data[metric_name]
-                            # Handle case where metric might be an array - take the mean or last value
-                            if isinstance(metric_value, (list, np.ndarray)):
-                                if len(metric_value) > 0:
-                                    # For restoration success metrics, typically we want the final value
-                                    scalar_value = float(metric_value[-1]) if hasattr(metric_value, '__getitem__') else float(np.mean(metric_value))
-                                else:
-                                    scalar_value = 0.0
-                            else:
-                                scalar_value = float(metric_value)
-                            restoration_values.append(scalar_value)
-                            restoration_labels.append(metric_name.replace('restoration_success_', '').replace('_', ' ').title())
-                    
-                    if restoration_values:
-                        bars = ax.bar(restoration_labels, restoration_values, alpha=0.7)
-                        ax.set_ylabel('Success Rate')
-                        ax.set_title(f'Restoration Success Rates - {labels[i] if i < len(labels) else f"Audio {i+1}"}')
-                        ax.set_ylim(0, 1)
-                        
-                        # Add value labels on bars
-                        for bar, value in zip(bars, restoration_values):
-                            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                                   f'{value:.3f}', ha='center', va='bottom')
-                        
-                        # Rotate x-axis labels if needed
-                        if len(restoration_labels) > 3:
-                            ax.tick_params(axis='x', rotation=45)
-                    
-                    plt.tight_layout()
-                    
-                    buf = BytesIO()
-                    plt.savefig(buf, format='png', bbox_inches='tight', dpi=150)
-                    plt.close(fig)
-                    buf.seek(0)
-                    
-                    from PIL import Image
-                    img = Image.open(buf)
-                    individual_plots.append(np.array(img))
         
         return individual_plots
     except Exception as e:
