@@ -163,6 +163,7 @@ cython_debug/
 *.ckpt
 *.wav
 wandb/*
+slurm/*
 .gradio/certificate.pem
 docs/to_do.md
 output/*
