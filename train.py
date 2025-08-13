@@ -1,6 +1,7 @@
 import torch
 import json
 import os
+import traceback
 import pytorch_lightning as pl
 
 from prefigure.prefigure import get_all_args, push_wandb_config
@@ -13,6 +14,7 @@ from stable_audio_tools.training.utils import copy_state_dict
 class ExceptionCallback(pl.Callback):
     def on_exception(self, trainer, module, err):
         print(f'{type(err).__name__}: {err}')
+        traceback.print_exc()
 
 class ModelConfigEmbedderCallback(pl.Callback):
     def __init__(self, model_config):
