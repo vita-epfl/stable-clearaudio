@@ -1,0 +1,19 @@
+{
+    "dataset_type": "audio_dir",
+    "datasets": [
+        {
+            "id": "maestro_full_valid",
+            "path": "/scratch/datasets/maestro-v3.0.0/maestro_full_valid",
+            "custom_metadata_module": "stable_audio_tools/configs/dataset_configs/custom_metadata/cold_diffusion_md.py",
+            "custom_metadata_args": {
+                "build_degraded": true,
+                "build_degraded_args": {
+                    "sox_noises_dir": "/scratch/datasets/audio_effects/sox_noises",
+                    "low_quality_effects_dir": "/stable_audio_tools/configs/dataset_configs/low_quality_effect",
+                    "degradation_presets": ["intense_equalizer_ranges"]
+                }
+            }
+        }
+    ],
+    "random_crop": true
+}
