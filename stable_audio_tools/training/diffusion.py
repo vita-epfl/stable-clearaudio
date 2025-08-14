@@ -25,7 +25,7 @@ from torch.nn import functional as F
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 from ..interface.aeiou import pca_point_cloud, audio_spectrogram_image, tokens_spectrogram_image
-from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, truncated_logistic_normal_rescaled, sample_discrete_euler
+from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, sample_cold_waveform, truncated_logistic_normal_rescaled, sample_discrete_euler
 from ..models.diffusion import DiffusionModelWrapper, ConditionedDiffusionModelWrapper
 from ..models.diffusion_prior import DiffusionPrior
 from ..models.autoencoders import DiffusionAutoencoder
@@ -346,10 +346,11 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 op = random.choice(self.degradation_ops).to(device)
                 degraded_reals[i] = op.apply(reals[i], 1.0, degradation_seed=degradation_seed) # Always fully degrade
 
-            # Encode both clean and degraded audio to latent space
-            with torch.no_grad():
-                clean_latents = self.diffusion.pretransform.encode(reals)
-                degraded_latents = self.diffusion.pretransform.encode(degraded_reals)
+            if self.diffusion.pretransform is not None:
+                # Encode both clean and degraded audio to latent space
+                with torch.no_grad():
+                    clean_latents = self.diffusion.pretransform.encode(reals)
+                    degraded_latents = self.diffusion.pretransform.encode(degraded_reals)
 
             # Iterate through validation timesteps to calculate loss at different noise levels
             for ts in self.validation_timesteps:
@@ -357,12 +358,15 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 t = torch.full((reals.shape[0],), ts, device=device, dtype=torch.float32)
                 
                 # Interpolate between clean and degraded latents to create model input
-                t_latent = t.view(-1, 1, 1)
-                model_input = t_latent * degraded_latents + (1 - t_latent) * clean_latents
+                t_audio = t.view(-1, 1, 1)
 
-                # The target is always the clean latent
-                targets = clean_latents
-
+                if self.diffusion.pretransform is not None:
+                    model_input = t_audio * degraded_latents + (1 - t_audio) * clean_latents
+                    targets = clean_latents
+                else:
+                    model_input = t_audio * degraded_reals + (1 - t_audio) * reals
+                    targets = reals
+                                    
                 # Get model output and calculate loss
                 with torch.cuda.amp.autocast(), torch.no_grad():
                     output = self.diffusion(model_input, t)
@@ -487,20 +491,27 @@ class DiffusionUncondDemoCallback(pl.Callback):
                     op = op.to(module.device)
                     degraded_audio[i] = op.apply(original_audio_inputs[i], degradation_t, degradation_seed=degradation_seed)
 
-                # Encode the whole batch of degraded audio at once
-                degraded_latents = module.diffusion.pretransform.encode(degraded_audio)
-
-                # Generate the restored audio
-                # Note: The `op` here is just for the sampling loop, which now expects one.
-                # The initial degradation is already applied above.
-                fake_latents = sample_cold(
-                    module.diffusion_ema,
-                    degraded_latents,
-                    self.demo_steps,
-                    t_start=degradation_t
-                )
-
-                fakes = module.diffusion.pretransform.decode(fake_latents)
+                if module.diffusion.pretransform is not None:
+                    degraded_latents = module.diffusion.pretransform.encode(degraded_audio)
+                    # Generate the restored audio
+                    # Note: The `op` here is just for the sampling loop, which now expects one.
+                    # The initial degradation is already applied above.
+                    fake_latents = sample_cold(
+                        module.diffusion_ema,
+                        degraded_latents,
+                        self.demo_steps,
+                        t_start=degradation_t
+                    )
+                    fakes = module.diffusion.pretransform.decode(fake_latents)
+                else:
+                    # Generate the restored audio directly in waveform space
+                    # without using pretransform/VAE
+                    fakes = sample_cold_waveform(
+                        module.diffusion_ema,
+                        degraded_audio,
+                        self.demo_steps,
+                        t_start=degradation_t
+                    )
 
             else:
                 LOG.debug("Generating demo for other model types")
