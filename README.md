@@ -226,3 +226,19 @@ The following properties are defined in the top level of the model configuration
 # Todo
 - [ ] Add troubleshooting section
 - [ ] Add contribution guidelines 
+
+# Troubleshooting
+
+## FileExistsError with torch.hub
+
+If you encounter a FileExistsError with torch.hub, it's likely because the cache directory for torch.hub is not writable. You can resolve this by setting the environment variable `TORCH_HOME` to a writable directory. For example:
+
+```bash
+export TORCH_HOME=/path/to/writable/directory
+```
+
+You can also manually clear the torch.hub cache directory:
+
+```bash
+rm -rf ~/.cache/torch/hub/harritaylor-torchvggish-f3f9096
+```
