@@ -290,6 +290,58 @@ def sample_cold(
 
     return x
 
+
+def sample_cold_waveform(
+    model,
+    x,
+    steps,
+    t_start: float = 1.0,
+    schedule: str = "linear",
+    callback=None,
+    **extra_args
+):
+    """ Cold diffusion sampler operating directly on waveform space without pretransform/VAE. """
+    # The initial degraded waveform at t=1
+    x_1_waveform = x
+
+    # Create the time schedule for the reverse process
+    if schedule == "linear":
+        time_schedule = torch.linspace(t_start, 0, steps + 1, device=x.device)
+    elif schedule == "sqrt":
+        time_schedule = torch.linspace(t_start ** 2, 0, steps + 1, device=x.device).sqrt()
+    elif schedule == "cosine":
+        # Map t in [0,1] to theta in [0, π/2] and use cosine ramp
+        theta_start = t_start * (torch.pi / 2)
+        theta = torch.linspace(theta_start, 0, steps + 1, device=x.device)
+        time_schedule = torch.cos(theta)
+    else:
+        raise ValueError(f"Unknown schedule type: {schedule}")
+
+    # The sampling loop
+    for i in trange(steps, disable=None):
+        t_now = time_schedule[i]
+        t_next = time_schedule[i+1]
+
+        # Predict the clean waveform from the current degraded state
+        # Expand t_now to match the batch size of x, as the model expects a batch of timesteps
+        t_now_batch = t_now.expand(x.shape[0])
+
+        x_0_hat_waveform = model(x, t_now_batch, **extra_args)
+
+        # User-provided callback
+        if callback is not None:
+            callback({'x': x, 't': t_now, 'sigma': t_now, 'i': i, 'denoised': x_0_hat_waveform})
+
+        if i < steps - 1:
+            # Interpolate in waveform space
+            t_next_waveform = t_next.view(-1, 1, 1)
+            x = t_next_waveform * x_1_waveform + (1 - t_next_waveform) * x_0_hat_waveform
+        else:
+            # Last step, the output is the final clean prediction
+            x = x_0_hat_waveform
+
+    return x
+
 # Soft mask inpainting is just shrinking hard (binary) mask inpainting
 # Given a float-valued soft mask (values between 0 and 1), get the binary mask for this particular step
 def get_bmask(i, steps, mask):
