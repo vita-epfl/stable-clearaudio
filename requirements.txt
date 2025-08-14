@@ -46,6 +46,7 @@ filelock==3.18.0
 fire==0.7.0
 flatten-dict==0.4.2
 fonttools==4.57.0
+frechet-audio-distance==0.3.1
 frozendict==2.4.6
 frozenlist==1.6.0
 fsspec==2025.3.2
@@ -96,7 +97,7 @@ msgpack==1.1.0
 multidict==6.4.3
 networkx==3.2.1
 numba==0.60.0
-numpy==1.23.5
+numpy==1.23.4
 nvidia-cublas-cu12==12.6.4.1
 nvidia-cuda-cupti-cu12==12.6.80
 nvidia-cuda-nvrtc-cu12==12.6.77

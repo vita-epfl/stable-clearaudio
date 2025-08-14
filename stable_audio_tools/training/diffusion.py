@@ -435,7 +435,8 @@ class DiffusionUncondDemoCallback(pl.Callback):
             'sisdr': SISDRMetric(),
             'snr': SNRMetric(),
             'stft': STFTDistance(),
-            'mel': MelDistance(sample_rate=sample_rate)
+            'mel': MelDistance(sample_rate=sample_rate),
+            'fad': FrechetAudioDistance()
         })
         
         # Store the creation time for consistent demo directory naming
@@ -961,8 +962,8 @@ class DiffusionCondDemoCallback(pl.Callback):
             'sisdr': SISDRMetric(),
             'snr': SNRMetric(),
             'stft': STFTDistance(),
-            'mel': MelDistance(sample_rate=sample_rate)
-            # 'fad': FrechetAudioDistance()
+            'mel': MelDistance(sample_rate=sample_rate),
+            'fad': FrechetAudioDistance()
         }
 
         # If true, the callback will use the metadata from the batch to generate the demo conditioning
