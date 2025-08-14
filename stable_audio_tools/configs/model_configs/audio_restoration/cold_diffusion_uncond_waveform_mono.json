@@ -1,0 +1,51 @@
+{
+    "model_type": "cold_diffusion_uncond_restoration",
+    "sample_size": 220500,
+    "sample_rate": 44100,
+    "audio_channels": 1,
+    "max_epochs": 650,
+    "model": {
+        "type": "dit",
+        "diffusion": {
+            "type": "dit",
+            "config": {
+                "io_channels": 1,
+                "embed_dim": 1536,
+                "depth": 24,
+                "num_heads": 24,
+                "project_cond_tokens": false,
+                "transformer_type": "continuous_transformer"
+            }
+        },
+        "io_channels": 1
+    },
+    "training": {
+        "use_ema": true,
+        "log_loss_info": false,
+        "optimizer_configs": {
+            "diffusion": {
+                "optimizer": {
+                    "type": "AdamW",
+                    "config": {
+                        "lr": 5e-5,
+                        "betas": [0.9, 0.999],
+                        "weight_decay": 1e-3
+                    }
+                },
+                "scheduler": {
+                    "type": "InverseLR",
+                    "config": {
+                        "inv_gamma": 1000000,
+                        "power": 0.5,
+                        "warmup": 0.99
+                    }
+                }
+            }
+        },
+        "demo": {
+            "demo_every": 16,
+            "demo_steps": 5,
+            "num_demos": 1
+        }
+    }
+}
