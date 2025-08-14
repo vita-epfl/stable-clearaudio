@@ -163,7 +163,9 @@ cython_debug/
 *.ckpt
 *.wav
 wandb/*
-slurm/*
+slurm/
+!slurm/scripts/train_template.slurm
+
 .gradio/certificate.pem
 docs/to_do.md
 output/*
@@ -178,4 +180,3 @@ stable_audio_tools/output/2025-05-22/generation_15-34-10/metrics.json
 stable_audio_tools/configs/dataset_configs/build_dataset/output/
 *.png
 *.sh
-train.slurm
