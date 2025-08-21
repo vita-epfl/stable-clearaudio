@@ -39,6 +39,8 @@ from stable_audio_tools.training.losses.metrics import (
     PESQMetric, LogSpectralDistance, LTASDistance,
     SISDRMetric, SNRMetric, STFTDistance, MelDistance, FrechetAudioDistance
 )
+from .losses.auraloss import MelSTFTLoss, MultiResolutionSTFTLoss
+from .losses.losses import AuralossLoss
 
 import datetime
 from time import time
@@ -87,6 +89,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         self.diffusion = model
         self.model_type = model_type
+        self.pre_encoded = pre_encoded
 
         if use_ema:
             self.diffusion_ema = EMA(
@@ -148,13 +151,84 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 LOG.info(f"[ColdDiffusion] Loaded {len(self.degradation_ops)} degradation presets.")
 
             # Override the loss function for cold diffusion
-            loss_modules = [
-                MSELoss("output", # The model's output (predicted clean audio)
-                         "targets", # The ground truth clean audio
-                         weight=1.0,
-                         name="mse_loss"
+            if not hasattr(self.diffusion, 'pretransform') or self.diffusion.pretransform is None:
+                LOG.info("[ColdDiffusion] Using MelSTFTLoss for direct waveform training")
+                
+                mel_stft_loss = MelSTFTLoss(
+                    sample_rate=self.diffusion.sample_rate,
+                    fft_size=1024,
+                    hop_size=256,
+                    win_length=1024,
+                    n_mels=128,
+                    w_sc=1.0,      # spectral convergence
+                    w_log_mag=1.0  # log magnitude
+                )
+                
+                loss_modules = [
+                    MSELoss("output", "targets", weight=0.1, name="mse_loss"),  # Reduced MSE weight
+                    AuralossLoss(
+                        mel_stft_loss,
+                        input_key="output",
+                        target_key="targets", 
+                        weight=1.0,  # Higher weight for perceptual loss
+                        name="mel_stft_loss"
                     )
-            ]
+                ]
+            else:
+                # Use LatentSpectralLossModule for latent space training
+                # Requires the VAE decoder to be passed in
+                vae_decoder = None
+                if hasattr(self, 'vae'):
+                    vae_decoder = self.vae.decoder
+                elif hasattr(self.diffusion, 'pretransform'):
+                    # Use the pretransform's decode method directly
+                    vae_decoder = self.diffusion.pretransform.decode
+                    LOG.info("[ColdDiffusion] Using pretransform decode method directly")
+                if vae_decoder is None:
+                    # Fall back to MSE if no VAE decoder is available
+                    LOG.warning("[ColdDiffusion] No VAE decoder found, falling back to MSE loss for latents")
+                    loss_modules = [
+                        MSELoss("output", "targets", weight=1.0, name="mse_loss")
+                    ]
+                else:
+                    LOG.info("[ColdDiffusion] Using MultiResolutionSTFTLoss for latent space training")
+                    
+                    # Multi-resolution STFT loss - better for low frequencies
+                    mr_stft_loss = MultiResolutionSTFTLoss(
+                        fft_sizes=[2048, 1024, 512],  # Multiple resolutions for better frequency coverage
+                        hop_sizes=[240, 120, 50],     # Corresponding hop sizes
+                        win_lengths=[1200, 600, 240], # Corresponding window lengths
+                        w_sc=1.0,        # spectral convergence
+                        w_log_mag=1.0,   # log magnitude
+                        sample_rate=self.diffusion.sample_rate
+                    )
+                    
+                    # Create a wrapper function that decodes latents before passing to the spectral loss
+                    def latent_spectral_loss_fn(target_latents, input_latents):
+                        # Decode latents to audio
+                        pred_audio = vae_decoder(input_latents)
+                        target_audio = vae_decoder(target_latents)
+                        
+                        # Reshape if needed for multi-channel audio
+                        if pred_audio.dim() == 3:  # [batch, channels, time]
+                            batch_size, channels, time_len = pred_audio.shape
+                            pred_audio = pred_audio.reshape(batch_size * channels, time_len)
+                            target_audio = target_audio.reshape(batch_size * channels, time_len)
+                        
+                        # Apply STFT loss
+                        return mr_stft_loss(target_audio, pred_audio)
+                    
+                    loss_modules = [
+                        MSELoss("output", "targets", weight=0.1, name="mse_loss"),  # Reduced MSE on latents
+                        AuralossLoss(
+                            loss_module=latent_spectral_loss_fn,
+                            input_key="output",
+                            target_key="targets", 
+                            weight=1.0,
+                            name="latent_mr_stft_loss"
+                        )
+                    ]
+            
             self.losses = MultiLoss(loss_modules)
         else:
             loss_modules = [
@@ -165,8 +239,6 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                     )
             ]
             self.losses = MultiLoss(loss_modules)
-
-        self.pre_encoded = pre_encoded
 
         # Validation configuration
         self.validation_timesteps = kwargs.get('validation_timesteps', [0.1, 0.3, 0.5, 0.7, 0.9, 1.1, 1.3, 1.5])
@@ -965,7 +1037,6 @@ class DiffusionCondDemoCallback(pl.Callback):
         self.demo_conditioning = demo_conditioning
         self.demo_cfg_scales = demo_cfg_scales
 
-        # Initialize metrics
         # Initialize metrics
         self.metrics = {
             'lsd': LogSpectralDistance(),
