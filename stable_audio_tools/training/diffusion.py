@@ -5,6 +5,7 @@ import sys, gc
 import random
 import math
 import torch
+import torch.utils.checkpoint
 import torchaudio
 import typing as tp
 import wandb
@@ -191,42 +192,14 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                         MSELoss("output", "targets", weight=1.0, name="mse_loss")
                     ]
                 else:
-                    LOG.info("[ColdDiffusion] Using MultiResolutionSTFTLoss for latent space training")
-                    
-                    # Multi-resolution STFT loss - better for low frequencies
-                    mr_stft_loss = MultiResolutionSTFTLoss(
-                        fft_sizes=[2048, 1024, 512],  # Multiple resolutions for better frequency coverage
-                        hop_sizes=[240, 120, 50],     # Corresponding hop sizes
-                        win_lengths=[1200, 600, 240], # Corresponding window lengths
-                        w_sc=1.0,        # spectral convergence
-                        w_log_mag=1.0,   # log magnitude
-                        sample_rate=self.diffusion.sample_rate
-                    )
-                    
-                    # Create a wrapper function that decodes latents before passing to the spectral loss
-                    def latent_spectral_loss_fn(target_latents, input_latents):
-                        # Decode latents to audio
-                        pred_audio = vae_decoder(input_latents)
-                        target_audio = vae_decoder(target_latents)
-                        
-                        # Reshape if needed for multi-channel audio
-                        if pred_audio.dim() == 3:  # [batch, channels, time]
-                            batch_size, channels, time_len = pred_audio.shape
-                            pred_audio = pred_audio.reshape(batch_size * channels, time_len)
-                            target_audio = target_audio.reshape(batch_size * channels, time_len)
-                        
-                        # Apply STFT loss
-                        return mr_stft_loss(target_audio, pred_audio)
+                    LOG.info("[ColdDiffusion] Using MSE loss for latent space training")
                     
                     loss_modules = [
-                        MSELoss("output", "targets", weight=0.1, name="mse_loss"),  # Reduced MSE on latents
-                        AuralossLoss(
-                            loss_module=latent_spectral_loss_fn,
-                            input_key="output",
-                            target_key="targets", 
-                            weight=1.0,
-                            name="latent_mr_stft_loss"
-                        )
+                        MSELoss("output", # The model's output (predicted clean audio)
+                                "targets", # The ground truth clean audio
+                                weight=1.0,
+                                name="mse_loss"
+                            )
                     ]
             
             self.losses = MultiLoss(loss_modules)
