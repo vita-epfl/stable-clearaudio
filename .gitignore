@@ -164,8 +164,8 @@ cython_debug/
 *.wav
 wandb/*
 slurm/
-!slurm/scripts/train_latent_template.slurm
-!slurm/scripts/train_waveform_template.slurm
+!slurm/scripts/sc_cd_latent_template.slurm
+!slurm/scripts/sc_cd_waveform_template.slurm
 
 .gradio/certificate.pem
 docs/to_do.md
