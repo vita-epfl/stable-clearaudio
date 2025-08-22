@@ -26,7 +26,7 @@ from torch.nn import functional as F
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 from ..interface.aeiou import pca_point_cloud, audio_spectrogram_image, tokens_spectrogram_image
-from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, sample_cold_waveform, truncated_logistic_normal_rescaled, sample_discrete_euler
+from ..inference.sampling import get_alphas_sigmas, sample, sample_cold, sample_cold_waveform, sample_rectified_flow, sample_rectified_flow_waveform, truncated_logistic_normal_rescaled, sample_discrete_euler
 from ..models.diffusion import DiffusionModelWrapper, ConditionedDiffusionModelWrapper
 from ..models.diffusion_prior import DiffusionPrior
 from ..models.autoencoders import DiffusionAutoencoder
@@ -246,8 +246,12 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         if not self.pre_encoded:
             loss_info["audio_reals"] = reals
 
-        # Draw uniformly distributed continuous timesteps
-        t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
+        # Draw skewed timesteps for rectified flow (emphasizes higher t values)
+        # p(t) = 0.5 * U(t) + 0.5 * t, where U(t) is uniform distribution
+        uniform_t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
+        # Generate skewed distribution: 50% uniform + 50% biased toward higher values
+        skewed_t = 0.5 * uniform_t + 0.5 * uniform_t * uniform_t
+        t = skewed_t
 
         if self.model_type == 'cold_diffusion_uncond_restoration':
             LOG.debug("[ColdDiffusion] Using cold diffusion")
@@ -265,22 +269,24 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
             else:
                 raise ValueError("For cold diffusion, please select low quality effects presets.")
 
-            # The model's target is the clean audio's latent representation
+            # Rectified flow: model predicts velocity (clean - degraded)
             if self.diffusion.pretransform is not None:
                 with torch.set_grad_enabled(self.diffusion.pretransform.enable_grad):
                     # Encode clean and degraded audio to latent space first
                     clean_latents = self.diffusion.pretransform.encode(reals)
                     degraded_latents = self.diffusion.pretransform.encode(degraded_reals)
 
-                # Interpolate in latent space
+                # Interpolate in latent space: x_t = t * x_1 + (1-t) * x_0
                 t_latent = t.view(-1, 1, 1)
                 model_input = t_latent * degraded_latents + (1 - t_latent) * clean_latents
-                targets = clean_latents
+                # Target is the flow velocity: v_t = x_0 - x_1 (from degraded to clean)
+                targets = clean_latents - degraded_latents
             else:
-                # If no pretransform, interpolation happens in audio space (as before)
+                # If no pretransform, interpolation happens in audio space
                 t_audio = t.view(-1, 1, 1)
                 model_input = t_audio * degraded_reals + (1 - t_audio) * reals
-                targets = reals
+                # Target is the flow velocity: v_t = x_0 - x_1 (from degraded to clean)
+                targets = reals - degraded_reals
             
             loss_info["reals"] = targets
 
@@ -407,10 +413,12 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
                 if self.diffusion.pretransform is not None:
                     model_input = t_audio * degraded_latents + (1 - t_audio) * clean_latents
-                    targets = clean_latents
+                    # For rectified flow, target is velocity (clean - degraded)
+                    targets = clean_latents - degraded_latents
                 else:
                     model_input = t_audio * degraded_reals + (1 - t_audio) * reals
-                    targets = reals
+                    # For rectified flow, target is velocity (clean - degraded)
+                    targets = reals - degraded_reals
                                     
                 # Get model output and calculate loss
                 with torch.cuda.amp.autocast(), torch.no_grad():
@@ -538,10 +546,8 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
                 if module.diffusion.pretransform is not None:
                     degraded_latents = module.diffusion.pretransform.encode(degraded_audio)
-                    # Generate the restored audio
-                    # Note: The `op` here is just for the sampling loop, which now expects one.
-                    # The initial degradation is already applied above.
-                    fake_latents = sample_cold(
+                    # Generate the restored audio using rectified flow sampling
+                    fake_latents = sample_rectified_flow(
                         module.diffusion_ema,
                         degraded_latents,
                         self.demo_steps,
@@ -549,9 +555,8 @@ class DiffusionUncondDemoCallback(pl.Callback):
                     )
                     fakes = module.diffusion.pretransform.decode(fake_latents)
                 else:
-                    # Generate the restored audio directly in waveform space
-                    # without using pretransform/VAE
-                    fakes = sample_cold_waveform(
+                    # Generate the restored audio directly in waveform space using rectified flow
+                    fakes = sample_rectified_flow_waveform(
                         module.diffusion_ema,
                         degraded_audio,
                         self.demo_steps,

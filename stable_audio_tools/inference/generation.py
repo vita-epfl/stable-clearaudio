@@ -7,7 +7,7 @@ from einops import rearrange
 
 import os
 from .utils import prepare_audio
-from .sampling import sample, sample_k, sample_rf, sample_cold, sample_cold_waveform
+from .sampling import sample, sample_k, sample_rf, sample_cold, sample_cold_waveform, sample_rectified_flow, sample_rectified_flow_waveform
 
 import logging
 import os
@@ -480,17 +480,16 @@ def generate_cold_diffusion_uncond_restoration(
         # No clean audio provided, no metrics callback needed
         callback = None
 
-    # Generate audio using sample_cold
-    LOG.debug(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
+    # Generate audio using rectified flow sampling
+    LOG.debug(f"Starting rectified flow sampling for {steps} steps from t_start={t_start}.")
 
     if model.pretransform is not None:
     
-        fake_latent = sample_cold(
+        fake_latent = sample_rectified_flow(
             model.model,
             x,
             steps,
             t_start=t_start,
-            schedule=schedule,
             callback=callback,
             **sampler_kwargs
         )
@@ -498,12 +497,11 @@ def generate_cold_diffusion_uncond_restoration(
         fakes = model.pretransform.decode(fake_latent)
     else:
 
-        fakes = sample_cold_waveform(
+        fakes = sample_rectified_flow_waveform(
             model.model,
             x,
             steps,
             t_start=t_start,
-            schedule=schedule,
             callback=callback,
             **sampler_kwargs
         )

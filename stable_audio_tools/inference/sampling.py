@@ -342,6 +342,67 @@ def sample_cold_waveform(
 
     return x
 
+
+def sample_rectified_flow(
+    model,
+    x_degraded,
+    steps,
+    t_start: float = 1.0,
+    callback=None,
+    **extra_args
+):
+    """
+    Rectified flow sampler using forward Euler integration.
+    Model predicts velocity (direction from degraded to clean).
+    
+    Args:
+        model: Model that predicts flow velocity v_t = x_0 - x_1
+        x_degraded: Initial degraded input (latent or waveform)
+        steps: Number of integration steps
+        t_start: Starting time (1.0 = fully degraded, 0.0 = clean)
+        callback: Optional callback function
+        **extra_args: Additional arguments passed to model
+    """
+    # Create linear time schedule from t_start to 0
+    timesteps = torch.linspace(t_start, 0.0, steps + 1, device=x_degraded.device)
+    dt = timesteps[1] - timesteps[0]  # Negative step size
+    timesteps = timesteps[:-1]  # Remove final timestep (0.0)
+    
+    x = x_degraded.clone()
+    
+    # Forward Euler integration: x_{t+h} = x_t + h * v_t
+    for i in trange(steps, disable=None):
+        t_current = timesteps[i]
+        
+        # Expand timestep to batch size
+        t_batch = t_current.expand(x.shape[0])
+        
+        # Predict flow velocity: v_t = dx/dt = x_0 - x_1
+        velocity = model(x, t_batch, **extra_args)
+        
+        # User-provided callback
+        if callback is not None:
+            callback({'x': x, 't': t_current, 'sigma': t_current, 'i': i, 'velocity': velocity})
+        
+        # Forward Euler step: x = x + dt * velocity
+        x = x + dt * velocity
+    
+    return x
+
+
+def sample_rectified_flow_waveform(
+    model,
+    x_degraded,
+    steps,
+    t_start: float = 1.0,
+    callback=None,
+    **extra_args
+):
+    """
+    Rectified flow sampler for direct waveform space (no VAE/pretransform).
+    """
+    return sample_rectified_flow(model, x_degraded, steps, t_start, callback, **extra_args)
+
 # Soft mask inpainting is just shrinking hard (binary) mask inpainting
 # Given a float-valued soft mask (values between 0 and 1), get the binary mask for this particular step
 def get_bmask(i, steps, mask):
