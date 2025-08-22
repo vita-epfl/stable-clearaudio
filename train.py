@@ -116,39 +116,32 @@ def main():
         logger = None
         checkpoint_dir = args.save_dir if args.save_dir else None
         
-    # Checkpoint callback configuration based on validation availability
-    if val_dl:
-        print("Using checkpoint callback with training loss")
-        ckpt_params = {
-            "dirpath": checkpoint_dir,
-            "save_top_k": args.save_top_k,
-            "monitor": 'train/loss',
-            "mode": 'min',
-            "filename": '{epoch}-{step}-{train_loss:.6f}',
-            "save_last": getattr(args, "save_last_checkpoint", False)
-        }
-        
-        # Check which checkpoint frequency to use
-        if args.checkpoint_every_n_epoch > 0:
-            ckpt_params["every_n_epochs"] = args.checkpoint_every_n_epoch
-        elif args.checkpoint_every > 0:
-            ckpt_params["every_n_train_steps"] = args.checkpoint_every
-        else:
-            # Default to check every epoch if neither is specified
-            ckpt_params["every_n_epochs"] = 1
-            
-        ckpt_callback = pl.callbacks.ModelCheckpoint(**ckpt_params)
+    ckpt_params = {
+        "dirpath": checkpoint_dir,
+        "save_top_k": args.save_top_k,
+        "monitor": 'train/loss',
+        "mode": 'min',
+        "filename": 'epoch={epoch}-step={step}',
+        "save_last": str_to_bool(getattr(args, "save_last_checkpoint", False)),
+    }
+
+    # Choose periodic frequency
+    if args.checkpoint_every_n_epoch > 0:
+        print(f"Using checkpoint every {args.checkpoint_every_n_epoch} epochs")
+        ckpt_params["every_n_epochs"] = args.checkpoint_every_n_epoch
+    elif args.checkpoint_every > 0:
+        print(f"Using checkpoint every {args.checkpoint_every} steps")
+        ckpt_params["every_n_train_steps"] = args.checkpoint_every
     else:
-        print("Using training checkpoint callback")
-        # For non-validation case, use the same logic
-        if args.checkpoint_every_n_epoch > 0:
-            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_epochs=args.checkpoint_every_n_epoch, dirpath=checkpoint_dir, save_top_k=-1, save_last=getattr(args, "save_last_checkpoint", False))
-        else:
-            ckpt_callback = pl.callbacks.ModelCheckpoint(every_n_train_steps=args.checkpoint_every, dirpath=checkpoint_dir, save_top_k=-1, save_last=getattr(args, "save_last_checkpoint", False))
-    
+        # Default to check every epoch if neither is specified
+        print("Using checkpoint every epoch")
+        ckpt_params["every_n_epochs"] = 1
+
+    ckpt_callback = pl.callbacks.ModelCheckpoint(**ckpt_params)
+
     save_model_config_callback = ModelConfigEmbedderCallback(model_config)
     
-    # Early stopping configuration if validation is available
+    # Build callbacks list
     callbacks = [ckpt_callback, exc_callback, save_model_config_callback]
     
     early_stopping_enabled = str_to_bool(args.early_stopping)
