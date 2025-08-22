@@ -62,7 +62,7 @@
                 "optimizer": {
                     "type": "AdamW",
                     "config": {
-                        "lr": 1e-5,
+                        "lr": 5e-5,
                         "betas": [0.9, 0.999],
                         "weight_decay": 1e-3
                     }
@@ -70,9 +70,9 @@
                 "scheduler": {
                     "type": "InverseLR",
                     "config": {
-                        "inv_gamma": 2000000,
-                        "power": 0.75,
-                        "warmup": 0.95
+                        "inv_gamma": 1000000,
+                        "power": 0.5,
+                        "warmup": 0.99
                     }
                 }
             }
