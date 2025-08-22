@@ -41,7 +41,7 @@ echo STARTING AT `date`
 srun --gpu-bind=closest /bin/bash -c "
     python train.py \
       --pretransform-ckpt-path stable_audio_tools/checkpoints/vae/vae_model.ckpt \
-      --model-config stable_audio_tools/configs/model_configs/audio_restoration/cold_diffusion_uncond.json \
+      --model-config stable_audio_tools/configs/model_configs/audio_restoration/cold_diffusion_latent.json \
       --dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/training/intense_eq_ranges.json \
       --val-dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/valid/intense_eq_ranges_valid.json \
       --val-every-n-epoch 1 \

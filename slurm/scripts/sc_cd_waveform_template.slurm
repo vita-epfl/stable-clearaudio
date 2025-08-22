@@ -40,7 +40,7 @@ echo STARTING AT `date`
 
 srun --gpu-bind=closest /bin/bash -c "
     python train.py \
-      --model-config stable_audio_tools/configs/model_configs/audio_restoration/cold_diffusion_uncond_waveform_mono.json \
+      --model-config stable_audio_tools/configs/model_configs/audio_restoration/cold_diffusion_waveform_mono.json \
       --dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/training/intense_eq_ranges.json \
       --val-dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/valid/intense_eq_ranges_valid.json \
       --val-every 1 \
