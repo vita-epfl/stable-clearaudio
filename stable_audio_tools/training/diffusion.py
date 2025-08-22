@@ -248,10 +248,12 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         # Draw skewed timesteps for rectified flow (emphasizes higher t values)
         # p(t) = 0.5 * U(t) + 0.5 * t, where U(t) is uniform distribution
-        uniform_t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
-        # Generate skewed distribution: 50% uniform + 50% biased toward higher values
-        skewed_t = 0.5 * uniform_t + 0.5 * uniform_t * uniform_t
-        t = skewed_t
+        # This is a 50/50 mixture of Uniform(0,1) and Beta(2,1) distributions
+        u1 = self.rng.draw(reals.shape[0])[:, 0].to(self.device)  # First uniform for mixture component
+        u2 = self.rng.draw(reals.shape[0])[:, 0].to(self.device)  # Second uniform for Beta(2,1) as sqrt(U)
+        m = self.rng.draw(reals.shape[0])[:, 0].to(self.device)   # Mixture selector
+        # Sample from mixture: 50% uniform + 50% Beta(2,1) = sqrt(uniform)
+        t = torch.where(m < 0.5, u1, torch.sqrt(u2))
 
         if self.model_type == 'cold_diffusion_uncond_restoration':
             LOG.debug("[ColdDiffusion] Using cold diffusion")
