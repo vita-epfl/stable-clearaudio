@@ -43,14 +43,14 @@ srun --gpu-bind=closest /bin/bash -c "
       --model-config stable_audio_tools/configs/model_configs/audio_restoration/cold_diffusion_uncond_waveform_mono.json \
       --dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/training/intense_eq_ranges.json \
       --val-dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/valid/intense_eq_ranges_valid.json \
-      --val-every-n-epoch 1 \
-      --checkpoint-every-n-epoch 1 \
+      --val-every 1 \
+      --checkpoint-every-n-epoch 0 \
+      --checkpoint-every 1 \
       --early-stopping false \
       --save-top-k 1 \
-      --save-last-checkpoint false \
-      --name sc-cd-waveform \
+      --save-last-checkpoint true \
+      --name sc-cd-waveform-MelSTFTLoss \
       --save-dir stable_audio_tools/output/checkpoints \
-      --strategy ddp_find_unused_parameters_true \
       --batch-size 1 \
       --val-batch-size 1
     "
