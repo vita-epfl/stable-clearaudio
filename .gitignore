@@ -166,6 +166,7 @@ wandb/*
 slurm/
 !slurm/scripts/sc_cd_latent_template.slurm
 !slurm/scripts/sc_cd_waveform_template.slurm
+!slurm/scripts/sc_rectified_flow_latent_template.slurm
 
 .gradio/certificate.pem
 docs/to_do.md
