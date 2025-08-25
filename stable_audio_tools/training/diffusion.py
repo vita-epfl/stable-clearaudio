@@ -278,11 +278,13 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                     clean_latents = self.diffusion.pretransform.encode(reals)
                     degraded_latents = self.diffusion.pretransform.encode(degraded_reals)
 
-                # Interpolate in latent space: x_t = t * x_1 + (1-t) * x_0
+                # Interpolate between clean and degraded latents to create model input
                 t_latent = t.view(-1, 1, 1)
                 model_input = t_latent * degraded_latents + (1 - t_latent) * clean_latents
+
                 # Target is the flow velocity: v_t = x_0 - x_1 (from degraded to clean)
                 targets = clean_latents - degraded_latents
+
             else:
                 # If no pretransform, interpolation happens in audio space
                 t_audio = t.view(-1, 1, 1)
@@ -411,16 +413,11 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 t = torch.full((reals.shape[0],), ts, device=device, dtype=torch.float32)
                 
                 # Interpolate between clean and degraded latents to create model input
-                t_audio = t.view(-1, 1, 1)
+                t_latent = t.view(-1, 1, 1)
+                model_input = t_latent * degraded_latents + (1 - t_latent) * clean_latents
 
-                if self.diffusion.pretransform is not None:
-                    model_input = t_audio * degraded_latents + (1 - t_audio) * clean_latents
-                    # For rectified flow, target is velocity (clean - degraded)
-                    targets = clean_latents - degraded_latents
-                else:
-                    model_input = t_audio * degraded_reals + (1 - t_audio) * reals
-                    # For rectified flow, target is velocity (clean - degraded)
-                    targets = reals - degraded_reals
+                # For flow matching, target is the velocity field (clean - degraded)
+                targets = clean_latents - degraded_latents
                                     
                 # Get model output and calculate loss
                 with torch.cuda.amp.autocast(), torch.no_grad():
