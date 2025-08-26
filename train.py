@@ -133,17 +133,10 @@ def main():
         "save_last": str_to_bool(getattr(args, "save_last_checkpoint", False)),
     }
 
-    # Choose periodic frequency
-    if args.checkpoint_every_n_epoch > 0:
-        print(f"Using checkpoint every {args.checkpoint_every_n_epoch} epochs")
-        ckpt_params["every_n_epochs"] = args.checkpoint_every_n_epoch
-    elif args.checkpoint_every > 0:
+    # Choose periodic frequency - handle val_every conflict
+    if args.checkpoint_every > 0:
         print(f"Using checkpoint every {args.checkpoint_every} steps")
         ckpt_params["every_n_train_steps"] = args.checkpoint_every
-    else:
-        # Default to check every epoch if neither is specified
-        print("Using checkpoint every epoch")
-        ckpt_params["every_n_epochs"] = 1
 
     # Debug checkpoint parameters
     print(f"Checkpoint parameters: {ckpt_params}")
