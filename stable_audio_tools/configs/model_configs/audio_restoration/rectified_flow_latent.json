@@ -62,7 +62,7 @@
                 "optimizer": {
                     "type": "AdamW",
                     "config": {
-                        "lr": 1e-5,
+                        "lr": 5e-4,
                         "betas": [0.9, 0.999],
                         "weight_decay": 1e-3
                     }
@@ -79,7 +79,7 @@
         },
         "demo": {
             "demo_every": 16,
-            "demo_steps": 5,
+            "demo_steps": 50,
             "num_demos": 1
         }
     }
