@@ -365,7 +365,7 @@ def sample_rectified_flow(
     """
     # Create linear time schedule from t_start to 0
     timesteps = torch.linspace(t_start, 0.0, steps + 1, device=x_degraded.device)
-    dt = timesteps[1] - timesteps[0]  # Negative step size
+    dt = timesteps[0] - timesteps[1]  # Positive step size
     timesteps = timesteps[:-1]  # Remove final timestep (0.0)
     
     x = x_degraded.clone()
