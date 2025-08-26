@@ -280,16 +280,16 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
                 # Interpolate between clean and degraded latents to create model input
                 t_latent = t.view(-1, 1, 1)
-                model_input = t_latent * degraded_latents + (1 - t_latent) * clean_latents
+                model_input = (1 - t_latent) * degraded_latents + t_latent * clean_latents
 
-                # Target is the flow velocity: v_t = x_0 - x_1 (from degraded to clean)
+                # Target is the flow velocity: v_t = clean - degraded (from degraded to clean)
                 targets = clean_latents - degraded_latents
 
             else:
                 # If no pretransform, interpolation happens in audio space
                 t_audio = t.view(-1, 1, 1)
-                model_input = t_audio * degraded_reals + (1 - t_audio) * reals
-                # Target is the flow velocity: v_t = x_0 - x_1 (from degraded to clean)
+                model_input = (1 - t_audio) * degraded_reals + t_audio * reals
+                # Target is the flow velocity: v_t = clean - degraded (from degraded to clean)
                 targets = reals - degraded_reals
             
             loss_info["reals"] = targets
@@ -414,7 +414,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 
                 # Interpolate between clean and degraded latents to create model input
                 t_latent = t.view(-1, 1, 1)
-                model_input = t_latent * degraded_latents + (1 - t_latent) * clean_latents
+                model_input = (1 - t_latent) * degraded_latents + t_latent * clean_latents
 
                 # For flow matching, target is the velocity field (clean - degraded)
                 targets = clean_latents - degraded_latents
