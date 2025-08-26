@@ -1,16 +1,16 @@
 #!/bin/bash
-#SBATCH --job-name=sc-rectified_flow-latent
+#SBATCH --job-name=sc-cd-latent-
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=0
-#SBATCH --time=48:00:00
+#SBATCH --time=00:05:00
 #SBATCH --partition=h100
-#SBATCH --output=/work/vita/alefevre/programs/stable-clearaudio/slurm/logs/%j.out
-#SBATCH --error=/work/vita/alefevre/programs/stable-clearaudio/slurm/logs/%j.err
+#SBATCH --output=/work/vita/<USER>/programs/stable-clearaudio/slurm/logs/%j.out
+#SBATCH --error=/work/vita/<USER>/programs/stable-clearaudio/slurm/logs/%j.err
 
 
-mkdir -p /work/vita/alefevre/programs/stable-clearaudio/slurm/logs
+mkdir -p /work/vita/<USER>/programs/stable-clearaudio/slurm/logs
 
 # Create a directory for local installations
 mkdir -p ~/local/sox > /dev/null 2>&1
@@ -30,11 +30,11 @@ make install > /dev/null 2>&1
 export PATH=$HOME/local/sox/bin:$PATH
 export LD_LIBRARY_PATH=$HOME/local/sox/lib:$LD_LIBRARY_PATH
 
-export WANDB_API_KEY=541eebad1b2e17e39790984bdb74a12fbc548828
+export WANDB_API_KEY=<WANDB_API_KEY>
 
-cd /work/vita/alefevre/programs/stable-clearaudio
+cd /work/vita/<USER>/programs/stable-clearaudio
 
-source /work/vita/alefevre/programs/stable-clearaudio/venv/bin/activate
+source /work/vita/<USER>/programs/stable-clearaudio/venv/bin/activate
 
 echo STARTING AT `date`
 
@@ -46,7 +46,7 @@ srun --gpu-bind=closest /bin/bash -c "
       --val-dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/valid/intense_eq_ranges_valid.json \
       --checkpoint-every-n-epoch 1 \
       --early-stopping false \
-      --save-top-k -1 \
+      --save-top-k 1 \
       --save-last-checkpoint true \
       --name sc-rectified_flow-latent \
       --save-dir stable_audio_tools/output/checkpoints \
