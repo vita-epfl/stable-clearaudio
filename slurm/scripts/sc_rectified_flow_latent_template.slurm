@@ -41,18 +41,16 @@ echo STARTING AT `date`
 srun --gpu-bind=closest /bin/bash -c "
     python train.py \
       --pretransform-ckpt-path stable_audio_tools/checkpoints/vae/vae_model.ckpt \
-      --model-config stable_audio_tools/configs/model_configs/audio_restoration/cold_diffusion_uncond.json \
+      --model-config stable_audio_tools/configs/model_configs/audio_restoration/rectified_flow_latent.json \
       --dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/training/intense_eq_ranges.json \
       --val-dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/valid/intense_eq_ranges_valid.json \
-      --val-every-n-epoch 1 \
       --checkpoint-every-n-epoch 1 \
       --early-stopping false \
       --save-top-k 1 \
-      --save-last-checkpoint false \
-      --name sc-cd-latent-LatentSpectralLoss \
+      --save-last-checkpoint true \
+      --name sc-rectified_flow-latent \
       --save-dir stable_audio_tools/output/checkpoints \
-      --batch-size 128 \
-      --val-batch-size 64
+      --batch-size 128
     "
 
 echo FINISHED at `date`

@@ -3,7 +3,7 @@
     "sample_size": 220500,
     "sample_rate": 44100,
     "audio_channels": 1,
-    "max_epochs": 650,
+    "max_epochs": 4,
     "model": {
         "type": "dit",
         "diffusion": {
@@ -27,7 +27,7 @@
                 "optimizer": {
                     "type": "AdamW",
                     "config": {
-                        "lr": 5e-5,
+                        "lr": 1e-5,
                         "betas": [0.9, 0.999],
                         "weight_decay": 1e-3
                     }

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=sd-cd-waveform
+#SBATCH --job-name=sc-cd-latent-
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=8
@@ -40,19 +40,19 @@ echo STARTING AT `date`
 
 srun --gpu-bind=closest /bin/bash -c "
     python train.py \
-      --model-config stable_audio_tools/configs/model_configs/audio_restoration/cold_diffusion_uncond_waveform_mono.json \
+      --pretransform-ckpt-path stable_audio_tools/checkpoints/vae/vae_model.ckpt \
+      --model-config stable_audio_tools/configs/model_configs/audio_restoration/cold_diffusion_latent.json \
       --dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/training/intense_eq_ranges.json \
       --val-dataset-config stable_audio_tools/configs/dataset_configs/cold_diffusion_configs/SCITAS_dataset_configs/valid/intense_eq_ranges_valid.json \
-      --val-every 1 \
-      --checkpoint-every-n-epoch 0 \
-      --checkpoint-every 1 \
+      --val-every-n-epoch 1 \
+      --checkpoint-every-n-epoch 1 \
       --early-stopping false \
       --save-top-k 1 \
-      --save-last-checkpoint true \
-      --name sc-cd-waveform-MelSTFTLoss \
+      --save-last-checkpoint false \
+      --name sc-cd-latent-LatentSpectralLoss \
       --save-dir stable_audio_tools/output/checkpoints \
-      --batch-size 1 \
-      --val-batch-size 1
+      --batch-size 128 \
+      --val-batch-size 64
     "
 
 echo FINISHED at `date`

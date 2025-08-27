@@ -106,15 +106,23 @@ def main():
         logger.watch(training_wrapper)
     
         if args.save_dir and isinstance(logger.experiment.name, str):
-            checkpoint_dir = os.path.join(args.save_dir, logger.experiment.project, logger.experiment.name, "checkpoints") 
+            checkpoint_dir = os.path.join(args.save_dir, logger.experiment.project, logger.experiment.name, "checkpoints")
+            print("Checkpoint directory: ", checkpoint_dir) 
+            # Ensure checkpoint directory exists
+            os.makedirs(checkpoint_dir, exist_ok=True)
         else:
+            print("Warning: No experiment name found or save_dir not specified. Checkpoint directory will not be saved.")
             checkpoint_dir = None
     elif args.logger == 'comet':
         logger = pl.loggers.CometLogger(project_name=args.name)
         checkpoint_dir = args.save_dir if args.save_dir else None
+        if checkpoint_dir:
+            os.makedirs(checkpoint_dir, exist_ok=True)
     else:
         logger = None
         checkpoint_dir = args.save_dir if args.save_dir else None
+        if checkpoint_dir:
+            os.makedirs(checkpoint_dir, exist_ok=True)
         
     ckpt_params = {
         "dirpath": checkpoint_dir,
@@ -125,17 +133,13 @@ def main():
         "save_last": str_to_bool(getattr(args, "save_last_checkpoint", False)),
     }
 
-    # Choose periodic frequency
-    if args.checkpoint_every_n_epoch > 0:
-        print(f"Using checkpoint every {args.checkpoint_every_n_epoch} epochs")
-        ckpt_params["every_n_epochs"] = args.checkpoint_every_n_epoch
-    elif args.checkpoint_every > 0:
+    # Choose periodic frequency - handle val_every conflict
+    if args.checkpoint_every > 0:
         print(f"Using checkpoint every {args.checkpoint_every} steps")
         ckpt_params["every_n_train_steps"] = args.checkpoint_every
-    else:
-        # Default to check every epoch if neither is specified
-        print("Using checkpoint every epoch")
-        ckpt_params["every_n_epochs"] = 1
+
+    # Debug checkpoint parameters
+    print(f"Checkpoint parameters: {ckpt_params}")
 
     ckpt_callback = pl.callbacks.ModelCheckpoint(**ckpt_params)
 
