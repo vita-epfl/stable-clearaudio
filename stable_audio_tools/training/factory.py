@@ -63,7 +63,7 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
             latent_mask_ratio=latent_mask_ratio,
             teacher_model=teacher_model
         )
-    elif model_type == 'cold_diffusion_uncond_restoration':
+    elif model_type == 'cold_diffusion_uncond_restoration' or model_type == 'rectified_flow_uncond_restoration':
         from .diffusion import DiffusionUncondTrainingWrapper
 
         return DiffusionUncondTrainingWrapper(
@@ -222,7 +222,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
             display_audio_cond=demo_config.get("display_audio_cond", False),
             cond_display_configs=demo_config.get("cond_display_configs", None)
         )
-    elif model_type == 'cold_diffusion_uncond_restoration':
+    elif model_type == 'cold_diffusion_uncond_restoration' or model_type == 'rectified_flow_uncond_restoration':
 
         from .diffusion import DiffusionUncondDemoCallback
         return DiffusionUncondDemoCallback(

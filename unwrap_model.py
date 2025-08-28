@@ -50,7 +50,7 @@ if __name__ == '__main__':
             use_ema=training_config["use_ema"],
             ema_copy=ema_copy if use_ema else None
         )
-    elif model_type == 'cold_diffusion_uncond_restoration':
+    elif model_type == 'cold_diffusion_uncond_restoration' or model_type == 'rectified_flow_uncond_restoration':
         from stable_audio_tools.training.diffusion import DiffusionUncondTrainingWrapper
         training_wrapper = DiffusionUncondTrainingWrapper.load_from_checkpoint(args.ckpt_path, model=model, strict=False)
 
