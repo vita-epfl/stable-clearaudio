@@ -382,7 +382,8 @@ def sample_rectified_flow(
         
         # User-provided callback
         if callback is not None:
-            callback({'x': x, 't': t_current, 'sigma': t_current, 'i': i, 'velocity': velocity})
+            denoised = x + (1 - t_current) * velocity  # x_0 = x_1 + (1-t)*v
+            callback({'x': x, 't': t_current, 'sigma': t_current, 'i': i, 'velocity': velocity, 'denoised': denoised})
         
         # Forward Euler step: x = x + dt * velocity
         x = x + dt * velocity

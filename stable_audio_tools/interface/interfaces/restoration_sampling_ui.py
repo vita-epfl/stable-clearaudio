@@ -969,6 +969,6 @@ def create_restoration_ui(model_config, in_model, in_model_half=True):
         with gr.Tab("Generation"):
             if model_type == "diffusion_cond_restoration":
                 create_cond_restoration_sampling_ui()
-            elif model_type == "cold_diffusion_uncond_restoration":
+            elif model_type == "cold_diffusion_uncond_restoration" or model_type == "rectified_flow_uncond_restoration":
                 create_uncond_restoration_sampling_ui()
     return ui
