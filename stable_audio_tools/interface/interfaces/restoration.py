@@ -33,7 +33,7 @@ from torchaudio import transforms as T
 
 from ..aeiou import audio_spectrogram_image
 from ...inference.generation import (
-    generate_diffusion_cond_restoration, generate_cold_diffusion_uncond_restoration
+    generate_diffusion_cond_restoration, generate_diffusion_uncond_restoration
 )  # , generate_diffusion_uncond
 
 # from ..models.factory import create_model_from_config
@@ -264,9 +264,10 @@ def generate_restoration(
             "metrics_every": metrics_every
         }
         audio, final_metrics = generate_diffusion_cond_restoration(**generate_args)
-    elif model_type == "cold_diffusion_uncond_restoration":
+    elif model_type == "cold_diffusion_uncond_restoration" or model_type == "rectified_flow_uncond_restoration":
         generate_args = {
             "model": model,
+            "model_type": model_type,
             "sample_rate": sample_rate,
             "steps": steps,
             "batch_size": batch_size,
@@ -281,7 +282,7 @@ def generate_restoration(
             "t_start": t_start,
             "schedule": schedule,
         }
-        audio, final_metrics = generate_cold_diffusion_uncond_restoration(**generate_args)
+        audio, final_metrics = generate_diffusion_uncond_restoration(**generate_args)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
     

@@ -277,8 +277,9 @@ def _calculate_metrics(
     
     return metrics_dict
 
-def generate_cold_diffusion_uncond_restoration(
+def generate_diffusion_uncond_restoration(
         model,
+        model_type,
         steps: int = 250,
         batch_size: int = 1,
         sample_size: int = 2097152,
@@ -480,31 +481,62 @@ def generate_cold_diffusion_uncond_restoration(
         # No clean audio provided, no metrics callback needed
         callback = None
 
-    # Generate audio using rectified flow sampling
-    LOG.debug(f"Starting rectified flow sampling for {steps} steps from t_start={t_start}.")
+    if model_type == "rectified_flow_uncond_restoration":
+        # Generate audio using rectified flow sampling
+        LOG.debug(f"Starting rectified flow sampling for {steps} steps from t_start={t_start}.")
 
-    if model.pretransform is not None:
-    
-        fake_latent = sample_rectified_flow(
-            model.model,
-            x,
-            steps,
-            t_start=t_start,
-            callback=callback,
-            **sampler_kwargs
-        )
-        LOG.debug("Decoding final latents to audio.")
-        fakes = model.pretransform.decode(fake_latent)
+        if model.pretransform is not None:
+        
+            fake_latent = sample_rectified_flow(
+                model.model,
+                x,
+                steps,
+                t_start=t_start,
+                callback=callback,
+                **sampler_kwargs
+            )
+            LOG.debug("Decoding final latents to audio.")
+            fakes = model.pretransform.decode(fake_latent)
+        else:
+
+            fakes = sample_rectified_flow_waveform(
+                model.model,
+                x,
+                steps,
+                t_start=t_start,
+                callback=callback,
+                **sampler_kwargs
+            )
+    elif model_type == "cold_diffusion_uncond_restoration":
+        # Generate audio using sample_cold
+        LOG.debug(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
+
+        if model.pretransform is not None:
+        
+            fake_latent = sample_cold(
+                model.model,
+                x,
+                steps,
+                t_start=t_start,
+                schedule=schedule,
+                callback=callback,
+                **sampler_kwargs
+            )
+            LOG.debug("Decoding final latents to audio.")
+            fakes = model.pretransform.decode(fake_latent)
+        else:
+
+            fakes = sample_cold_waveform(
+                model.model,
+                x,
+                steps,
+                t_start=t_start,
+                schedule=schedule,
+                callback=callback,
+                **sampler_kwargs
+            )
     else:
-
-        fakes = sample_rectified_flow_waveform(
-            model.model,
-            x,
-            steps,
-            t_start=t_start,
-            callback=callback,
-            **sampler_kwargs
-        )
+        raise ValueError(f"Unknown model type: {model_type}")
 
     # Calculate final metrics if not already done by callback
     if clean_audio is not None and (metrics_every == 0 or steps % metrics_every != 0):
