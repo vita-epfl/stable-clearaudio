@@ -79,8 +79,8 @@
             }
         },
         "demo": {
-            "demo_every": 16,
-            "demo_steps": 50,
+            "demo_every": 350,
+            "demo_steps": 150,
             "num_demos": 1
         }
     }
