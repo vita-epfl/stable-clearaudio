@@ -347,6 +347,7 @@ def sample_rectified_flow(
     model,
     x_degraded,
     steps,
+    sampler_type="euler", # Add sampler_type argument
     callback=None,
     **extra_args
 ):
@@ -368,8 +369,49 @@ def sample_rectified_flow(
     
     x = x_degraded.clone()
     
-    # Forward Euler integration: x_{t+h} = x_t + h * v_t
-    for i in trange(steps, disable=None):
+    if sampler_type == "euler":
+        # Forward Euler integration: x_{t+h} = x_t + h * v_t
+        for i in trange(steps, disable=None):
+            t_current = timesteps[i]
+            
+            # Expand timestep to batch size
+            t_batch = t_current.expand(x.shape[0])
+            
+            # Predict flow velocity: v_t = dx/dt = x_0 - x_1
+            velocity = model(x, t_batch, **extra_args)
+            
+            # User-provided callback
+            if callback is not None:
+                # Estimate clean audio x_0 from x_t and velocity v
+                # x_t = t*x_0 + (1-t)*x_1 = x_0 - t*x_0 + t*x_1 = x_0 - t*(x_0-x_1) = x_0 - t*v
+                # -> x_0 = x_t + t*v
+                denoised = x + t_current * velocity
+                callback({'x': x, 't': t_current, 'sigma': t_current, 'i': i, 'velocity': velocity, 'denoised': denoised})
+            
+            # Forward Euler step: x = x + dt * velocity
+            x = x + dt * velocity
+
+    elif sampler_type == "rk4":
+        # 4th-order Runge-Kutta integration
+        for i in trange(steps, disable=None):
+            t_current = timesteps[i]
+            t_batch = t_current.expand(x.shape[0])
+
+            # RK4 steps
+            k1 = model(x, t_batch, **extra_args)
+            k2 = model(x + dt / 2 * k1, t_batch + dt / 2, **extra_args)
+            k3 = model(x + dt / 2 * k2, t_batch + dt / 2, **extra_args)
+            k4 = model(x + dt * k3, t_batch + dt, **extra_args)
+
+            velocity = (k1 + 2 * k2 + 2 * k3 + k4) / 6
+
+            if callback is not None:
+                denoised = x + t_current * velocity
+                callback({'x': x, 't': t_current, 'sigma': t_current, 'i': i, 'velocity': velocity, 'denoised': denoised})
+
+            x = x + dt * velocity
+    else:
+        raise ValueError(f"Unknown sampler type: {sampler_type}")
         t_current = timesteps[i]
         
         # Expand timestep to batch size
@@ -386,8 +428,6 @@ def sample_rectified_flow(
             denoised = x - t_current * velocity
             callback({'x': x, 't': t_current, 'sigma': t_current, 'i': i, 'velocity': velocity, 'denoised': denoised})
         
-        # Forward Euler step: x = x + dt * velocity
-        x = x + dt * velocity
     
     return x
 
@@ -396,13 +436,14 @@ def sample_rectified_flow_waveform(
     model,
     x_degraded,
     steps,
+    sampler_type="euler",
     callback=None,
     **extra_args
 ):
     """
     Rectified flow sampler for direct waveform space (no VAE/pretransform).
     """
-    return sample_rectified_flow(model, x_degraded, steps, callback, **extra_args)
+    return sample_rectified_flow(model, x_degraded, steps, sampler_type, callback, **extra_args)
 
 # Soft mask inpainting is just shrinking hard (binary) mask inpainting
 # Given a float-valued soft mask (values between 0 and 1), get the binary mask for this particular step

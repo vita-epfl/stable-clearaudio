@@ -228,6 +228,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
         return DiffusionUncondDemoCallback(
             demo_every=demo_config.get("demo_every", 2000), 
             num_demos=demo_config.get("num_demos", 8),
+            sampler_type=demo_config.get("sampler_type", "euler"),
             sample_size=model_config["sample_size"],
             demo_steps=demo_config.get("demo_steps", 250), 
             sample_rate=model_config["sample_rate"],

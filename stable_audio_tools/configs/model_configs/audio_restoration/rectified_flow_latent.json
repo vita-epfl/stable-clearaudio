@@ -79,9 +79,10 @@
             }
         },
         "demo": {
-            "demo_every": 350,
+            "demo_every": 150,
             "demo_steps": 150,
-            "num_demos": 1
+            "num_demos": 1,
+            "sampler_type": "rk4"
         }
     }
 }

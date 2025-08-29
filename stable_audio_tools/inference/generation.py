@@ -294,6 +294,7 @@ def generate_diffusion_uncond_restoration(
         output_dir = None,
         metrics_every: int = 0,
         use_ema: bool = True,
+        sampler_type: str = "euler",
         **sampler_kwargs
 ) -> tp.Tuple[torch.Tensor, tp.Optional[dict]]:
     """
@@ -509,6 +510,7 @@ def generate_diffusion_uncond_restoration(
                     inference_model,
                     x,
                     steps,
+                    sampler_type,
                     callback=callback,
                     **sampler_kwargs
                 )
@@ -520,6 +522,7 @@ def generate_diffusion_uncond_restoration(
                     inference_model,
                     x,
                     steps,
+                    sampler_type,
                     callback=callback,
                     **sampler_kwargs
                 )
