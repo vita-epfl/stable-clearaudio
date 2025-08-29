@@ -491,7 +491,6 @@ def generate_diffusion_uncond_restoration(
                 model.model,
                 x,
                 steps,
-                t_start=t_start,
                 callback=callback,
                 **sampler_kwargs
             )
@@ -503,7 +502,6 @@ def generate_diffusion_uncond_restoration(
                 model.model,
                 x,
                 steps,
-                t_start=t_start,
                 callback=callback,
                 **sampler_kwargs
             )

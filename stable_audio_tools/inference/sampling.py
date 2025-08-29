@@ -347,7 +347,6 @@ def sample_rectified_flow(
     model,
     x_degraded,
     steps,
-    t_start: float = 1.0,
     callback=None,
     **extra_args
 ):
@@ -359,12 +358,11 @@ def sample_rectified_flow(
         model: Model that predicts flow velocity v_t = x_0 - x_1
         x_degraded: Initial degraded input (latent or waveform)
         steps: Number of integration steps
-        t_start: Starting time (1.0 = fully degraded, 0.0 = clean)
         callback: Optional callback function
         **extra_args: Additional arguments passed to model
     """
-    # Create linear time schedule from 0 to t_start (1.0)
-    timesteps = torch.linspace(0.0, t_start, steps + 1, device=x_degraded.device)
+    # Create linear time schedule from 0.0 to 1.0
+    timesteps = torch.linspace(0.0, 1.0, steps + 1, device=x_degraded.device)
     dt = timesteps[1] - timesteps[0]  # Positive step size, e.g. 0.1 - 0.0
     timesteps = timesteps[:-1] # Remove final timestep (1.0)
     
@@ -395,14 +393,13 @@ def sample_rectified_flow_waveform(
     model,
     x_degraded,
     steps,
-    t_start: float = 1.0,
     callback=None,
     **extra_args
 ):
     """
     Rectified flow sampler for direct waveform space (no VAE/pretransform).
     """
-    return sample_rectified_flow(model, x_degraded, steps, t_start, callback, **extra_args)
+    return sample_rectified_flow(model, x_degraded, steps, callback, **extra_args)
 
 # Soft mask inpainting is just shrinking hard (binary) mask inpainting
 # Given a float-valued soft mask (values between 0 and 1), get the binary mask for this particular step

@@ -642,8 +642,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                         fake_latents = sample_rectified_flow(
                             module.diffusion_ema,
                             degraded_latents,
-                            self.demo_steps,
-                            t_start=degradation_t
+                            self.demo_steps
                         )
                         fakes = module.diffusion.pretransform.decode(fake_latents)
                     else:
@@ -651,8 +650,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                         fakes = sample_rectified_flow_waveform(
                             module.diffusion_ema,
                             degraded_audio,
-                            self.demo_steps,
-                            t_start=degradation_t
+                            self.demo_steps
                         )
 
             else:
