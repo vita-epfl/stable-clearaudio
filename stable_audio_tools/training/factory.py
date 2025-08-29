@@ -231,7 +231,8 @@ def create_demo_callback_from_config(model_config, **kwargs):
             sample_size=model_config["sample_size"],
             demo_steps=demo_config.get("demo_steps", 250), 
             sample_rate=model_config["sample_rate"],
-            model_type=model_type
+            model_type=model_type,
+            **kwargs
         )
     elif model_type == "diffusion_cond_inpaint":
         from .diffusion import DiffusionCondInpaintDemoCallback

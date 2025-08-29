@@ -160,10 +160,8 @@ def main():
         callbacks.append(early_stop_callback)
 
     if args.val_dataset_config:
-        print("Using validation demo callback")
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=val_dl)
     else:
-        print("Using training demo callback")
         demo_callback = create_demo_callback_from_config(model_config, demo_dl=train_dl)
     
     # Add demo_callback to the callbacks list
