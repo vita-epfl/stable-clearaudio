@@ -580,7 +580,7 @@ def create_uncond_restoration_sampling_ui():
                 with gr.Row():
                     # Sampler params
                     if is_rf:
-                        sampler_types = ["euler", "rk4", "dpmpp"]
+                        sampler_types = ["euler", "rk4"]
                         default_sampler_type = "euler"
                     else:
                         sampler_types = [
@@ -627,7 +627,7 @@ def create_uncond_restoration_sampling_ui():
                         minimum=0,
                         maximum=100,
                         step=1,
-                        value=1,
+                        value=10,
                         label="Compute Metrics Every N Steps"
                     )
             with gr.Accordion("Audio Inputs", open=True):
@@ -643,7 +643,7 @@ def create_uncond_restoration_sampling_ui():
 
             effects_list = gr.Textbox(visible=False)
 
-            with gr.Accordion("Cold diffusion parameters", open=True):
+            with gr.Accordion("Unconditional diffusion parameters", open=True):
 
                 with gr.Row():
                     with gr.Column(scale=1):
