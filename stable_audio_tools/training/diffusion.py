@@ -518,6 +518,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                  demo_steps=250,
                  sample_rate=44100,
                  model_type: str = 'diffusion_uncond',
+                 sampler_type: str = 'euler',
                  **kwargs
     ):
         super().__init__()
@@ -529,6 +530,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
         self.sample_rate = sample_rate
         self.last_demo_step = -1
         self.model_type = model_type
+        self.sampler_type = sampler_type
 
         self.demo_dl = kwargs.get("demo_dl", None)
         self.demo_dl_iter = None
@@ -642,7 +644,8 @@ class DiffusionUncondDemoCallback(pl.Callback):
                         fake_latents = sample_rectified_flow(
                             module.diffusion_ema,
                             degraded_latents,
-                            self.demo_steps
+                            self.demo_steps,
+                            sampler_type=self.sampler_type
                         )
                         fakes = module.diffusion.pretransform.decode(fake_latents)
                     else:
@@ -650,7 +653,8 @@ class DiffusionUncondDemoCallback(pl.Callback):
                         fakes = sample_rectified_flow_waveform(
                             module.diffusion_ema,
                             degraded_audio,
-                            self.demo_steps
+                            self.demo_steps,
+                            sampler_type=self.sampler_type
                         )
 
             else:

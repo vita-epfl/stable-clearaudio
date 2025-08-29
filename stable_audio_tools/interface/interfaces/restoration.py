@@ -279,6 +279,7 @@ def generate_restoration(
             "effects_list": effects_list,
             "output_dir": generation_dir,
             "metrics_every": metrics_every,
+            "sampler_type": sampler_type,
             "t_start": t_start,
             "schedule": schedule,
         }

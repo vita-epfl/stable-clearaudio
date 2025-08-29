@@ -559,6 +559,10 @@ def create_uncond_restoration_sampling_ui():
     diffusion_objective = model.diffusion_objective
 
     is_rf = diffusion_objective == "rectified_flow"
+    if is_rf:
+        LOG.info("Rectified flow model detected")
+    else:
+        LOG.info("Non rectified flow model detected")
     
     with gr.Row():                
         generate_button = gr.Button("Generate", variant="primary", scale=1)
@@ -576,7 +580,7 @@ def create_uncond_restoration_sampling_ui():
                 with gr.Row():
                     # Sampler params
                     if is_rf:
-                        sampler_types = ["euler", "rk4", "dpmpp"]
+                        sampler_types = ["euler", "rk4"]
                         default_sampler_type = "euler"
                     else:
                         sampler_types = [
@@ -623,7 +627,7 @@ def create_uncond_restoration_sampling_ui():
                         minimum=0,
                         maximum=100,
                         step=1,
-                        value=1,
+                        value=10,
                         label="Compute Metrics Every N Steps"
                     )
             with gr.Accordion("Audio Inputs", open=True):
@@ -639,7 +643,7 @@ def create_uncond_restoration_sampling_ui():
 
             effects_list = gr.Textbox(visible=False)
 
-            with gr.Accordion("Cold diffusion parameters", open=True):
+            with gr.Accordion("Unconditional diffusion parameters", open=True):
 
                 with gr.Row():
                     with gr.Column(scale=1):
