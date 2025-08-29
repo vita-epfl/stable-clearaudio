@@ -517,7 +517,8 @@ class DiffusionUncondDemoCallback(pl.Callback):
                  sample_size=65536,
                  demo_steps=250,
                  sample_rate=44100,
-                 model_type: str = 'diffusion_uncond'
+                 model_type: str = 'diffusion_uncond',
+                 **kwargs
     ):
         super().__init__()
 
@@ -528,6 +529,14 @@ class DiffusionUncondDemoCallback(pl.Callback):
         self.sample_rate = sample_rate
         self.last_demo_step = -1
         self.model_type = model_type
+
+        self.demo_dl = kwargs.get("demo_dl", None)
+        self.demo_dl_iter = None
+
+        if self.demo_dl:
+            print("Using validation dataloader for demos")
+        else:
+            print("Using training dataloader for demos")
         
         LOG.info(f"DiffusionUncondDemoCallback initialized with model_type={self.model_type}")
 
@@ -559,13 +568,26 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
         demo_samples = self.demo_samples
 
-        clean_audio = batch[0][:self.num_demos]
+        if self.demo_dl:
+            if self.demo_dl_iter is None:
+                self.demo_dl_iter = iter(self.demo_dl)
+            try:
+                demo_batch = next(self.demo_dl_iter)
+            except StopIteration:
+                self.demo_dl_iter = iter(self.demo_dl)
+                demo_batch = next(self.demo_dl_iter)
+            
+            clean_audio = demo_batch[0][:self.num_demos].to(module.device)
+
+        else:
+            clean_audio = batch[0][:self.num_demos]
 
         original_audio_inputs = clean_audio.clone()
         # If pretransform is used, encode and decode the audio to get the version that is used for training
         if module.diffusion.pretransform is not None:
             original_latent = module.diffusion.pretransform.encode(original_audio_inputs)
             original_audio_inputs = module.diffusion.pretransform.decode(original_latent)
+            LOG.info(f"[CALLBACK] VAE decoded audio shape: {original_audio_inputs.shape}")
         
         original_audio_for_log = rearrange(original_audio_inputs.clone(), 'b d n -> d (b n)')
         LOG.debug(f"Clean audio shape: {clean_audio.shape}")
