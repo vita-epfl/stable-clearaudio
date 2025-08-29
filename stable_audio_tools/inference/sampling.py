@@ -380,7 +380,10 @@ def sample_rectified_flow(
         
         # User-provided callback
         if callback is not None:
-            denoised = x + (1 - t_current) * velocity  # x_0 = x_1 + (1-t)*v
+            # Estimate clean audio x_0 from x_t and velocity v
+            # x_t = (1-t)*x_0 + t*x_1 = x_0 - t*x_0 + t*x_1 = x_0 + t*(x_1-x_0) = x_0 + t*v
+            # -> x_0 = x_t - t*v
+            denoised = x - t_current * velocity
             callback({'x': x, 't': t_current, 'sigma': t_current, 'i': i, 'velocity': velocity, 'denoised': denoised})
         
         # Forward Euler step: x = x + dt * velocity
