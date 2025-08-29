@@ -6,6 +6,7 @@
     "max_epochs": 2000,
     "model": {
         "type": "dit",
+        "diffusion_objective": "rectified_flow",
         "pretransform": {
             "type": "autoencoder",
             "iterate_batch": true,

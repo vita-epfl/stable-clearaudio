@@ -559,6 +559,10 @@ def create_uncond_restoration_sampling_ui():
     diffusion_objective = model.diffusion_objective
 
     is_rf = diffusion_objective == "rectified_flow"
+    if is_rf:
+        LOG.info("Rectified flow model detected")
+    else:
+        LOG.info("Non rectified flow model detected")
     
     with gr.Row():                
         generate_button = gr.Button("Generate", variant="primary", scale=1)
