@@ -42,6 +42,7 @@
             }
         },
         "diffusion": {
+            "diffusion_objective": "cold_diffusion",
             "type": "dit",
             "config": {
                 "io_channels": 64,
