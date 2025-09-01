@@ -625,7 +625,9 @@ def create_uncond_restoration_sampling_ui():
 
             effects_list = gr.Textbox(visible=False)
 
-            with gr.Accordion("Unconditional diffusion parameters", open=True):
+            open_cold_diffusion = model.diffusion_objective == "cold_diffusion"
+                
+            with gr.Accordion("Cold diffusion parameters", open=open_cold_diffusion):
 
                 with gr.Row():
                     with gr.Column(scale=1):
