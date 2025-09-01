@@ -129,7 +129,7 @@ def main():
         "save_top_k": args.save_top_k,
         "monitor": 'train/loss',
         "mode": 'min',
-        "filename": 'epoch={epoch}-step={step}',
+        "filename": '{epoch}-{step}',
         "save_last": str_to_bool(getattr(args, "save_last_checkpoint", False)),
     }
 
