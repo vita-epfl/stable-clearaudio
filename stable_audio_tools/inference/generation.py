@@ -20,76 +20,6 @@ LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.StreamHandler())
 LOG.setLevel(logging.INFO)
 
-def _calculate_best_step(all_metrics: dict, steps_list: list) -> dict:
-    """
-    Calculate the best step based on a scoring of various metrics.
-
-    Args:
-        all_metrics (dict): A dictionary where keys are metric names and values are lists of metric values over steps.
-        steps_list (list): A list of the steps at which metrics were calculated.
-
-    Returns:
-        dict: A dictionary containing the best step, its index, and the scores for all steps.
-    """
-    # All restoration_success metrics are positive (higher is better)
-    restoration_metrics = {
-        key: 1.0 for key in all_metrics.keys() if key.startswith('restoration_success_')
-    }
-
-    # Define raw metrics and their polarity (1 for positive, -1 for negative)
-    raw_metrics = {
-        'demo_lsd': -1.0,
-        'demo_ltas': -1.0,
-        'demo_sisdr': 1.0,
-        'demo_snr': 1.0,
-        'demo_stft': -1.0,
-        'demo_mel': -1.0,
-        'latent_mse_loss': -1.0,
-        'latent_l1_loss': -1.0,
-        'waveform_mse_loss': -1.0,
-        'waveform_l1_loss': -1.0
-    }
-
-    # Combine all metrics to be used for scoring
-    scoring_metrics = {**restoration_metrics, **raw_metrics}
-
-    if not scoring_metrics or not steps_list:
-        return {}
-
-    num_steps = len(steps_list)
-    scores = np.zeros(num_steps)
-
-    for metric_name, polarity in scoring_metrics.items():
-        if metric_name not in all_metrics:
-            continue
-
-        metric_values = np.array(all_metrics[metric_name])
-        
-        # Normalize the metric values to a 0-1 range
-        min_val = np.min(metric_values)
-        max_val = np.max(metric_values)
-        
-        if max_val - min_val > 1e-9:
-            normalized_values = (metric_values - min_val) / (max_val - min_val)
-        else:
-            normalized_values = np.zeros_like(metric_values)
-
-        # Apply polarity
-        if polarity == -1.0:
-            # For negative metrics, lower is better, so we invert the score
-            scores += (1.0 - normalized_values)
-        else:
-            scores += normalized_values
-
-    best_step_index = np.argmax(scores)
-    best_step = steps_list[best_step_index]
-
-    return {
-        'best_step': best_step,
-        'best_step_index': int(best_step_index),
-        'scores': scores.tolist(),
-        'steps_list': steps_list
-    }
 
 def _calculate_metrics(
     sampled_waveform,
@@ -605,13 +535,6 @@ def generate_diffusion_uncond_restoration(
     # Copy clean metrics from clean_metrics dictionary to all_metrics dictionary
     for k, v in clean_metrics.items():
         all_metrics[k] = v
-
-    # After all metrics are collected, calculate the best step
-    if clean_audio is not None and metrics_every > 0:
-        steps_list = sorted(list(set(all_metrics.get('steps', []))))
-        if steps_list:
-            best_step_info = _calculate_best_step(all_metrics, steps_list)
-            all_metrics['best_step_recommendation'] = best_step_info
     
     # Add clean metrics to all_metrics as scalar values (not lists) for plotting as reference lines
     if clean_metrics:
