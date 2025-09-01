@@ -81,7 +81,7 @@
         },
         "demo": {
             "demo_every": 150,
-            "demo_steps": 150,
+            "demo_steps": 10,
             "num_demos": 1,
             "sampler_type": "rk4"
         }
