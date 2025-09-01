@@ -214,7 +214,7 @@ def create_metric_plots(metrics_data_list, labels):
             return []
 
         # Determine the set of all metric keys across all files
-        EXCLUDED_KEYS = ["steps", "timestamp", "sample_rate", "sample_size", "generation_params", "best_step_recommendation"]
+        EXCLUDED_KEYS = ["steps", "timestamp", "sample_rate", "sample_size", "generation_params"]
         
         # Debug: Print all available metrics
         LOG.debug(f"Available metrics in data: {[k for metrics_data in metrics_data_list for k in metrics_data.keys()]}")
@@ -513,32 +513,14 @@ effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, f
         plots = create_metric_plots(all_metrics, labels) if all_metrics else None
     else:
         plots = None
-    
-    best_step_info = all_metrics[0].get('best_step_recommendation') if all_metrics else None
-    best_step_str = ""
-    best_step_plot_data = None
-    best_step_df_data = None
 
-    if best_step_info:
-        best_step = best_step_info.get('best_step')
-        best_step_str = f"Recommended best step: {best_step}"
-        
-        scores = best_step_info.get('scores', [])
-        steps_list = best_step_info.get('steps_list', [])
-        if scores and steps_list:
-            best_step_df_data = pd.DataFrame({
-                'Step': steps_list,
-                'Score': scores
-            })
-            best_step_plot_data = best_step_df_data
-
-    return output_audios_list, output_spectrograms_list, plots, best_step_str, best_step_plot_data, best_step_df_data
+    return output_audios_list, output_spectrograms_list, plots
 
 def generate_with_plots(*args):
-    audios, spectrograms, plots, best_step_str, best_step_plot_data, best_step_df_data = generate_multiple_with_plots(*args)
+    audios, spectrograms, plots = generate_multiple_with_plots(*args)
     first_audio = audios[0] if audios else None
     # Return all plots for Gallery navigation
-    return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots, first_audio, best_step_str, best_step_plot_data, best_step_df_data
+    return gr.update(choices=audios, value=first_audio), first_audio, spectrograms, plots, first_audio
 
 def navigate_plots(plots_list, current_index, direction):
     """Navigate between metric plots"""
@@ -643,7 +625,9 @@ def create_uncond_restoration_sampling_ui():
 
             effects_list = gr.Textbox(visible=False)
 
-            with gr.Accordion("Unconditional diffusion parameters", open=True):
+            open_cold_diffusion = model.diffusion_objective == "cold_diffusion"
+                
+            with gr.Accordion("Cold diffusion parameters", open=open_cold_diffusion):
 
                 with gr.Row():
                     with gr.Column(scale=1):
@@ -719,10 +703,6 @@ def create_uncond_restoration_sampling_ui():
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True):
                 metrics_plots = gr.Gallery(label="Metrics Plots", show_label=True, elem_id="metrics_gallery", columns=1, rows=1, height=600)
-                best_step_textbox = gr.Textbox(label="Best Step Recommendation", value="", interactive=False)
-                with gr.Accordion("Best Step Details", open=False):
-                    best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
-                    best_step_table = gr.DataFrame(label="Best Step Table", interactive=False)
             
             # Use different target based on model type
             send_to_init_button = gr.Button("Send to degraded audio", scale=1)
@@ -735,7 +715,7 @@ def create_uncond_restoration_sampling_ui():
     generate_button.click(
         fn=generate_with_plots,
         inputs=inputs,
-        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file, best_step_textbox, best_step_plot, best_step_table],
+        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file],
         api_name="generate",
     )
     
@@ -918,10 +898,6 @@ def create_cond_restoration_sampling_ui():
             # Add metrics display section
             with gr.Accordion("Restoration Metrics", open=True):
                 metrics_plots = gr.Gallery(label="Metrics Plots", show_label=True, elem_id="metrics_gallery", columns=1, rows=1, height=600)
-                best_step_textbox = gr.Textbox(label="Best Step Recommendation", value="", interactive=False)
-                with gr.Accordion("Best Step Details", open=False):
-                    best_step_plot = gr.LinePlot(label="Step Scores", x="Step", y="Score")
-                    best_step_table = gr.DataFrame(label="Best Step Table", interactive=False)
             
             # Use different target based on model type
             send_to_init_button = gr.Button("Send to degraded audio", scale=1)
@@ -934,7 +910,7 @@ def create_cond_restoration_sampling_ui():
     generate_button.click(
         fn=generate_with_plots,
         inputs=inputs,
-        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file, best_step_textbox, best_step_plot, best_step_table],
+        outputs=[output_audio_dropdown, output_audio_player, audio_spectrogram_output, metrics_plots, download_audio_file],
         api_name="generate",
     )
     
