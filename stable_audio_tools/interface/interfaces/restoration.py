@@ -240,7 +240,7 @@ def generate_restoration(
     # Do the audio generation
     LOG.info("Generating audio")
     
-    if model_type == "diffusion_cond_restoration":
+    if model_type in ["diffusion_cond_restoration", "diffusion_cond"]:
         conditioning_dict = {
             "degraded_audio": degraded_audio[1] if degraded_audio is not None else None,
         }
@@ -264,7 +264,7 @@ def generate_restoration(
             "metrics_every": metrics_every
         }
         audio, final_metrics = generate_diffusion_cond_restoration(**generate_args)
-    elif model_type == "cold_diffusion_uncond_restoration" or model_type == "rectified_flow_uncond_restoration":
+    elif model_type in ["diffusion_uncond_restoration", "diffusion_uncond"]:
         generate_args = {
             "model": model,
             "model_type": model_type,

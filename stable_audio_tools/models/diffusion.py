@@ -710,7 +710,7 @@ def create_diffusion_cond_from_config(config: tp.Dict[str, tp.Any]):
 
     extra_kwargs = {}
 
-    if model_type == "diffusion_cond_restoration":
+    if model_type in ["diffusion_cond_restoration", "diffusion_cond"]:
         wrapper_fn = ConditionedDiffusionModelWrapper
 
         extra_kwargs["diffusion_objective"] = diffusion_objective
