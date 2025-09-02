@@ -206,7 +206,8 @@ def spectrogram_image(
     canvas = FigureCanvasAgg(fig)
     axs = fig.add_subplot()
     spec = spec.squeeze()
-    im = axs.imshow(power_to_db(spec.cpu()), origin='lower', aspect=aspect, vmin=db_range[0], vmax=db_range[1])
+    db_spec = power_to_db(spec.cpu())
+    im = axs.imshow(db_spec, origin='lower', aspect=aspect, vmin=db_spec.min(), vmax=db_spec.max())
     if xmax:
         axs.set_xlim((0, xmax))
     if justimage:
