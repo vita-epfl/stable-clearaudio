@@ -66,6 +66,8 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
     elif model_type in ['diffusion_uncond_restoration', 'diffusion_uncond']:
         from .diffusion import DiffusionUncondTrainingWrapper
 
+        diffusion_objective = model_config["model"]["diffusion"].get("diffusion_objective", "v_prediction")
+
         return DiffusionUncondTrainingWrapper(
             model, 
             lr=training_config.get("learning_rate", None),
@@ -74,6 +76,7 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
             optimizer_configs=training_config.get("optimizer_configs", None),
             pre_encoded=training_config.get("pre_encoded", False),
             model_type=model_type,
+            diffusion_objective=diffusion_objective,
             build_degraded_args=build_degraded_args
         )
     elif model_type in ['diffusion_cond_restoration', 'diffusion_cond_inpaint', 'diffusion_cond']:

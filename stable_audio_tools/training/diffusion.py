@@ -83,6 +83,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
             optimizer_configs: dict = None,
             pre_encoded: bool = False,
             model_type: str = 'diffusion_uncond',
+            diffusion_objective: str = 'v_prediction',
             build_degraded_args: dict = None,
             **kwargs
     ):
@@ -91,6 +92,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         self.diffusion = model
         self.model_type = model_type
         self.pre_encoded = pre_encoded
+        self.diffusion_objective = diffusion_objective
 
         if use_ema:
             self.diffusion_ema = EMA(
