@@ -235,6 +235,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
             demo_steps=demo_config.get("demo_steps", 250), 
             sample_rate=model_config["sample_rate"],
             model_type=model_type,
+            diffusion_objective=model_config["model"]["diffusion"].get("diffusion_objective", "v_prediction"),
             **kwargs
         )
     elif model_type == "diffusion_cond_inpaint":

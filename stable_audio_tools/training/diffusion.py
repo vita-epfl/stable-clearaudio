@@ -522,6 +522,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                  demo_steps=250,
                  sample_rate=44100,
                  model_type: str = 'diffusion_uncond',
+                 diffusion_objective: str = 'v_prediction',
                  sampler_type: str = 'euler',
                  **kwargs
     ):
@@ -534,6 +535,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
         self.sample_rate = sample_rate
         self.last_demo_step = -1
         self.model_type = model_type
+        self.diffusion_objective = diffusion_objective
         self.sampler_type = sampler_type
 
         self.demo_dl = kwargs.get("demo_dl", None)
