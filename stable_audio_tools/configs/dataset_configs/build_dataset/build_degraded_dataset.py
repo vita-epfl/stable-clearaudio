@@ -247,7 +247,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         
         # Save clean audio if requested
         if config.build_clean_dataset:
-            clean_path = Path(config.clean_output_dir) / f"{base_filename}_clean.wav"
+            clean_path = Path(config.clean_output_dir) / f"{base_filename}.wav"
             torchaudio.save(clean_path, audio, sr)
             LOG.debug(f"Saved clean audio to {clean_path}")
 

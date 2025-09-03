@@ -113,14 +113,17 @@ def generate_restoration(
 
         in_sr, degraded_audio = degraded_audio
 
-        if degraded_audio.dtype == np.float32:
-            degraded_audio = torch.from_numpy(degraded_audio)
-        elif degraded_audio.dtype == np.int16:
-            degraded_audio = torch.from_numpy(degraded_audio).float().div(32767)
-        elif degraded_audio.dtype == np.int32:
-            degraded_audio = torch.from_numpy(degraded_audio).float().div(2147483647)
-        else:
-            raise ValueError(f"Unsupported audio data type: {degraded_audio.dtype}")
+        if isinstance(degraded_audio, np.ndarray):
+            if degraded_audio.dtype == np.float32:
+                degraded_audio = torch.from_numpy(degraded_audio)
+            elif degraded_audio.dtype == np.int16:
+                degraded_audio = torch.from_numpy(degraded_audio).float().div(32767)
+            elif degraded_audio.dtype == np.int32:
+                degraded_audio = torch.from_numpy(degraded_audio).float().div(2147483647)
+            else:
+                raise ValueError(f"Unsupported audio data type: {degraded_audio.dtype}")
+        elif not isinstance(degraded_audio, torch.Tensor):
+            raise ValueError(f"Unsupported audio type: {type(degraded_audio)}")
 
         if model_half:
             degraded_audio = degraded_audio.to(torch.float16)
@@ -139,6 +142,7 @@ def generate_restoration(
         audio_length = degraded_audio.shape[-1]
 
         if audio_length > input_sample_size:
+            LOG.info(f"Truncating audio to match lengths: {audio_length} -> {input_sample_size}")
             degraded_audio = degraded_audio[:, :input_sample_size]
 
         if degraded_audio.shape[0] == 1:
@@ -150,14 +154,17 @@ def generate_restoration(
     if clean_audio is not None:
         in_sr, clean_audio = clean_audio
         
-        if clean_audio.dtype == np.float32:
-            clean_audio = torch.from_numpy(clean_audio)
-        elif clean_audio.dtype == np.int16:
-            clean_audio = torch.from_numpy(clean_audio).float().div(32767)
-        elif clean_audio.dtype == np.int32:
-            clean_audio = torch.from_numpy(clean_audio).float().div(2147483647)
-        else:
-            raise ValueError(f"Unsupported audio data type: {clean_audio.dtype}")
+        if isinstance(clean_audio, np.ndarray):
+            if clean_audio.dtype == np.float32:
+                clean_audio = torch.from_numpy(clean_audio)
+            elif clean_audio.dtype == np.int16:
+                clean_audio = torch.from_numpy(clean_audio).float().div(32767)
+            elif clean_audio.dtype == np.int32:
+                clean_audio = torch.from_numpy(clean_audio).float().div(2147483647)
+            else:
+                raise ValueError(f"Unsupported audio data type: {clean_audio.dtype}")
+        elif not isinstance(clean_audio, torch.Tensor):
+            raise ValueError(f"Unsupported audio type: {type(clean_audio)}")
 
         if model_half:
             clean_audio = clean_audio.to(torch.float16)
@@ -165,7 +172,22 @@ def generate_restoration(
         if clean_audio.dim() == 1:
             clean_audio = clean_audio.unsqueeze(0)
         elif clean_audio.dim() == 2:
-            clean_audio = clean_audio.transpose(0, 1)
+            # If shape is (time, channels) transpose to (channels, time). If already (channels, time), keep as is.
+            try:
+                LOG.debug(f"Clean audio tensor shape before channel/time fix: {tuple(clean_audio.shape)}")
+            except Exception:
+                pass
+            if clean_audio.shape[0] > clean_audio.shape[1]:
+                clean_audio = clean_audio.transpose(0, 1)
+                try:
+                    LOG.debug("Transposed clean audio from (time, channels) to (channels, time)")
+                except Exception:
+                    pass
+            else:
+                try:
+                    LOG.debug("Clean audio already (channels, time); no transpose")
+                except Exception:
+                    pass
 
         if in_sr != sample_rate:
             resample_tf = (
