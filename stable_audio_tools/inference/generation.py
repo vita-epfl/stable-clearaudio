@@ -430,7 +430,8 @@ def generate_diffusion_uncond_restoration(
 
     # Use autocast for mixed precision consistency
     with torch.amp.autocast("cuda"):
-        if model_type == "rectified_flow_uncond_restoration":
+        # if diffusion objective is rectified flow
+        if model.diffusion_objective == "rectified_flow":
             # Generate audio using rectified flow sampling
             LOG.debug(f"Starting rectified flow sampling for {steps} steps from t_start={t_start}.")
 
@@ -456,7 +457,7 @@ def generate_diffusion_uncond_restoration(
                     callback=callback,
                     **sampler_kwargs
                 )
-        elif model_type == "cold_diffusion_uncond_restoration":
+        elif model.diffusion_objective == "cold_diffusion":
             # Generate audio using sample_cold
             LOG.debug(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
 

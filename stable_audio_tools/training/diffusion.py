@@ -83,6 +83,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
             optimizer_configs: dict = None,
             pre_encoded: bool = False,
             model_type: str = 'diffusion_uncond',
+            diffusion_objective: str = 'v_prediction',
             build_degraded_args: dict = None,
             **kwargs
     ):
@@ -91,6 +92,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         self.diffusion = model
         self.model_type = model_type
         self.pre_encoded = pre_encoded
+        self.diffusion_objective = diffusion_objective
 
         if use_ema:
             self.diffusion_ema = EMA(
@@ -110,7 +112,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
 
         self.rng = torch.quasirandom.SobolEngine(1, scramble=True)
 
-        if self.model_type == 'cold_diffusion_uncond_restoration' or self.model_type == 'rectified_flow_uncond_restoration':
+        if self.model_type in ['diffusion_uncond_restoration', 'diffusion_uncond']:
             self.degradation_ops = []
             if build_degraded_args:
                 LOG.info("[UncondRestoration] Initializing degradation presets from dataset config")
@@ -246,7 +248,8 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         if not self.pre_encoded:
             loss_info["audio_reals"] = reals
 
-        if self.model_type == 'cold_diffusion_uncond_restoration':
+        # if diffusion objective is cold diffusion
+        if self.diffusion_objective == 'cold_diffusion':
             # Draw uniformly distributed continuous timesteps
             t = self.rng.draw(reals.shape[0])[:, 0].to(self.device)
 
@@ -282,7 +285,7 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 model_input = t_audio * degraded_reals + (1 - t_audio) * reals
                 targets = reals
             
-        elif self.model_type == 'rectified_flow_uncond_restoration':
+        elif self.diffusion_objective == 'rectified_flow':
             # Draw skewed timesteps for rectified flow (emphasizes higher t values)
             # p(t) = 0.5 * U(t) + 0.5 * t, where U(t) is uniform distribution
             # This is a 50/50 mixture of Uniform(0,1) and Beta(2,1) distributions
@@ -398,7 +401,8 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
         device = self.device
 
         # ---------------- Standard unconditional diffusion ---------------- #
-        if self.model_type != 'cold_diffusion_uncond_restoration' and self.model_type != 'rectified_flow_uncond_restoration':
+        # if diffusion is not cold diffusion or rectified flow
+        if self.diffusion_objective not in ["cold_diffusion", "rectified_flow"]:
             diffusion_input = reals
 
             # Apply pre-transform if present
@@ -453,12 +457,12 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 # Interpolate between clean and degraded latents to create model input
                 t_audio = t.view(-1, 1, 1)
 
-                if self.model_type == "rectified_flow_uncond_restoration":
+                if self.diffusion_objective == "rectified_flow":
                     model_input = (1 - t_audio) * degraded_latents + t_audio * clean_latents
 
                     # For flow matching, target is the velocity field (clean - degraded)
                     targets = clean_latents - degraded_latents
-                elif self.model_type == "cold_diffusion_uncond_restoration":
+                elif self.diffusion_objective == "cold_diffusion":
                     if self.diffusion.pretransform is not None:
                         model_input = t_audio * degraded_latents + (1 - t_audio) * clean_latents
                         targets = clean_latents
@@ -518,6 +522,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                  demo_steps=250,
                  sample_rate=44100,
                  model_type: str = 'diffusion_uncond',
+                 diffusion_objective: str = 'v_prediction',
                  sampler_type: str = 'euler',
                  **kwargs
     ):
@@ -530,6 +535,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
         self.sample_rate = sample_rate
         self.last_demo_step = -1
         self.model_type = model_type
+        self.diffusion_objective = diffusion_objective
         self.sampler_type = sampler_type
 
         self.demo_dl = kwargs.get("demo_dl", None)
@@ -599,7 +605,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
 
 
         with torch.amp.autocast("cuda"):
-            if self.model_type == 'cold_diffusion_uncond_restoration' or self.model_type == 'rectified_flow_uncond_restoration':
+            if self.model_type in ["diffusion_uncond_restoration", "diffusion_uncond"]:
                 LOG.debug("Generating demo for uncond restoration")
                 # For demos, we want to see how the model restores a degraded version of the clean audio
                 degradation_t = 1.0 # Start from fully degraded
@@ -614,7 +620,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                     op = op.to(module.device)
                     degraded_audio[i] = op.apply(original_audio_inputs[i], degradation_t, degradation_seed=degradation_seed)
 
-                if self.model_type=="cold_diffusion_uncond_restoration":
+                if self.diffusion_objective == "cold_diffusion": 
                     if module.diffusion.pretransform is not None:
                         degraded_latents = module.diffusion.pretransform.encode(degraded_audio)
                         # Generate the restored audio
@@ -637,7 +643,7 @@ class DiffusionUncondDemoCallback(pl.Callback):
                             t_start=degradation_t
                         )
 
-                elif self.model_type == "rectified_flow_uncond_restoration":
+                elif self.diffusion_objective == "rectified_flow":
                     if module.diffusion.pretransform is not None:
                         degraded_latents = module.diffusion.pretransform.encode(degraded_audio)
                         # Generate the restored audio using rectified flow sampling

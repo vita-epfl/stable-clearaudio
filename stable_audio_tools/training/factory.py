@@ -63,8 +63,10 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
             latent_mask_ratio=latent_mask_ratio,
             teacher_model=teacher_model
         )
-    elif model_type == 'cold_diffusion_uncond_restoration' or model_type == 'rectified_flow_uncond_restoration':
+    elif model_type in ['diffusion_uncond_restoration', 'diffusion_uncond']:
         from .diffusion import DiffusionUncondTrainingWrapper
+
+        diffusion_objective = model_config["model"]["diffusion"].get("diffusion_objective", "v_prediction")
 
         return DiffusionUncondTrainingWrapper(
             model, 
@@ -74,9 +76,10 @@ def create_training_wrapper_from_config(model_config, model, dataset_config=None
             optimizer_configs=training_config.get("optimizer_configs", None),
             pre_encoded=training_config.get("pre_encoded", False),
             model_type=model_type,
+            diffusion_objective=diffusion_objective,
             build_degraded_args=build_degraded_args
         )
-    elif model_type == 'diffusion_cond_restoration':
+    elif model_type in ['diffusion_cond_restoration', 'diffusion_cond_inpaint', 'diffusion_cond']:
         from .diffusion import DiffusionCondTrainingWrapper
         return DiffusionCondTrainingWrapper(
             model, 
@@ -207,7 +210,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
             sample_rate=model_config["sample_rate"],
             **kwargs
         )
-    elif model_type == "diffusion_cond_restoration":
+    elif model_type in ["diffusion_cond_restoration", "diffusion_cond_inpaint", "diffusion_cond"]:
         from .diffusion import DiffusionCondDemoCallback
 
         return DiffusionCondDemoCallback(
@@ -222,8 +225,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
             display_audio_cond=demo_config.get("display_audio_cond", False),
             cond_display_configs=demo_config.get("cond_display_configs", None)
         )
-    elif model_type == 'cold_diffusion_uncond_restoration' or model_type == 'rectified_flow_uncond_restoration':
-
+    elif model_type in ['diffusion_uncond_restoration', 'diffusion_uncond']:
         from .diffusion import DiffusionUncondDemoCallback
         return DiffusionUncondDemoCallback(
             demo_every=demo_config.get("demo_every", 2000), 
@@ -233,6 +235,7 @@ def create_demo_callback_from_config(model_config, **kwargs):
             demo_steps=demo_config.get("demo_steps", 250), 
             sample_rate=model_config["sample_rate"],
             model_type=model_type,
+            diffusion_objective=model_config["model"]["diffusion"].get("diffusion_objective", "v_prediction"),
             **kwargs
         )
     elif model_type == "diffusion_cond_inpaint":

@@ -8,10 +8,10 @@ def create_model_from_config(model_config):
     if model_type == 'autoencoder':
         from .autoencoders import create_autoencoder_from_config
         return create_autoencoder_from_config(model_config)
-    elif model_type == 'cold_diffusion_uncond_restoration' or model_type == 'rectified_flow_uncond_restoration':
+    elif model_type in ['diffusion_uncond_restoration', 'diffusion_uncond']:
         from .diffusion import create_diffusion_uncond_from_config
         return create_diffusion_uncond_from_config(model_config)
-    elif model_type == 'diffusion_cond_restoration':
+    elif model_type in ['diffusion_cond_restoration', 'diffusion_cond']:
         from .diffusion import create_diffusion_cond_from_config
         return create_diffusion_cond_from_config(model_config)
     elif model_type == 'diffusion_autoencoder':
