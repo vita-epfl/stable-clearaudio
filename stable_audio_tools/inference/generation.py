@@ -221,7 +221,6 @@ def generate_diffusion_uncond_restoration(
         callback = None,
         t_start: float = 1.0,
         schedule: str = "linear",
-        output_dir = None,
         metrics_every: int = 0,
         use_ema: bool = True,
         sampler_type: str = "euler",

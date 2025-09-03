@@ -4,6 +4,8 @@ import json
 import gradio as gr
 import logging
 import torchaudio
+import tempfile
+import subprocess
 from .restoration import generate_restoration
 import matplotlib
 matplotlib.use("Agg")
@@ -119,7 +121,7 @@ def process_folder_files(
         print(f"Processing: {degraded_audio_name}")
 
         # Run the restoration process
-        restored_audio, images_to_show, final_metrics = generate_restoration(
+        restored_audio_data, restored_sr, images_to_show, final_metrics = generate_restoration(
             degraded_audio=(sr, degraded_audio),
             steps=steps,
             sampler_type=sampler_type,
@@ -134,9 +136,9 @@ def process_folder_files(
             effects_list=effects_list,
             batch_size=batch_size,
             degraded_audio_filename=degraded_audio_name,
-            custom_output_dir=input_folder,
             t_start=t_start,
-            schedule=schedule
+            schedule=schedule,
+            save_metrics=False
         )
 
         # Separate metrics for degraded and restored audio
@@ -163,18 +165,14 @@ def process_folder_files(
 
         print(f"Metrics saved to {metrics_output_path}")
         
-        # Save the restored audio to the process folder if it's a string path
-        if isinstance(restored_audio, str) and os.path.exists(restored_audio):
-            # Full path for the restored audio in the process folder
+        # Save the restored audio to the process folder
+        if restored_audio_data is not None:
             restored_output_path = os.path.join(input_folder, restored_audio_name)
-            
             try:
-                # Copy the restored audio file to the process folder
-                import shutil
-                shutil.copy2(restored_audio, restored_output_path)
+                torchaudio.save(restored_output_path, restored_audio_data, restored_sr)
                 print(f"Restored audio saved to {restored_output_path}")
             except Exception as e:
-                print(f"Error saving restored audio to process folder: {e}")
+                print(f"Error saving restored audio: {e}")
 
     return "Processing complete. Metrics and restored audio saved in the folder."
 
@@ -344,6 +342,9 @@ def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metric
             filename_no_ext = os.path.splitext(filename)[0]
             labels.append(filename_no_ext)
 
+    # Create a temporary directory for the output files
+    temp_dir = tempfile.mkdtemp()
+
     all_metrics = []
     output_audios_list = []
     output_spectrograms_list = []
@@ -368,7 +369,7 @@ def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metric
             LOG.error(f"Error loading audio file {degraded_audio_path}: {str(e)}")
             continue
 
-        audio, spectrograms, metrics = generate_restoration(
+        audio_data, sr, spectrograms, metrics = generate_restoration(
             steps=steps,
             preview_every=preview_every,
             metrics_every=metrics_every,
@@ -387,7 +388,50 @@ def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metric
             schedule=schedule,
         )
         
-        new_filepath = audio
+        # Define output filenames
+        base_filename = os.path.splitext(os.path.basename(degraded_audio_path))[0]
+        output_wav = os.path.join(temp_dir, f"{base_filename}_restored.wav")
+        filename_extension = file_format.split(" ")[0].lower() if file_format else "wav"
+        output_filename = os.path.join(temp_dir, f"{base_filename}_restored.{filename_extension}")
+
+        # Save the restored audio
+        if audio_data is not None:
+            try:
+                torchaudio.save(output_wav, audio_data, sr)
+                LOG.debug(f"Saved WAV file to {output_wav}")
+            except Exception as e:
+                LOG.error(f"Error saving WAV file {output_wav}: {e}")
+                continue
+
+            # If file_format is other than wav, convert to other file format
+            if file_format and file_format != "wav":
+                cmd = ""
+                if file_format == "m4a aac_he_v2 32k":
+                    cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 32k -y "{output_filename}"'
+                elif file_format == "m4a aac_he_v2 64k":
+                    cmd = f'ffmpeg -i "{output_wav}" -c:a libfdk_aac -profile:a aac_he_v2 -b:a 64k -y "{output_filename}"'
+                elif file_format == "flac":
+                    cmd = f'ffmpeg -i "{output_wav}" -y "{output_filename}"'
+                elif file_format == "mp3 320k":
+                    cmd = f'ffmpeg -i "{output_wav}" -b:a 320k -y "{output_filename}"'
+                elif file_format == "mp3 v0":
+                    cmd = f'ffmpeg -i "{output_wav}" -q:a 0 -y "{output_filename}"'
+                elif file_format == "mp3 128k":
+                    cmd = f'ffmpeg -i "{output_wav}" -b:a 128k -y "{output_filename}"'
+                
+                if cmd:
+                    cmd += " -loglevel error"  # make output less verbose in the cmd window
+                    try:
+                        subprocess.run(cmd, shell=True, check=True)
+                        LOG.debug(f"Converted to {file_format} format: {output_filename}")
+                    except Exception as e:
+                        LOG.error(f"Error converting to {file_format}: {e}")
+                        new_filepath = output_wav # Fallback to wav
+                new_filepath = output_filename
+            else:
+                new_filepath = output_wav
+        else:
+            new_filepath = None
         
         all_metrics.append(metrics)
         output_audios_list.append(new_filepath)
