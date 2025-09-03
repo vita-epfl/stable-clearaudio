@@ -57,6 +57,7 @@ class BuildDatasetConfig:
     sox_noises_dir: str
     low_quality_effects_dir: str
     build_clean_dataset: bool
+    save_data: bool
     duration: float
     num_files: int
     degradation_presets: List[str] = field(default_factory=list)
@@ -211,15 +212,32 @@ def build_degraded_dataset(config: BuildDatasetConfig):
             continue
         
         degraded_audio = degraded_result["degraded_audio"]
-        
+        degradation_presets_content = degraded_result["degradation_presets_content"]
+
         # Generate output filenames
         base_filename = file_path.stem
-        output_filename = f"{base_filename}_degraded_{'_'.join(config.degradation_presets)}.wav"
+        degraded_audio_name = f"{base_filename}_degraded.wav"
         
         # Save degraded audio
-        degraded_path = Path(config.degraded_output_dir) / output_filename
+        degraded_path = Path(config.degraded_output_dir) / degraded_audio_name
         torchaudio.save(degraded_path, degraded_audio, sr)
         LOG.debug(f"Saved degraded audio to {degraded_path}")
+
+        # Save metadata if requested
+        if config.save_data:
+            metadata = {
+                "duration": info["seconds_total"],
+                "clean_audio_name": file_path.name,
+                "degraded_audio_name": degraded_audio_name,
+                "restored_audio_name": f"{base_filename}_restored.wav",
+                "restoration_metrics_name": f"{base_filename}_metrics.json",
+                "degradation_presets_content": degradation_presets_content
+            }
+            metadata_filename = f"{base_filename}_data.json"
+            metadata_path = Path(config.degraded_output_dir) / metadata_filename
+            with open(metadata_path, 'w') as f:
+                json.dump(metadata, f, indent=4)
+            LOG.debug(f"Saved metadata to {metadata_path}")
 
         if config.generate_visualizations:
             # Generate frequency visualization for degraded audio

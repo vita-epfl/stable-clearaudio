@@ -5,6 +5,7 @@ import os
 import random
 from pathlib import Path
 from stable_audio_tools.transforms import signal
+import yaml
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.StreamHandler())
@@ -40,7 +41,7 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
         dict: Dictionary containing the degraded audio data
     """
 
-    degradation_presets = build_degraded_args.get("degradation_presets", None)
+    degradation_preset_names = build_degraded_args.get("degradation_presets", None)
     low_quality_effects_dir = build_degraded_args.get("low_quality_effects_dir", None)
 
     # Get the absolute path of the low quality effects directory
@@ -57,9 +58,9 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
 
 
     preset_dir = os.path.join(low_quality_effects_dir)
-    degradation_presets = build_degraded_args.get("degradation_presets", None)
+    degradation_presets_content = []
 
-    for preset_name in degradation_presets:
+    for preset_name in degradation_preset_names:
         # Check if preset_name exists in low_quality_effects_dir
         preset_files = [os.path.splitext(f)[0] for f in os.listdir(preset_dir)]
         if preset_name not in preset_files:
@@ -78,9 +79,14 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
             preset_path
         )
 
+        # Load degradation presets
+        with open(preset_path, 'r') as f:
+            degradation_presets_content.append(yaml.safe_load(f))
+
     # Return the degraded audio data
     return {
-        "degraded_audio": audio
+        "degraded_audio": audio,
+        "degradation_presets_content": degradation_presets_content
     } 
 
 def get_metadata_from_local(info, audio):

@@ -1,13 +1,14 @@
 {
     "dataset_path": "/home/alefevre/programs/stable-clearaudio/audios/clean_audios/maestro_full_valid",
-    "degraded_output_dir": "/home/alefevre/programs/stable-clearaudio/audios/output/degraded",
-    "clean_output_dir": "/home/alefevre/programs/stable-clearaudio/audios/output/clean",
+    "degraded_output_dir": "/home/alefevre/programs/stable-clearaudio/audios/output",
+    "clean_output_dir": "/home/alefevre/programs/stable-clearaudio/audios/output",
     "sox_noises_dir": "/home/alefevre/datasets/audio_effects/sox_noises",
     "low_quality_effects_dir": "/home/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/low_quality_effect",
     "build_clean_dataset": true,
     "duration": 5,
-    "num_files": 10,
+    "num_files": 1,
     "degradation_presets": ["intense_equalizer_ranges"],
     "generate_visualizations": false,
-    "empty_output_dir": true
+    "empty_output_dir": true,
+    "save_data": true
 }
