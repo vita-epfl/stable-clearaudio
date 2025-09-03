@@ -326,7 +326,7 @@ def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metric
     if process_folder_path and os.path.isdir(process_folder_path):
         process_folder_files(
             process_folder_path, model_name, steps, sampler_type, sigma_min, sigma_max, rho, cfg_rescale,
-            preview_every, file_format, batch_size, t_start, schedule, metrics_every, effects_list=effects_list,
+            preview_every, file_format, batch_size, t_start, schedule, metrics_every=steps, effects_list=effects_list,
             progress=progress
         )
         # Return empty lists instead of None to allow proper unpacking
