@@ -510,21 +510,21 @@ def generate_diffusion_uncond_restoration(
             if not k.startswith('clean_'):
                 all_metrics[k].append(v)
 
-    if output_dir and clean_audio is not None:
-        try:
-            # Save clean audio
-            clean_audio_filename = os.path.join(output_dir, "clean_audio.wav")
-            clean_audio_save = rearrange(clean_audio_tensor, 'b d n -> d (b n)').to(torch.float32).clamp(-1, 1).mul(32767).to(torch.int16).cpu()
-            torchaudio.save(clean_audio_filename, clean_audio_save, sample_rate)
-            LOG.debug(f"Clean audio saved to {clean_audio_filename}")
+    # if output_dir and clean_audio is not None:
+    #     try:
+    #         # Save clean audio
+    #         clean_audio_filename = os.path.join(output_dir, "clean_audio.wav")
+    #         clean_audio_save = rearrange(clean_audio_tensor, 'b d n -> d (b n)').to(torch.float32).clamp(-1, 1).mul(32767).to(torch.int16).cpu()
+    #         torchaudio.save(clean_audio_filename, clean_audio_save, sample_rate)
+    #         LOG.debug(f"Clean audio saved to {clean_audio_filename}")
 
-            # Save degraded audio
-            degraded_audio_filename = os.path.join(output_dir, "degraded_audio.wav")
-            degraded_audio_save = rearrange(degraded_audio_tensor, 'b d n -> d (b n)').to(torch.float32).clamp(-1, 1).mul(32767).to(torch.int16).cpu()
-            torchaudio.save(degraded_audio_filename, degraded_audio_save, sample_rate)
-            LOG.debug(f"Degraded audio saved to {degraded_audio_filename}")
-        except Exception as e:
-            LOG.warning(f"Failed to save audio files: {e}")
+    #         # Save degraded audio
+    #         degraded_audio_filename = os.path.join(output_dir, "degraded_audio.wav")
+    #         degraded_audio_save = rearrange(degraded_audio_tensor, 'b d n -> d (b n)').to(torch.float32).clamp(-1, 1).mul(32767).to(torch.int16).cpu()
+    #         torchaudio.save(degraded_audio_filename, degraded_audio_save, sample_rate)
+    #         LOG.debug(f"Degraded audio saved to {degraded_audio_filename}")
+    #     except Exception as e:
+    #         LOG.warning(f"Failed to save audio files: {e}")
 
 
     # Log the keys and types in all_metrics before returning
