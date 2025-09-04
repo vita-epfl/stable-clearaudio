@@ -221,8 +221,8 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         base_filename = file_path.stem
         # Create a sanitized version of the base filename for degraded/restored files
         sanitized_base_filename = base_filename
-        # Remove "MIDI-Unprocessed_" prefix and limit to 25 characters
-        if sanitized_base_filename.startswith("MIDI-Unprocessed_"):
+        # Remove "MIDI-Unprocessed_" prefix and limit to 25 characters (case-insensitive)
+        if sanitized_base_filename.lower().startswith("midi-unprocessed_"):
             sanitized_base_filename = sanitized_base_filename[len("MIDI-Unprocessed_"):]
         sanitized_base_filename = sanitized_base_filename[:25]
 
