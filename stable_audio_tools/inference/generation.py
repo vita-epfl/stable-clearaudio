@@ -245,7 +245,7 @@ def generate_diffusion_uncond_restoration(
         metrics_every (int): The number of steps between each metric calculation. If 0, metrics are only calculated at the end.
         **sampler_kwargs: Additional arguments for the sampler.
     """
-    LOG.info("Starting audio generation with cold diffusion unconditional restoration")
+    LOG.info("Starting unconditional restoration")
 
     # Set model to eval mode for consistent results
     model.eval()

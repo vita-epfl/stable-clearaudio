@@ -214,9 +214,19 @@ def build_degraded_dataset(config: BuildDatasetConfig):
         degraded_audio = degraded_result["degraded_audio"]
         degradation_presets_content = degraded_result["degradation_presets_content"]
 
+        # Generate a string from the degradation presets to use in filenames
+        degradation_str = "_" + "_".join(config.degradation_presets) if config.degradation_presets else ""
+
         # Generate output filenames
         base_filename = file_path.stem
-        degraded_audio_name = f"{base_filename}_degraded.wav"
+        # Create a sanitized version of the base filename for degraded/restored files
+        sanitized_base_filename = base_filename
+        # Remove "MIDI-Unprocessed_" prefix and limit to 25 characters
+        if sanitized_base_filename.startswith("MIDI-Unprocessed_"):
+            sanitized_base_filename = sanitized_base_filename[len("MIDI-Unprocessed_"):]
+        sanitized_base_filename = sanitized_base_filename[:25]
+
+        degraded_audio_name = f"{sanitized_base_filename}{degradation_str}_degraded.wav"
         
         # Save degraded audio
         degraded_path = Path(config.degraded_output_dir) / degraded_audio_name
@@ -225,15 +235,19 @@ def build_degraded_dataset(config: BuildDatasetConfig):
 
         # Save metadata if requested
         if config.save_data:
+            restored_audio_name = f"{sanitized_base_filename}{degradation_str}_restored.wav"
+            restoration_metrics_name = f"{sanitized_base_filename}{degradation_str}_metrics.json"
+            metadata_filename = f"{sanitized_base_filename}{degradation_str}_data.json"
+
             metadata = {
                 "duration": info["seconds_total"],
                 "clean_audio_name": file_path.name,
                 "degraded_audio_name": degraded_audio_name,
-                "restored_audio_name": f"{base_filename}_restored.wav",
-                "restoration_metrics_name": f"{base_filename}_metrics.json",
+                "restored_audio_name": restored_audio_name,
+                "restoration_metrics_name": restoration_metrics_name,
                 "degradation_presets_content": degradation_presets_content
             }
-            metadata_filename = f"{base_filename}_data.json"
+            
             metadata_path = Path(config.degraded_output_dir) / metadata_filename
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=4)
@@ -241,7 +255,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
 
         if config.generate_visualizations:
             # Generate frequency visualization for degraded audio
-            degraded_viz_path = degraded_path.parent / f"{base_filename}_degraded_freq_analysis.png"
+            degraded_viz_path = degraded_path.parent / f"{sanitized_base_filename}_degraded_freq_analysis.png"
             generate_frequency_visualization(degraded_audio, sr, degraded_viz_path)
             LOG.debug(f"Saved degraded frequency visualization to {degraded_viz_path}")
         
@@ -258,7 +272,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
                 LOG.debug(f"Saved clean frequency visualization to {clean_viz_path}")
                 
                 # Generate comparative frequency visualization between clean and degraded audio
-                comparison_path = degraded_path.parent / f"{base_filename}_freq_comparison.png"
+                comparison_path = degraded_path.parent / f"{sanitized_base_filename}_freq_comparison.png"
                 generate_comparative_visualization(audio, degraded_audio, sr, comparison_path)
                 LOG.debug(f"Saved comparative frequency visualization to {comparison_path}")
 
