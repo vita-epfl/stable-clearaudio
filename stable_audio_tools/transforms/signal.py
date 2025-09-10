@@ -167,9 +167,9 @@ class ColdDiffusionSoxTransform(nn.Module):
         self.effects_template = effects_template
         self.sample_rate = sample_rate
         self.random_config = random_config or {}
-        LOG.debug(f"[ColdDiffusion] Initialized transform '{name}' with {len(effects_template)} effects at {sample_rate}Hz")
+        LOG.debug(f"Initialized transform '{name}' with {len(effects_template)} effects at {sample_rate}Hz")
         if len(effects_template) > 0:
-            LOG.debug(f"[ColdDiffusion] Effects template: {effects_template}")
+            LOG.debug(f"Effects template: {effects_template}")
 
     @classmethod
     def from_sox_transform(cls, sox_transform, name, sample_rate):
@@ -185,7 +185,7 @@ class ColdDiffusionSoxTransform(nn.Module):
         Returns:
             A ColdDiffusionSoxTransform that wraps the effects from the SoxEffectTransform
         """
-        LOG.debug(f"[ColdDiffusion] Creating from SoxEffectTransform: {name}")
+        LOG.debug(f"Creating from SoxEffectTransform: {name}")
         
         # Convert SoxEffectTransform effects to template for ColdDiffusionSoxTransform
         effects_template = []
@@ -198,9 +198,9 @@ class ColdDiffusionSoxTransform(nn.Module):
                         'args': effect[1:] if len(effect) > 1 else []
                     }
                     effects_template.append(effect_dict)
-                    LOG.debug(f"[ColdDiffusion] Added effect: {effect_dict}")
+                    LOG.debug(f"Added effect: {effect_dict}")
         
-        LOG.debug(f"[ColdDiffusion] Created template with {len(effects_template)} effects")
+        LOG.debug(f"Created template with {len(effects_template)} effects")
         return cls(name, effects_template, sample_rate)
     
     @classmethod
@@ -223,12 +223,12 @@ class ColdDiffusionSoxTransform(nn.Module):
         try:
             # Check if it's already a complete path
             if os.path.exists(preset_path):
-                LOG.debug(f"[ColdDiffusion] Loading preset from direct path: {preset_path}")
+                LOG.debug(f"Loading preset from direct path: {preset_path}")
                 preset_full_path = preset_path
             else:
                 # Check if it's a preset name without extension
                 if not preset_path.endswith(".yaml"):
-                    LOG.debug(f"[ColdDiffusion] Adding .yaml extension to: {preset_path}")
+                    LOG.debug(f"Adding .yaml extension to: {preset_path}")
                     preset_with_ext = preset_path + ".yaml"
                 else:
                     preset_with_ext = preset_path
@@ -262,14 +262,14 @@ class ColdDiffusionSoxTransform(nn.Module):
                     potential_path = os.path.join(potential_dir, preset_name)
                     if os.path.exists(potential_path):
                         preset_full_path = potential_path
-                        LOG.debug(f"[ColdDiffusion] Found preset at: {preset_full_path}")
+                        LOG.debug(f"Found preset at: {preset_full_path}")
                         break
                 
                 if preset_full_path is None:
-                    LOG.error(f"[ColdDiffusion] Preset file not found anywhere: {preset_path}")
+                    LOG.error(f"Preset file not found anywhere: {preset_path}")
                     return cls(f"invalid_preset_{os.path.basename(preset_path)}", [], sample_rate, seed=seed)
             
-            LOG.debug(f"[ColdDiffusion] Loading preset from {preset_full_path}")
+            LOG.debug(f"Loading preset from {preset_full_path}")
             preset_data = load_yaml_config(preset_full_path)
             
             effects_template = []
@@ -277,14 +277,14 @@ class ColdDiffusionSoxTransform(nn.Module):
                 for effect in preset_data["effects"]:
                     if "name" in effect:
                         effects_template.append(effect)
-                LOG.debug(f"[ColdDiffusion] Loaded {len(effects_template)} effects from preset")
+                LOG.debug(f"Loaded {len(effects_template)} effects from preset")
             else:
-                LOG.warning(f"[ColdDiffusion] No 'effects' found in preset {preset_full_path}")
+                LOG.warning(f"No 'effects' found in preset {preset_full_path}")
 
             # Extract randomization config
             random_config = {}
             if preset_data.get("randomise_effects", False):
-                LOG.debug("[ColdDiffusion] Randomization is enabled for this preset.")
+                LOG.debug("Randomization is enabled for this preset.")
                 random_config['randomise'] = True
                 random_config['min_effects'] = preset_data.get("min_effects", 1)
                 random_config['max_effects'] = preset_data.get("max_effects", len(effects_template))
@@ -296,7 +296,7 @@ class ColdDiffusionSoxTransform(nn.Module):
 
             return cls(os.path.basename(preset_path), effects_template, sample_rate, random_config=random_config)
         except Exception as e:
-            LOG.error(f"[ColdDiffusion] Error loading preset {preset_path}: {str(e)}")
+            LOG.error(f"Error loading preset {preset_path}: {str(e)}")
             import traceback
             LOG.error(traceback.format_exc())
             return cls(f"error_preset_{os.path.basename(preset_path)}", [], sample_rate)
@@ -307,13 +307,13 @@ class ColdDiffusionSoxTransform(nn.Module):
             try:
                 start, end = float(value[0]), float(value[1])
                 interpolated = start + t * (end - start)
-                LOG.debug(f"[ColdDiffusion] Interpolated value [{start}, {end}] at t={t:.4f} -> {interpolated:.4f}")
+                LOG.debug(f"Interpolated value [{start}, {end}] at t={t:.4f} -> {interpolated:.4f}")
                 return interpolated
             except (ValueError, TypeError) as e:
-                LOG.debug(f"[ColdDiffusion] Failed to interpolate {value}: {str(e)}")
+                LOG.debug(f"Failed to interpolate {value}: {str(e)}")
                 return value
         else:
-            LOG.debug(f"[ColdDiffusion] Using constant value {value} (not interpolatable)")
+            LOG.debug(f"Using constant value {value} (not interpolatable)")
             return value
 
     def apply(self, audio_tensor: torch.Tensor, t: float, degradation_seed: int = None) -> torch.Tensor:
@@ -321,14 +321,14 @@ class ColdDiffusionSoxTransform(nn.Module):
         Builds the effects chain with interpolated parameters for a given timestep 't'
         and applies it to the audio tensor.
         """
-        LOG.debug(f"[ColdDiffusion] Applying effects with timestep t={t:.4f} to tensor shape={audio_tensor.shape}")
+        LOG.debug(f"Applying effects with timestep t={t:.4f} to tensor shape={audio_tensor.shape}")
 
         if degradation_seed is not None:
             np.random.seed(degradation_seed) # Ensure deterministic degradation
-            LOG.debug(f"[ColdDiffusion] Applied seed {degradation_seed} for deterministic degradation.")
+            LOG.debug(f"Applied seed {degradation_seed} for deterministic degradation.")
         
         if not self.effects_template:
-            LOG.warning(f"[ColdDiffusion] No effects template found for {self.name}")
+            LOG.warning(f"No effects template found for {self.name}")
             return audio_tensor
 
         selected_effects = []
@@ -351,7 +351,7 @@ class ColdDiffusionSoxTransform(nn.Module):
                 replace=False, # No duplicates
                 p=self.random_config['weights']
             )
-            LOG.debug(f"[ColdDiffusion] Randomly selected {len(selected_effects)} effects to apply.")
+            LOG.debug(f"Randomly selected {len(selected_effects)} effects to apply.")
         else:
             # If not randomizing, use all effects from the template
             selected_effects = self.effects_template
@@ -365,20 +365,20 @@ class ColdDiffusionSoxTransform(nn.Module):
             generated_effects = SoxEffectTransform._generate_effects_from_template(effect_template, t)
             for effect_parts in generated_effects:
                 temp_transform.add_effect(effect_parts)
-            LOG.debug(f"[ColdDiffusion] Adding interpolated effect: {generated_effects}")
+            LOG.debug(f"Adding interpolated effect: {generated_effects}")
 
 
         if not temp_transform.effects:
-            LOG.warning(f"[ColdDiffusion] No effects generated from template for t={t:.4f}")
+            LOG.warning(f"No effects generated from template for t={t:.4f}")
             return audio_tensor
         
         device = audio_tensor.device
-        LOG.debug(f"[ColdDiffusion] Original audio - device: {device}, shape: {audio_tensor.shape}, min: {audio_tensor.min():.4f}, max: {audio_tensor.max():.4f}")
+        LOG.debug(f"Original audio - device: {device}, shape: {audio_tensor.shape}, min: {audio_tensor.min():.4f}, max: {audio_tensor.max():.4f}")
         
         # Handle both batched (3D) and non-batched (2D) tensors
         is_batched = audio_tensor.dim() == 3
         if not is_batched and audio_tensor.dim() != 2:
-            LOG.error(f"[ColdDiffusion] Unsupported tensor shape: {audio_tensor.shape}. Expected 2D or 3D tensor.")
+            LOG.error(f"Unsupported tensor shape: {audio_tensor.shape}. Expected 2D or 3D tensor.")
             return audio_tensor
 
         # Uniformly handle batched and non-batched by iterating
@@ -387,7 +387,7 @@ class ColdDiffusionSoxTransform(nn.Module):
 
         for i, sample_in in enumerate(input_tensors):
             try:
-                LOG.debug(f"[ColdDiffusion] Applying effects to sample {i} with shape {sample_in.shape}: {temp_transform.effects}")
+                LOG.debug(f"Applying effects to sample {i} with shape {sample_in.shape}: {temp_transform.effects}")
                 
                 # Move tensor to CPU for SoX processing
                 audio_tensor_cpu = sample_in.to('cpu', dtype=torch.float32)
@@ -395,15 +395,15 @@ class ColdDiffusionSoxTransform(nn.Module):
                 
                 # Move back to original device
                 processed_audio = processed_audio.to(device)
-                LOG.debug(f"[ColdDiffusion] After SoX for sample {i} - shape: {processed_audio.shape}, sr: {out_sr}")
+                LOG.debug(f"After SoX for sample {i} - shape: {processed_audio.shape}, sr: {out_sr}")
 
                 # Verify and fix shape if necessary
                 if processed_audio.shape != sample_in.shape:
-                    LOG.warning(f"[ColdDiffusion] Shape mismatch for sample {i}: input={sample_in.shape}, output={processed_audio.shape}")
+                    LOG.warning(f"Shape mismatch for sample {i}: input={sample_in.shape}, output={processed_audio.shape}")
                     
                     # Adjust channel count
                     if processed_audio.shape[0] != sample_in.shape[0]:
-                        LOG.debug(f"[ColdDiffusion] Fixing channel count for sample {i}: {processed_audio.shape[0]} -> {sample_in.shape[0]}")
+                        LOG.debug(f"Fixing channel count for sample {i}: {processed_audio.shape[0]} -> {sample_in.shape[0]}")
                         if processed_audio.shape[0] == 1 and sample_in.shape[0] > 1:
                             processed_audio = processed_audio.repeat(sample_in.shape[0], 1)
                         else: # Collapse to mono and repeat
@@ -411,20 +411,20 @@ class ColdDiffusionSoxTransform(nn.Module):
                     
                     # Adjust length
                     if processed_audio.shape[1] != sample_in.shape[1]:
-                        LOG.debug(f"[ColdDiffusion] Fixing audio length for sample {i}: {processed_audio.shape[1]} -> {sample_in.shape[1]}")
+                        LOG.debug(f"Fixing audio length for sample {i}: {processed_audio.shape[1]} -> {sample_in.shape[1]}")
                         processed_audio = F.interpolate(processed_audio.unsqueeze(0), size=sample_in.shape[1], mode='linear', align_corners=False).squeeze(0)
 
                 processed_samples.append(processed_audio)
 
             except Exception as e:
-                LOG.error(f"[ColdDiffusion] SoX effect application failed on sample {i}: {e}")
-                LOG.error(f"[ColdDiffusion] Traceback (most recent call last):\n{traceback.format_exc()}")
+                LOG.error(f"SoX effect application failed on sample {i}: {e}")
+                LOG.error(f"Traceback (most recent call last):\n{traceback.format_exc()}")
                 # In case of error, append the original sample to avoid crashing
                 processed_samples.append(sample_in)
         
         # Stack the processed samples back into a single tensor
         if not processed_samples:
-            LOG.warning("[ColdDiffusion] No samples were processed.")
+            LOG.warning("No samples were processed.")
             return audio_tensor
             
         output_tensor = torch.stack(processed_samples)
