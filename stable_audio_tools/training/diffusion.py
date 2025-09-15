@@ -285,6 +285,20 @@ class DiffusionUncondTrainingWrapper(pl.LightningModule):
                 model_input = t_audio * degraded_reals + (1 - t_audio) * reals
                 targets = reals
             
+            loss_info["reals"] = targets
+
+            # The "diffusion_input" is the clean latent, for logging purposes
+            diffusion_input = targets
+
+            with torch.amp.autocast('cuda'):
+                output = self.diffusion(model_input, t)
+                loss_info.update({
+                    "output": output,
+                    "targets": targets,
+                    "t": t
+                })
+                loss, losses = self.losses(loss_info)
+            
         elif self.diffusion_objective == 'rectified_flow':
             # Draw skewed timesteps for rectified flow (emphasizes higher t values)
             # p(t) = 0.5 * U(t) + 0.5 * t, where U(t) is uniform distribution
