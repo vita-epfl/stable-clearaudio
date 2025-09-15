@@ -1,13 +1,13 @@
 {
     "dataset_path": "/home/alefevre/programs/stable-clearaudio/audios/clean_audios/maestro_full_valid",
-    "degraded_output_dir": "/home/alefevre/programs/stable-clearaudio/audios/output/sc-rf-latent-eq-ranges-ep3000-step6000_unwrapped",
-    "clean_output_dir": "/home/alefevre/programs/stable-clearaudio/audios/output/sc-rf-latent-eq-ranges-ep3000-step6000_unwrapped",
+    "degraded_output_dir": "/home/alefevre/programs/stable-clearaudio/audios/output/sc-rf-latent-eq-bass-overdrive-ranges-ep2000-step4000_unwrapped",
+    "clean_output_dir": "/home/alefevre/programs/stable-clearaudio/audios/output/sc-rf-latent-eq-bass-overdrive-ranges-ep2000-step4000_unwrapped",
     "sox_noises_dir": "/home/alefevre/datasets/audio_effects/sox_noises",
     "low_quality_effects_dir": "/home/alefevre/programs/stable-clearaudio/stable_audio_tools/configs/dataset_configs/low_quality_effect",
     "build_clean_dataset": true,
     "duration": 5,
-    "num_files": 1,
-    "degradation_presets": ["intense_equalizer_ranges"],
+    "num_files": 8,
+    "degradation_presets": ["eq_bass_overdrive_ranges"],
     "generate_visualizations": false,
     "empty_output_dir": true,
     "save_data": true
