@@ -21,6 +21,10 @@ def set_audio_channels(audio, target_channels):
 def prepare_audio(audio, in_sr, target_sr, target_length, target_channels, device):
     
     audio = audio.to(device)
+    
+    # Fix tensor shape if it's [samples, channels] instead of [channels, samples]
+    if audio.dim() == 2 and audio.shape[0] > audio.shape[1] and audio.shape[1] <= 2:
+        audio = audio.transpose(0, 1)
 
     if in_sr != target_sr:
         resample_tf = T.Resample(in_sr, target_sr).to(device).to(audio.dtype)
