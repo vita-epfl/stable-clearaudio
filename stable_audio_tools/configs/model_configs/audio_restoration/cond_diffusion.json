@@ -55,7 +55,7 @@
             "cond_dim": 128
         },
         "diffusion": {
-            "diffusion_objective": "standard_diffusion",
+            "diffusion_objective": "rectified_flow",
             "input_concat_ids": ["degraded_audio"],
             "type": "dit",
             "config": {
