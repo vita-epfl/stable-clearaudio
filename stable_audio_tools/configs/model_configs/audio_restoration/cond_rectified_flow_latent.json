@@ -73,6 +73,7 @@
         "io_channels": 64
     },
     "training": {
+        "find_unused_parameters": true,
         "use_ema": true,
         "log_loss_info": false,
         "optimizer_configs": {
