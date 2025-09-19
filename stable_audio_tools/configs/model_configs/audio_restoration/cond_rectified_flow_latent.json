@@ -1,11 +1,10 @@
 {
-    "model_type": "diffusion_uncond_restoration",
+    "model_type": "diffusion_cond_restoration",
     "sample_size": 220500,
     "sample_rate": 44100,
     "audio_channels": 2,
-    "max_epochs": 650,
+    "max_epochs": 1000,
     "model": {
-        "type": "dit",
         "pretransform": {
             "type": "autoencoder",
             "iterate_batch": true,
@@ -41,14 +40,32 @@
                 "io_channels": 2
             }
         },
+        "conditioning": {
+            "configs": [
+                {
+                    "id": "degraded_audio",
+                    "type": "pretransform",
+                    "config": {
+                        "output_dim": 64,
+                        "sample_rate": 44100,
+                        "use_model_pretransform": true
+                    }
+                }
+            ],
+            "cond_dim": 128
+        },
         "diffusion": {
-            "diffusion_objective": "cold_diffusion",
+            "diffusion_objective": "rectified_flow",
+            "input_concat_ids": ["degraded_audio"],
             "type": "dit",
             "config": {
+                "input_concat_dim": 64,
                 "io_channels": 64,
                 "embed_dim": 1536,
                 "depth": 24,
                 "num_heads": 24,
+                "cond_token_dim": 64,
+                "global_cond_dim": 1536,
                 "project_cond_tokens": false,
                 "transformer_type": "continuous_transformer"
             }
@@ -56,6 +73,7 @@
         "io_channels": 64
     },
     "training": {
+        "find_unused_parameters": true,
         "use_ema": true,
         "log_loss_info": false,
         "optimizer_configs": {
@@ -63,25 +81,26 @@
                 "optimizer": {
                     "type": "AdamW",
                     "config": {
-                        "lr": 5e-5,
-                        "betas": [0.9, 0.999],
-                        "weight_decay": 1e-3
+                        "lr": 3e-5,
+                        "betas": [0.9, 0.95],
+                        "weight_decay": 1e-8
                     }
                 },
                 "scheduler": {
                     "type": "InverseLR",
                     "config": {
-                        "inv_gamma": 1000000,
-                        "power": 0.5,
-                        "warmup": 0.99
+                        "inv_gamma": 2000000,
+                        "power": 0.75,
+                        "warmup": 0.95
                     }
                 }
             }
         },
         "demo": {
-            "demo_every": 16,
-            "demo_steps": 5,
-            "num_demos": 1
+            "demo_every": 150,
+            "demo_steps": 10,
+            "num_demos": 1,
+            "demo_cfg_scales": [1]
         }
     }
 }

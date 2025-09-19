@@ -192,7 +192,10 @@ def main():
         else:
             strategy = args.strategy
     else:
-        strategy = 'ddp_find_unused_parameters_true' if args.num_gpus > 1 else "auto"
+        # Default to ddp_find_unused_parameters_true when multiple GPUs are available
+        # as this is a common requirement for complex models.
+        # The trainer will automatically detect the number of GPUs.
+        strategy = 'ddp_find_unused_parameters_true'
 
     # Manually load checkpoint if path is provided, bypassing Lightning's loader
     if args.ckpt_path:
