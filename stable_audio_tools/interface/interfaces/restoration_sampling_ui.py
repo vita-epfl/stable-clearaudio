@@ -498,6 +498,15 @@ def create_uncond_restoration_sampling_ui():
 
             with gr.Accordion("Sampler params", open=False):
                 with gr.Row():
+                    cfg_rescale_slider = gr.Slider(
+                        minimum=0.0,
+                        maximum=1,
+                        step=0.01,
+                        value=0.0,
+                        label="CFG rescale amount",
+                    )
+
+                with gr.Row():
                     # Sampler params
                     if is_rf:
                         sampler_types = ["euler", "rk4"]
@@ -519,6 +528,30 @@ def create_uncond_restoration_sampling_ui():
                         default_sampler_type = "dpmpp-3m-sde"
                     sampler_type_dropdown = gr.Dropdown(
                         sampler_types, label="Sampler type", value=default_sampler_type
+                    )
+                    sigma_min_slider = gr.Slider(
+                        minimum=0.0,
+                        maximum=2.0,
+                        step=0.01,
+                        value=0.01,
+                        label="Sigma min",
+                        visible=not is_rf,
+                    )
+                    sigma_max_slider = gr.Slider(
+                        minimum=0.0,
+                        maximum=1000.0,
+                        step=0.1,
+                        value=100,
+                        label="Sigma max",
+                        visible=not is_rf,
+                    )
+                    rho_slider = gr.Slider(
+                        minimum=0.0,
+                        maximum=10.0,
+                        step=0.01,
+                        value=1.0,
+                        label="Sigma curve strength",
+                        visible=not is_rf,
                     )
 
             with gr.Accordion("Output params", open=False):
@@ -629,6 +662,10 @@ def create_uncond_restoration_sampling_ui():
                 process_folder_path,
                 model_name,
                 effects_list,
+                sigma_min_slider,
+                sigma_max_slider,
+                rho_slider,
+                cfg_rescale_slider,
                 file_format_dropdown,
                 batch_size_slider,
             ]            
@@ -673,6 +710,7 @@ def create_uncond_restoration_sampling_ui():
     )
 
 def create_cond_restoration_sampling_ui():
+    print("Creating cond restoration sampling ui")
     global model, sample_rate, model_type, model_half
 
     diffusion_objective = getattr(model, 'diffusion_objective', None)
@@ -685,11 +723,18 @@ def create_cond_restoration_sampling_ui():
     with gr.Row(equal_height=False):
         with gr.Column():
             with gr.Row():
-                # Steps slider
-                default_steps = 30
-                steps_slider = gr.Slider(
-                    minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
-                )
+                with gr.Column(scale=2/3):
+                    # Steps slider
+                    default_steps = 30
+                    steps_slider = gr.Slider(
+                        minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
+                    )
+
+                
+                with gr.Column(scale=1/3):
+                    batch_size_slider = gr.Slider(
+                        minimum=1, maximum=16, step=1, value=1, label="Batch size"
+                    )
 
             with gr.Accordion("Sampler params", open=False):
                 with gr.Row():
@@ -775,9 +820,32 @@ def create_cond_restoration_sampling_ui():
                         minimum=0,
                         maximum=100,
                         step=1,
-                        value=1,
+                        value=10,
                         label="Compute Metrics Every N Steps"
                     )
+            
+            # Hidden cold diffusion parameters for conditional models (not used but needed for unified inputs)
+            t_start_slider = gr.Slider(
+                label="T start",
+                minimum=0.0,
+                maximum=1.0,
+                step=0.01,
+                value=1.0,
+                visible=False,
+            )
+            schedule_dropdown = gr.Dropdown(
+                [
+                    "linear",
+                    "cosine",
+                    "squaredcos_cap0",
+                    "squaredcos_cap1",
+                    "sigmoid",
+                ],
+                label="Schedule",
+                value="linear",
+                visible=False,
+            )
+            
             with gr.Accordion("Audio Inputs", open=True):
                 with gr.Row():
                     degraded_audio_files = gr.File(label="Degraded audio files", file_count="multiple")
@@ -813,6 +881,8 @@ def create_cond_restoration_sampling_ui():
 
             inputs = [
                 steps_slider,
+                t_start_slider,
+                schedule_dropdown,
                 preview_every_slider,
                 metrics_every_slider,
                 sampler_type_dropdown,
@@ -826,6 +896,7 @@ def create_cond_restoration_sampling_ui():
                 rho_slider,
                 cfg_rescale_slider,
                 file_format_dropdown,
+                batch_size_slider,
             ]            
 
         with gr.Column():
