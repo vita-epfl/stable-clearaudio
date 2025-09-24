@@ -1213,10 +1213,28 @@ class DiffusionCondDemoCallback(pl.Callback):
                         input_filename = os.path.splitext(os.path.basename(path))[0]
                         break
 
-            try:
-                audio_inputs = torch.stack([cond["degraded_audio"] for cond in demo_cond], dim=0)
-            except KeyError:
-                audio_inputs = torch.cat([cond["audio"] for cond in demo_cond], dim=0)
+            # Extract audio from conditioning tensors instead of metadata
+            audio_inputs = None
+            LOG.debug(f"Available conditioning keys: {list(conditioning.keys())}")
+            if 'degraded_audio' in conditioning:
+                # For restoration models, extract degraded audio from conditioning
+                degraded_audio_cond = conditioning['degraded_audio']
+                LOG.debug(f"Degraded audio conditioning type: {type(degraded_audio_cond)}")
+                if isinstance(degraded_audio_cond, list) and len(degraded_audio_cond) > 0:
+                    audio_inputs = degraded_audio_cond[0]  # Take first conditioning tensor
+                    LOG.debug(f"Degraded audio tensor shape: {audio_inputs.shape}")
+                    if len(audio_inputs.shape) == 2:  # [channels, time]
+                        audio_inputs = audio_inputs.unsqueeze(0)  # Add batch dimension
+                elif isinstance(degraded_audio_cond, torch.Tensor):
+                    audio_inputs = degraded_audio_cond
+                    LOG.debug(f"Degraded audio tensor shape: {audio_inputs.shape}")
+                    if len(audio_inputs.shape) == 2:  # [channels, time]
+                        audio_inputs = audio_inputs.unsqueeze(0)  # Add batch dimension
+            
+            if audio_inputs is None:
+                LOG.warning("Could not extract audio from conditioning tensors. Skipping demo audio logging.")
+                LOG.debug(f"Demo conditioning metadata keys: {[list(cond.keys()) if isinstance(cond, dict) else type(cond) for cond in demo_cond[:1]]}")
+                audio_inputs = torch.zeros((1, module.diffusion.io_channels, demo_samples), device=module.device)
             
             # Check tensor dimensions and handle accordingly
             if len(audio_inputs.shape) == 3:  # [b, d, n] shape
@@ -1252,7 +1270,21 @@ class DiffusionCondDemoCallback(pl.Callback):
                     if cond_type == "audio":
                         audio_cond_config = cond_display_config.get("config", {})
                         is_pre_encoded = audio_cond_config.get("pre_encoded", False)
-                        audio_inputs = torch.stack([cond[cond_id] for cond in demo_cond], dim=0)
+                        cond_id = cond_display_config.get("id", None)
+                        
+                        # Extract audio from conditioning tensors
+                        if cond_id in conditioning:
+                            cond_data = conditioning[cond_id]
+                            if isinstance(cond_data, list) and len(cond_data) > 0:
+                                audio_inputs = cond_data[0]  # Take first conditioning tensor
+                            elif isinstance(cond_data, torch.Tensor):
+                                audio_inputs = cond_data
+                            else:
+                                LOG.warning(f"Unexpected conditioning data type for {cond_id}")
+                                continue
+                        else:
+                            LOG.warning(f"Conditioning id {cond_id} not found in conditioning tensors")
+                            continue
 
                         if is_pre_encoded:
                             # Decode the pre-encoded audio conditioning
@@ -1342,34 +1374,53 @@ class DiffusionCondDemoCallback(pl.Callback):
                             audio_cond_config = cond_display_config.get("config", {})
                             display_mix = audio_cond_config.get("display_mix", False)
                             is_pre_encoded = audio_cond_config.get("pre_encoded", False)
+                            cond_id = cond_display_config.get("id", None)
+
+                            # Extract audio dict from conditioning tensors
+                            if cond_id in conditioning:
+                                audio_dict_cond = conditioning[cond_id]
+                                if isinstance(audio_dict_cond, list) and len(audio_dict_cond) > 0:
+                                    audio_dict = audio_dict_cond[0]  # Take first conditioning dict
+                                else:
+                                    LOG.warning(f"Unexpected audio_dict conditioning format for {cond_id}")
+                                    continue
+                            else:
+                                LOG.warning(f"Conditioning id {cond_id} not found in conditioning tensors")
+                                continue
 
                             submixes = []
 
-                            for cond in demo_cond:
+                            for key in audio_dict.keys():
+                                if key in conditioning:
+                                    cond_data = conditioning[key]
+                                    if isinstance(cond_data, list) and len(cond_data) > 0:
+                                        audio_inputs = cond_data[0]
+                                    elif isinstance(cond_data, torch.Tensor):
+                                        audio_inputs = cond_data
+                                    else:
+                                        continue
+                                    
+                                    if is_pre_encoded:
+                                        # Decode the pre-encoded audio conditioning
+                                        audio_inputs = module.diffusion.pretransform.decode(audio_inputs)
+                                
+                                    submix = torch.sum(audio_inputs, dim=0)
+                                    submixes.append(submix)
 
-                                audio_dict = cond[cond_id]
-                                audio_inputs = torch.stack([audio_dict[key] for key in audio_dict.keys()], dim=0)
+                            if submixes:
+                                submix = torch.stack(submixes, dim=0)
+                                submix = rearrange(submix, 'b d n -> d (b n)')
+                                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_submix_cfg_{cfg_scale}_{input_filename}.wav')
+                                submix_out = submix.to(torch.float32).div(torch.max(torch.abs(submix))).mul(32767).to(torch.int16).cpu()
+                                torchaudio.save(filename, submix_out, self.sample_rate)
+                                log_audio(trainer.logger, f'demo_{cond_id}_submix_cfg_{cfg_scale}', filename, self.sample_rate)
 
-                                if is_pre_encoded:
-                                    # Decode the pre-encoded audio conditioning
-                                    audio_inputs = module.diffusion.pretransform.decode(audio_inputs)
-                            
-                                submix = torch.sum(audio_inputs, dim=0)
-                                submixes.append(submix)
-
-                            submix = torch.stack(submixes, dim=0)
-                            submix = rearrange(submix, 'b d n -> d (b n)')
-                            filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_submix_cfg_{cfg_scale}_{input_filename}.wav')
-                            submix_out = submix.to(torch.float32).div(torch.max(torch.abs(submix))).mul(32767).to(torch.int16).cpu()
-                            torchaudio.save(filename, submix_out, self.sample_rate)
-                            log_audio(trainer.logger, f'demo_{cond_id}_submix_cfg_{cfg_scale}', filename, self.sample_rate)
-
-                            filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_mix_cfg_{cfg_scale}_{input_filename}.wav')
-                            audio_mix = submix + fakes
-                            audio_mix_out = audio_mix.to(torch.float32).div(torch.max(torch.abs(audio_mix))).mul(32767).to(torch.int16).cpu()
-                            torchaudio.save(filename, audio_mix_out, self.sample_rate)
-                            log_audio(trainer.logger, f'demo_{cond_id}_mix_cfg_{cfg_scale}', filename, self.sample_rate)
-                            log_image(trainer.logger, f"demo_{cond_id}_mix_cfg_{cfg_scale}_melspec_left", audio_spectrogram_image(audio_mix_out))
+                                filename = os.path.join(demos_dir, f'{trainer.global_step:08}_demo_{cond_id}_mix_cfg_{cfg_scale}_{input_filename}.wav')
+                                audio_mix = submix + fakes
+                                audio_mix_out = audio_mix.to(torch.float32).div(torch.max(torch.abs(audio_mix))).mul(32767).to(torch.int16).cpu()
+                                torchaudio.save(filename, audio_mix_out, self.sample_rate)
+                                log_audio(trainer.logger, f'demo_{cond_id}_mix_cfg_{cfg_scale}', filename, self.sample_rate)
+                                log_image(trainer.logger, f"demo_{cond_id}_mix_cfg_{cfg_scale}_melspec_left", audio_spectrogram_image(audio_mix_out))
 
             del fakes
 

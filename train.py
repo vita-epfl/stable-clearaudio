@@ -189,13 +189,23 @@ def main():
                                         reduce_bucket_size=5e8,
                                         allgather_bucket_size=5e8,
                                         load_full_weights=True)
+        elif args.strategy == "ddp" or args.strategy == "ddp_find_unused_parameters_false":
+            # Handle explicit DDP strategy requests with unused parameters enabled
+            from pytorch_lightning.strategies import DDPStrategy
+            strategy = DDPStrategy(find_unused_parameters=True)
         else:
-            strategy = args.strategy
+            # For any other strategy string, try to use it but ensure unused parameters are handled
+            if isinstance(args.strategy, str) and "ddp" in args.strategy.lower():
+                from pytorch_lightning.strategies import DDPStrategy
+                strategy = DDPStrategy(find_unused_parameters=True)
+            else:
+                strategy = args.strategy
     else:
         # Default to ddp_find_unused_parameters_true when multiple GPUs are available
         # as this is a common requirement for complex models.
         # The trainer will automatically detect the number of GPUs.
-        strategy = 'ddp_find_unused_parameters_true'
+        from pytorch_lightning.strategies import DDPStrategy
+        strategy = DDPStrategy(find_unused_parameters=True)
 
     # Manually load checkpoint if path is provided, bypassing Lightning's loader
     if args.ckpt_path:
