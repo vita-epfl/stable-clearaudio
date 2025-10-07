@@ -24,7 +24,7 @@ LOG.setLevel(logging.INFO)
 
 model = None
 model_type = None
-sample_size = 2097152
+sample_size = 220500
 sample_rate = 44100
 model_half = False
 
@@ -79,8 +79,6 @@ def generate_restoration(
     # Get the device from the model
     device = next(model.parameters()).device
 
-    input_sample_size = degraded_audio[1].shape[-1]
-
     if degraded_audio is not None:
         if not isinstance(degraded_audio, tuple) or len(degraded_audio) != 2:
             raise ValueError(f"Invalid audio format: {degraded_audio}. Expected a tuple of (sample_rate, audio_data).")
@@ -114,10 +112,11 @@ def generate_restoration(
             degraded_audio = resample_tf(degraded_audio)
 
         audio_length = degraded_audio.shape[-1]
+        LOG.info(f"Degraded audio length after resampling: {audio_length} samples ({audio_length/sample_rate:.2f} seconds)")
 
-        if audio_length > input_sample_size:
-            LOG.info(f"Truncating audio to match lengths: {audio_length} -> {input_sample_size}")
-            degraded_audio = degraded_audio[:, :input_sample_size]
+        if audio_length > sample_size:
+            LOG.info(f"Truncating audio to config sample_size: {audio_length} -> {sample_size}")
+            degraded_audio = degraded_audio[:, :sample_size]
 
         if degraded_audio.shape[0] == 1:
             degraded_audio = degraded_audio.repeat(2, 1)
@@ -223,7 +222,7 @@ def generate_restoration(
             "conditioning": conditioning,
             "steps": steps,
             "batch_size": batch_size,
-            "sample_size": input_sample_size,
+            "sample_size": sample_size,
             "device": device,
             "sampler_type": sampler_type,
             "sigma_min": sigma_min,
@@ -242,7 +241,7 @@ def generate_restoration(
             "sample_rate": sample_rate,
             "steps": steps,
             "batch_size": batch_size,
-            "sample_size": input_sample_size,
+            "sample_size": sample_size,
             "device": device,
             "callback": progress_callback if (preview_every is not None) else None,
             "clean_audio": clean_audio,

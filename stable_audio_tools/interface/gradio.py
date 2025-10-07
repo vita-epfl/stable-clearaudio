@@ -317,6 +317,11 @@ def create_ui(model_config_path=None, ckpt_path=None, pretrained_name=None, pret
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     _, model_config = load_model(model_config, ckpt_path, pretrained_name=pretrained_name, pretransform_ckpt_path=pretransform_ckpt_path, model_half=model_half, device=device)
     
+    # Set global variables from model config
+    import stable_audio_tools.interface.interfaces.restoration as restoration
+    restoration.sample_size = model_config["sample_size"]
+    restoration.sample_rate = model_config["sample_rate"]
+    
     if model_type in ["diffusion_cond", "diffusion_uncond", "diffusion_inpaint", "diffusion_uncond_restoration", "diffusion_cond_restoration"] :
         ui = create_restoration_ui(model_config, model, in_model_half=model_half)
     elif model_type == "autoencoder" or model_type == "diffusion_autoencoder":
