@@ -18,7 +18,7 @@ import torch.nn.functional as F
 LOG = logging.getLogger(__name__)
 # handler
 LOG.addHandler(logging.StreamHandler())
-LOG.setLevel(logging.INFO)
+LOG.setLevel(logging.DEBUG)
 
 
 def _calculate_metrics(
@@ -244,12 +244,21 @@ def generate_diffusion_uncond_restoration(
         metrics_every (int): The number of steps between each metric calculation. If 0, metrics are only calculated at the end.
         **sampler_kwargs: Additional arguments for the sampler.
     """
-    LOG.info("Starting unconditional restoration")
-
+    LOG.debug("=" * 80)
+    LOG.debug("Starting unconditional restoration")
+    LOG.debug(f"Parameters: steps={steps}, sample_size={sample_size}, sample_rate={sample_rate}")
+    LOG.debug(f"Device: {device}, t_start={t_start}, schedule={schedule}")
+    LOG.debug(f"Sampler: {sampler_type}, metrics_every={metrics_every}")
+    start_time = time.perf_counter()
+    
     # Set model to eval mode for consistent results
+    LOG.debug("Setting model to eval mode...")
+    eval_start = time.perf_counter()
     model.eval()
+    LOG.debug(f"✓ Model set to eval mode in {time.perf_counter() - eval_start:.4f} seconds")
     
     # Use EMA model if available and requested
+    LOG.debug("Selecting inference model...")
     inference_model = model
     if use_ema and hasattr(model, 'diffusion_ema'):
         inference_model = model.diffusion_ema
@@ -263,22 +272,31 @@ def generate_diffusion_uncond_restoration(
 
     # The length of the output in audio samples
     audio_sample_size = sample_size
+    LOG.debug(f"Audio sample size: {audio_sample_size} samples ({audio_sample_size/sample_rate:.2f} seconds)")
 
     # If this is latent diffusion, change sample_size instead to the downsampled latent size
     if model.pretransform is not None:
+        original_sample_size = sample_size
         sample_size = sample_size // model.pretransform.downsampling_ratio
-        LOG.debug(f"Using latent diffusion, adjusted sample_size to {sample_size}")
+        LOG.debug(f"✓ Using latent diffusion, adjusted sample_size: {original_sample_size} → {sample_size} (downsampling ratio: {model.pretransform.downsampling_ratio})")
+    else:
+        LOG.debug("Using waveform diffusion (no pretransform)")
 
     # Set up torch backend for reproducibility
+    LOG.debug("Configuring PyTorch backends for reproducibility...")
+    backend_start = time.perf_counter()
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
     torch.backends.cudnn.benchmark = False
+    LOG.debug(f"✓ Backends configured in {time.perf_counter() - backend_start:.4f} seconds")
     
     # Prepare initial tensor x
+    LOG.debug("Preparing degraded audio input...")
+    prep_start = time.perf_counter()
     if degraded_audio is not None:
-        LOG.debug("Using provided degraded audio as input.")
         in_sr, x_audio = degraded_audio
+        LOG.debug(f"  Input audio: sample_rate={in_sr}, shape={x_audio.shape}")
         x_audio = prepare_audio(
             x_audio,
             in_sr=in_sr,
@@ -287,19 +305,28 @@ def generate_diffusion_uncond_restoration(
             target_channels=model.io_channels,
             device=device
         )
+        LOG.debug(f"  After prepare_audio: shape={x_audio.shape}, device={x_audio.device}")
     else:
         raise ValueError("No degraded audio provided, generation from noise is not supported for cold diffusion.")
+    LOG.debug(f"✓ Audio prepared in {time.perf_counter() - prep_start:.4f} seconds")
 
     # Encode to latent space if needed
     if model.pretransform is not None:
+        LOG.debug("Encoding audio to latent space...")
+        encode_start = time.perf_counter()
         x = model.pretransform.encode(x_audio)
+        LOG.debug(f"✓ Encoded to latent in {time.perf_counter() - encode_start:.4f} seconds (latent shape: {x.shape})")
     else:
         # If no pretransform, use the audio directly
         x = x_audio
+        LOG.debug("No encoding needed (waveform diffusion)")
 
     # Convert to model dtype
+    LOG.debug("Converting to model dtype...")
+    dtype_start = time.perf_counter()
     model_dtype = next(model.model.parameters()).dtype
     x = x.to(model_dtype)
+    LOG.debug(f"✓ Converted to {model_dtype} in {time.perf_counter() - dtype_start:.4f} seconds")
 
     # Prepare for metrics calculation
     all_metrics = {}
@@ -308,8 +335,10 @@ def generate_diffusion_uncond_restoration(
     degraded_audio_latent = None
 
     if clean_audio is not None:
-        LOG.debug("Preparing audio for metrics calculation.")
+        LOG.debug("Preparing clean audio for metrics calculation...")
+        metrics_prep_start = time.perf_counter()
         in_sr, clean_audio_tensor = clean_audio
+        LOG.debug(f"  Clean audio: sample_rate={in_sr}, shape={clean_audio_tensor.shape}")
         clean_audio_tensor = prepare_audio(
             clean_audio_tensor,
             in_sr=in_sr,
@@ -318,15 +347,21 @@ def generate_diffusion_uncond_restoration(
             target_channels=model.io_channels,
             device=device
         )
+        LOG.debug(f"  After prepare_audio: shape={clean_audio_tensor.shape}")
 
         degraded_audio_tensor = x_audio.clone() # x_audio is the prepared degraded audio
 
         # Initialize latents based on whether pretransform exists
         if model.pretransform is not None:
+            LOG.debug("  Encoding clean and degraded audio to latent space...")
+            latent_encode_start = time.perf_counter()
             clean_audio_latent = model.pretransform.encode(clean_audio_tensor)
             degraded_audio_latent = model.pretransform.encode(degraded_audio_tensor)
+            LOG.debug(f"  ✓ Latents encoded in {time.perf_counter() - latent_encode_start:.4f} seconds")
+        LOG.debug(f"✓ Metrics preparation completed in {time.perf_counter() - metrics_prep_start:.4f} seconds")
 
-        LOG.debug(f"Calculating metrics at step 0/{steps} (clean audio)")
+        LOG.debug(f"Calculating initial metrics at step 0/{steps}...")
+        step0_metrics_start = time.perf_counter()
         metrics_at_step_0 = _calculate_metrics(
             clean_audio_tensor,
             clean_audio_latent,
@@ -339,8 +374,11 @@ def generate_diffusion_uncond_restoration(
             0
         )
         all_metrics["step_0"] = metrics_at_step_0
+        LOG.debug(f"✓ Step 0 metrics calculated in {time.perf_counter() - step0_metrics_start:.4f} seconds")
 
         # Calculate clean metrics once here - these won't change during the restoration process
+        LOG.debug("Calculating clean metrics (baseline)...")
+        clean_metrics_start = time.perf_counter()
         clean_metrics = {}
         
         from ..training.losses.metrics import (
@@ -394,8 +432,12 @@ def generate_diffusion_uncond_restoration(
             for name, metric in metrics.items():
                 clean_metric = metric(clean_audio_tensor_rearranged, clean_audio_tensor_rearranged).item()
                 clean_metrics[f'clean_{name}'] = clean_metric
+        
+        LOG.debug(f"✓ Clean metrics calculated in {time.perf_counter() - clean_metrics_start:.4f} seconds")
+        LOG.debug(f"  Clean metrics: {list(clean_metrics.keys())}")
             
         if metrics_every > 0:
+            LOG.debug(f"Setting up metrics callback (metrics_every={metrics_every})")
             def metrics_callback(callback_args):
                 i = callback_args['i']
                 x_0_hat_latent = callback_args['denoised']
@@ -425,14 +467,21 @@ def generate_diffusion_uncond_restoration(
         callback = None
 
     # Use autocast for mixed precision consistency
+    LOG.debug("=" * 80)
+    LOG.debug(f"STARTING SAMPLING: {model.diffusion_objective.upper()}")
+    LOG.debug(f"  Steps: {steps}, Sample size: {sample_size}, t_start: {t_start}")
+    LOG.debug(f"  Sampler type: {sampler_type}, Schedule: {schedule}")
+    LOG.debug("=" * 80)
+    
     with torch.amp.autocast("cuda"):
+        sample_start = time.perf_counter()
         # if diffusion objective is rectified flow
         if model.diffusion_objective == "rectified_flow":
-            # Generate audio using rectified flow sampling
-            LOG.debug(f"Starting rectified flow sampling for {steps} steps from t_start={t_start}.")
+            LOG.debug("Using RECTIFIED FLOW sampling")
 
             if model.pretransform is not None:
-            
+                LOG.debug("  Sampling in latent space...")
+                latent_sample_start = time.perf_counter()
                 fake_latent = sample_rectified_flow(
                     inference_model,
                     x,
@@ -441,10 +490,13 @@ def generate_diffusion_uncond_restoration(
                     callback=callback,
                     **sampler_kwargs
                 )
-                LOG.debug("Decoding final latents to audio.")
+                LOG.debug(f"  ✓ Latent sampling completed in {time.perf_counter() - latent_sample_start:.2f} seconds")
+                LOG.debug("  Decoding latents to audio...")
+                decode_start = time.perf_counter()
                 fakes = model.pretransform.decode(fake_latent)
+                LOG.debug(f"  ✓ Decoding completed in {time.perf_counter() - decode_start:.2f} seconds")
             else:
-
+                LOG.debug("  Sampling in waveform space...")
                 fakes = sample_rectified_flow_waveform(
                     inference_model,
                     x,
@@ -454,11 +506,11 @@ def generate_diffusion_uncond_restoration(
                     **sampler_kwargs
                 )
         elif model.diffusion_objective == "cold_diffusion":
-            # Generate audio using sample_cold
-            LOG.debug(f"Starting cold sampling for {steps} steps from t_start={t_start}.")
+            LOG.debug("Using COLD DIFFUSION sampling")
 
             if model.pretransform is not None:
-            
+                LOG.debug("  Sampling in latent space...")
+                latent_sample_start = time.perf_counter()
                 fake_latent = sample_cold(
                     inference_model,
                     x,
@@ -468,10 +520,13 @@ def generate_diffusion_uncond_restoration(
                     callback=callback,
                     **sampler_kwargs
                 )
-                LOG.debug("Decoding final latents to audio.")
+                LOG.debug(f"  ✓ Latent sampling completed in {time.perf_counter() - latent_sample_start:.2f} seconds")
+                LOG.debug("  Decoding latents to audio...")
+                decode_start = time.perf_counter()
                 fakes = model.pretransform.decode(fake_latent)
+                LOG.debug(f"  ✓ Decoding completed in {time.perf_counter() - decode_start:.2f} seconds")
             else:
-
+                LOG.debug("  Sampling in waveform space...")
                 fakes = sample_cold_waveform(
                     inference_model,
                     x,
@@ -483,6 +538,10 @@ def generate_diffusion_uncond_restoration(
                 )
         else:
             raise ValueError(f"Unknown model type: {model_type}")
+        sample_end = time.perf_counter()
+        LOG.debug("=" * 80)
+        LOG.debug(f"✓✓✓ SAMPLING COMPLETED IN {sample_end - sample_start:.2f} SECONDS ✓✓✓")
+        LOG.debug("=" * 80)
 
     # Calculate final metrics if not already done by callback
     if clean_audio is not None and (metrics_every == 0 or steps % metrics_every != 0):
@@ -538,6 +597,13 @@ def generate_diffusion_uncond_restoration(
         for clean_key, clean_value in clean_metrics.items():
             all_metrics[clean_key] = clean_value
             LOG.debug(f"Added clean metric {clean_key} = {clean_value}")
+
+    end_time = time.perf_counter()
+    LOG.debug("=" * 80)
+    LOG.debug(f"✓✓✓ TOTAL RESTORATION TIME: {end_time - start_time:.2f} SECONDS ✓✓✓")
+    LOG.debug(f"  Output shape: {fakes.shape}")
+    LOG.debug(f"  Output duration: {fakes.shape[-1]/sample_rate:.2f} seconds")
+    LOG.debug("=" * 80)
 
     return fakes, all_metrics
 
