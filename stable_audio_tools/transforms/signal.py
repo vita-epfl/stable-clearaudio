@@ -68,13 +68,12 @@ def apply_config_to_audio(info, audio, preset_path):
             duration (float, optional): Duration in seconds to extract from the audio file
 
         Returns:
-            Tensor: The processed audio
+            dict: Dictionary containing the processed audio and the applied SoX effects
         """
 
-        # Check if the configuration file exists
         if not preset_path or not Path(preset_path).exists():
             LOG.error(f"Configuration file not found: {preset_path}")
-            return audio
+            return {"audio": audio, "degradation_info": []}
 
         preset_cfg = load_yaml_config(preset_path)
         LOG.debug(f"Configuration loaded: {preset_path}")
@@ -115,6 +114,8 @@ def apply_config_to_audio(info, audio, preset_path):
         else:
             LOG.warning(f"No SoX effect transformations found in configuration {preset_path}")
             
+        degradation_info = transforms[0].effects if transforms else []
+        
         # Process external sounds if any
         if "external_sounds" in preset_cfg:
             external_sounds_cfg = preset_cfg["external_sounds"]
@@ -146,7 +147,7 @@ def apply_config_to_audio(info, audio, preset_path):
         #     LOG.error(traceback.format_exc())
         #     return audio
 
-        return audio
+        return {"audio": audio, "degradation_info": degradation_info}
                 
 class ColdDiffusionSoxTransform(nn.Module):
     """

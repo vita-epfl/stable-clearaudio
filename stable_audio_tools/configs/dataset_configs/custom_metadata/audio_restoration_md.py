@@ -5,7 +5,6 @@ import os
 import random
 from pathlib import Path
 from stable_audio_tools.transforms import signal
-import yaml
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.StreamHandler())
@@ -58,7 +57,7 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
 
 
     preset_dir = os.path.join(low_quality_effects_dir)
-    degradation_presets_content = []
+    degradation_info = []
 
     for preset_name in degradation_preset_names:
         # Check if preset_name exists in low_quality_effects_dir
@@ -73,20 +72,19 @@ def get_metadata_on_the_fly(info, audio, build_degraded_args):
             preset_name + ".yaml",
         )
 
-        audio = signal.apply_config_to_audio(
+        result = signal.apply_config_to_audio(
             info, 
             audio, 
             preset_path
         )
 
-        # Load degradation presets
-        with open(preset_path, 'r') as f:
-            degradation_presets_content.append(yaml.safe_load(f))
+        audio = result["audio"]
+        degradation_info.extend(result["degradation_info"])
 
     # Return the degraded audio data
     return {
         "degraded_audio": audio,
-        "degradation_presets_content": degradation_presets_content
+        "degradation_info": degradation_info
     } 
 
 def get_metadata_from_local(info, audio):
