@@ -52,7 +52,6 @@ def process_folder_files(
     cfg_rescale,
     preview_every,
     file_format,
-    batch_size,
     t_start,
     schedule,
     metrics_every,
@@ -134,7 +133,6 @@ def process_folder_files(
             file_format=file_format,
             clean_audio=(sr, clean_audio),
             effects_list=effects_list,
-            batch_size=batch_size,
             degraded_audio_filename=degraded_audio_name,
             t_start=t_start,
             schedule=schedule,
@@ -291,7 +289,7 @@ def create_metric_plots(metrics_data_list, labels):
 
 def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metrics_every, sampler_type, 
    degraded_audio_files, clean_audio, process_folder_path=None, model_name=None, 
-   effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, file_format=None, batch_size=1, progress=gr.Progress(track_tqdm=True)):
+   effects_list=None, sigma_min=None, sigma_max=None, rho=None, cfg_rescale=None, file_format=None, progress=gr.Progress(track_tqdm=True)):
     """
     Generate multiple audio files from a folder of degraded audio files.
 
@@ -324,7 +322,7 @@ def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metric
     if process_folder_path and os.path.isdir(process_folder_path):
         process_folder_files(
             process_folder_path, model_name, steps, sampler_type, sigma_min, sigma_max, rho, cfg_rescale,
-            preview_every, file_format, batch_size, t_start, schedule, metrics_every=steps, effects_list=effects_list,
+            preview_every, file_format, t_start, schedule, metrics_every=steps, effects_list=effects_list,
             progress=progress
         )
         # Return empty lists instead of None to allow proper unpacking
@@ -382,7 +380,6 @@ def generate_multiple_with_plots(steps, t_start, schedule, preview_every, metric
             degraded_audio=degraded_audio_input,
             clean_audio=clean_audio,
             effects_list=effects_list,
-            batch_size=batch_size,
             degraded_audio_filename=degraded_audio_path,
             t_start=t_start,
             schedule=schedule,
@@ -483,18 +480,11 @@ def create_uncond_restoration_sampling_ui():
     with gr.Row(equal_height=False):
         with gr.Column():
             with gr.Row():
-                with gr.Column(scale=2/3):
-                    # Steps slider
-                    default_steps = 30
-                    steps_slider = gr.Slider(
-                        minimum=0, maximum=500, step=1, value=default_steps, label="Steps"
-                    )
-
-            
-                with gr.Column(scale=1/3):
-                    batch_size_slider = gr.Slider(
-                        minimum=1, maximum=16, step=1, value=1, label="Batch size"
-                    )
+                # Steps slider
+                default_steps = 30
+                steps_slider = gr.Slider(
+                    minimum=0, maximum=500, step=1, value=default_steps, label="Steps"
+                )
 
             with gr.Accordion("Sampler params", open=False):
                 with gr.Row():
@@ -667,7 +657,6 @@ def create_uncond_restoration_sampling_ui():
                 rho_slider,
                 cfg_rescale_slider,
                 file_format_dropdown,
-                batch_size_slider,
             ]            
 
         with gr.Column():
@@ -728,12 +717,6 @@ def create_cond_restoration_sampling_ui():
                     default_steps = 30
                     steps_slider = gr.Slider(
                         minimum=1, maximum=500, step=1, value=default_steps, label="Steps"
-                    )
-
-                
-                with gr.Column(scale=1/3):
-                    batch_size_slider = gr.Slider(
-                        minimum=1, maximum=16, step=1, value=1, label="Batch size"
                     )
 
             with gr.Accordion("Sampler params", open=False):
@@ -896,7 +879,6 @@ def create_cond_restoration_sampling_ui():
                 rho_slider,
                 cfg_rescale_slider,
                 file_format_dropdown,
-                batch_size_slider,
             ]            
 
         with gr.Column():

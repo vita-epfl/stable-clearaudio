@@ -211,7 +211,6 @@ def generate_diffusion_uncond_restoration(
         model,
         model_type,
         steps: int = 250,
-        batch_size: int = 1,
         sample_size: int = 2097152,
         sample_rate: int = 44100,
         device: str = "cuda",
@@ -288,8 +287,6 @@ def generate_diffusion_uncond_restoration(
             target_channels=model.io_channels,
             device=device
         )
-        if x_audio.shape[0] < batch_size:
-            x_audio = x_audio.repeat(batch_size, 1, 1)
     else:
         raise ValueError("No degraded audio provided, generation from noise is not supported for cold diffusion.")
 
@@ -552,7 +549,6 @@ def generate_diffusion_cond_restoration(
         conditioning_tensors: tp.Optional[dict] = None,
         negative_conditioning: dict = None,
         negative_conditioning_tensors: tp.Optional[dict] = None,
-        batch_size: int = 1,
         sample_size: int = 2097152,
         sample_rate: int = 48000,
         seed: int = -1,
@@ -607,7 +603,7 @@ def generate_diffusion_cond_restoration(
         torch.cuda.manual_seed_all(seed)
 
     # Define the initial noise
-    noise = torch.randn([batch_size, model.io_channels, sample_size], device=device)
+    noise = torch.randn([1, model.io_channels, sample_size], device=device)
 
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
@@ -664,7 +660,7 @@ def generate_diffusion_cond_restoration(
              if model.pretransform is not None:
                  init_audio = model.pretransform.encode(init_audio)
 
-        init_audio = init_audio.repeat(batch_size, 1, 1)
+        init_audio = init_audio.repeat(1, 1, 1)
         sampler_kwargs["sigma_max"] = init_noise_level
 
     # Convert to model dtype
