@@ -55,7 +55,6 @@ def generate_restoration(
     file_format="wav",
     clean_audio=None,
     effects_list=None,
-    batch_size=1,
     degraded_audio_filename=None,
     custom_output_dir=None,
     t_start: float = 1.0,
@@ -215,13 +214,12 @@ def generate_restoration(
         conditioning_dict = {
             "degraded_audio": degraded_audio[1] if degraded_audio is not None else None,
         }
-        conditioning = [conditioning_dict] * batch_size
+        conditioning = [conditioning_dict]
 
         generate_args = {
             "model": model,
             "conditioning": conditioning,
             "steps": steps,
-            "batch_size": batch_size,
             "sample_size": sample_size,
             "device": device,
             "sampler_type": sampler_type,
@@ -240,7 +238,6 @@ def generate_restoration(
             "model_type": model_type,
             "sample_rate": sample_rate,
             "steps": steps,
-            "batch_size": batch_size,
             "sample_size": sample_size,
             "device": device,
             "callback": progress_callback if (preview_every is not None) else None,
