@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", message=".*torchaudio.load_with_torchcodec.*")
 warnings.filterwarnings("ignore", message=".*torchaudio.save_with_torchcodec.*")
 
 # Add the project root to the Python path
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
     print(f"Added to path: {project_root}")
@@ -39,12 +39,12 @@ logging.getLogger('matplotlib').setLevel(logging.WARNING)
 LOG = logging.getLogger(__name__)
 
 # Ajout du chemin racine du projet pour pouvoir importer les modules
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../../'))
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../'))
 sys.path.append(project_root)
 LOG.info(f"Added to path: {project_root}")
 
 # Importation des modules spécifiques au projet
-from stable_audio_tools.transforms import signal
+# from stable_audio_tools.transforms import signal
 from stable_audio_tools.configs.dataset_configs.custom_metadata.audio_restoration_md import get_metadata_on_the_fly
 
 
