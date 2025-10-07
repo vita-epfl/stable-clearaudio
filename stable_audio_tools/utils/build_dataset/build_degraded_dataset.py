@@ -212,7 +212,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
             continue
         
         degraded_audio = degraded_result["degraded_audio"]
-        degradation_presets_content = degraded_result["degradation_presets_content"]
+        degradation_info = degraded_result["degradation_info"]
 
         # Generate a string from the degradation presets to use in filenames
         degradation_str = "_" + "_".join(config.degradation_presets) if config.degradation_presets else ""
@@ -245,7 +245,7 @@ def build_degraded_dataset(config: BuildDatasetConfig):
                 "degraded_audio_name": degraded_audio_name,
                 "restored_audio_name": restored_audio_name,
                 "restoration_metrics_name": restoration_metrics_name,
-                "degradation_presets_content": degradation_presets_content
+                "degradation_info": degradation_info
             }
             
             metadata_path = Path(config.degraded_output_dir) / metadata_filename
