@@ -360,22 +360,6 @@ def generate_diffusion_uncond_restoration(
             LOG.debug(f"  ✓ Latents encoded in {time.perf_counter() - latent_encode_start:.4f} seconds")
         LOG.debug(f"✓ Metrics preparation completed in {time.perf_counter() - metrics_prep_start:.4f} seconds")
 
-        LOG.debug(f"Calculating initial metrics at step 0/{steps}...")
-        step0_metrics_start = time.perf_counter()
-        metrics_at_step_0 = _calculate_metrics(
-            clean_audio_tensor,
-            clean_audio_latent,
-            clean_audio_tensor,
-            clean_audio_latent,
-            degraded_audio_tensor,
-            degraded_audio_latent,
-            model,
-            device,
-            0
-        )
-        all_metrics["step_0"] = metrics_at_step_0
-        LOG.debug(f"✓ Step 0 metrics calculated in {time.perf_counter() - step0_metrics_start:.4f} seconds")
-
         # Calculate clean metrics once here - these won't change during the restoration process
         LOG.debug("Calculating clean metrics (baseline)...")
         clean_metrics_start = time.perf_counter()
