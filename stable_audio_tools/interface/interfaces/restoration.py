@@ -61,7 +61,12 @@ def generate_restoration(
     schedule: str = "linear",
     save_metrics: bool = True,
 ):
-    LOG.info("Starting audio restoration")
+    import time as time_module
+    LOG.info("=" * 80)
+    LOG.info("RESTORATION UI: Starting audio restoration")
+    LOG.info(f"  Steps: {steps}")
+    LOG.info(f"  Sampler: {sampler_type}, Metrics every: {metrics_every}")
+    ui_start_time = time_module.time()
     
     # Access global variables
     global sample_rate, model
@@ -256,6 +261,11 @@ def generate_restoration(
 
 
     audio = rearrange(audio, "b d n -> d (b n)")
+    
+    ui_end_time = time_module.time()
+    LOG.info("=" * 80)
+    LOG.info(f"✓✓✓ RESTORATION UI TOTAL TIME: {ui_end_time - ui_start_time:.2f} SECONDS ✓✓✓")
+    LOG.info("=" * 80)
 
     # Check if the audio tensor is empty before normalization
     if audio.numel() == 0:
